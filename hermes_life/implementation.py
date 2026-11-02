@@ -1,0 +1,114 @@
+"""Reviewed plan -> isolated VM candidate -> independent test evidence. Never merges."""
+import json
+import re
+import shlex
+import subprocess
+import threading
+from uuid import uuid4
+from .store import now
+
+# This helper is executed with guest Python, receiving JSON via stdin.
+GUEST = r'''
+import json,os,pathlib,shutil,subprocess,sys
+x=json.load(sys.stdin)
+root=pathlib.Path('/home/hermes/projects').resolve()
+experiments=pathlib.Path('/home/hermes/experiments').resolve()
+if x['operation']=='prepare':
+ p=x['project']
+ if not isinstance(p,str) or not re_fullmatch(p): raise ValueError('Invalid project name')
+ src=(root/p).resolve(strict=True)
+ if src.parent!=root or not src.is_dir(): raise ValueError('Project must be a direct child of /home/hermes/projects')
+ dest=experiments/('candidate-'+x['id']); baseline=experiments/('baseline-'+x['id'])
+ for target in (dest,baseline):
+  if target.exists(): raise ValueError('Candidate already exists')
+  shutil.copytree(src,target,symlinks=False,ignore=shutil.ignore_patterns('.git','.venv','node_modules','__pycache__','.pytest_cache','.mypy_cache'))
+ print(json.dumps({'candidate':str(dest),'baseline':str(baseline)}))
+elif x['operation']=='test':
+ directory=experiments/(x['kind']+'-'+x['id'])
+ if x['kind'] not in ('candidate','baseline') or not directory.is_dir() or directory.is_symlink(): raise ValueError('Invalid test workspace')
+ # Only the isolated copy is tested; no test command supplied by the agent.
+ try:
+  r=subprocess.run(['python3','-m','pytest','-q'],cwd=directory,capture_output=True,text=True,timeout=120)
+  print(json.dumps({'exit_code':r.returncode,'output':(r.stdout+'\n'+r.stderr)[-12000:]}))
+ except subprocess.TimeoutExpired: print(json.dumps({'exit_code':124,'output':'Test timed out'}))
+else: raise ValueError('Invalid operation')
+def re_fullmatch(s):
+ import re
+ return re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_.-]{0,79}',s) and s not in ('.','..')
+'''
+# Helper definitions must be available before branch dispatch.
+GUEST=GUEST.replace("if x['operation']=='prepare':", "def re_fullmatch(s):\n import re\n return re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_.-]{0,79}',s) and s not in ('.','..')\nif x['operation']=='prepare':")
+
+class ImplementationEngine:
+    def __init__(self,runtime,planner):
+        self.runtime,self.planner=runtime,planner
+        self.store=runtime.store
+        self.lock=threading.Lock()
+
+    def list(self):
+        with self.store.lock:
+            return [dict(x) for x in self.store.connection.execute('SELECT * FROM implementation_runs ORDER BY created_at DESC LIMIT 100')]
+
+    def get(self,ident):
+        with self.store.lock:
+            r=self.store.connection.execute('SELECT * FROM implementation_runs WHERE id=?',(ident,)).fetchone()
+            return dict(r) if r else None
+
+    def _guest(self,payload):
+        adapter=self.runtime.adapter
+        if getattr(adapter,'transport',None)!='ssh':raise ValueError('VM SSH execution is required')
+        command=adapter._ssh_base()+['python3 -c '+shlex.quote(GUEST)]
+        p=subprocess.run(command,input=json.dumps(payload),text=True,capture_output=True,timeout=150)
+        if p.returncode:raise RuntimeError('Guest operation failed: '+p.stderr[-600:])
+        return json.loads(p.stdout)
+
+    def start(self,plan_id,project):
+        if not self.lock.acquire(blocking=False):raise ValueError('Implementation already in progress')
+        if not self.runtime.active.acquire(blocking=False):
+            self.lock.release();raise ValueError('Hermes is busy')
+        ident=str(uuid4())
+        try:
+            plan=self.planner.get(plan_id)
+            if not plan:raise KeyError('Plan not found')
+            if not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_.-]{0,79}',project) or project in ('.','..'):
+                raise ValueError('Invalid project name')
+            report=json.loads(plan['report'])
+            stamp=now()
+            with self.store.lock:
+                if self.store.connection.execute('SELECT 1 FROM implementation_runs WHERE plan_id=?',(plan_id,)).fetchone():
+                    raise ValueError('Plan already has an implementation run')
+                self.store.connection.execute('INSERT INTO implementation_runs(id,plan_id,project,state,created_at,updated_at) VALUES(?,?,?,?,?,?)',
+                                               (ident,plan_id,project,'preparing',stamp,stamp))
+                self.store.connection.commit()
+            self.store.emit('implementation.started',{'run_id':ident,'plan_id':plan_id})
+            paths=self._guest({'operation':'prepare','project':project,'id':ident})
+            self._update(ident,'testing_baseline',candidate_path=paths['candidate'],baseline_path=paths['baseline'])
+            baseline=self._guest({'operation':'test','id':ident,'kind':'baseline'})
+            self._update(ident,'implementing',baseline_json=json.dumps(baseline))
+            criteria=report['acceptance_criteria']
+            prompt=('Implement this REVIEWED plan in the isolated candidate workspace ONLY: '+paths['candidate']+' . '
+                'Never edit the original /home/hermes/projects directory, baseline workspace, host, or Hermes Life infrastructure. '
+                'Do not change the tests merely to achieve a passing result. Work only in the candidate directory. '
+                'Plan: '+json.dumps({'summary':report['summary'],'steps':report['steps'],'acceptance_criteria':criteria}))
+            result=self.runtime.adapter.run(prompt,lambda k,v:self.store.emit(k,v))
+            self._update(ident,'evaluating',response=result.get('result',''))
+            candidate=self._guest({'operation':'test','id':ident,'kind':'candidate'})
+            # Absence of pytest is not a success. Candidate must pass and baseline is retained as evidence.
+            state='candidate_passed' if candidate['exit_code']==0 else 'candidate_failed'
+            self._update(ident,state,candidate_json=json.dumps(candidate))
+            self.store.emit('implementation.evaluated',{'run_id':ident,'state':state,'baseline_exit':baseline['exit_code'],'candidate_exit':candidate['exit_code']})
+            return self.get(ident)
+        except Exception as exc:
+            if self.get(ident):self._update(ident,'failed',error=str(exc)[:2000])
+            self.store.emit('implementation.failed',{'run_id':ident,'error':str(exc)[:300]})
+            raise
+        finally:
+            self.runtime.active.release();self.lock.release()
+
+    def _update(self,ident,state,**fields):
+        allowed={'candidate_path','baseline_path','baseline_json','candidate_json','response','error'}
+        values={k:v for k,v in fields.items() if k in allowed}
+        columns=['state=?','updated_at=?']+[f'{k}=?' for k in values]
+        with self.store.lock:
+            self.store.connection.execute('UPDATE implementation_runs SET '+','.join(columns)+' WHERE id=?',[state,now(),*values.values(),ident])
+            self.store.connection.commit()

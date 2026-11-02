@@ -1,0 +1,124 @@
+{
+  "source_id": 1,
+  "pdf_pages": 61,
+  "indexed_pages": 60,
+  "units": [
+    {
+      "title": "Preface and introductory material",
+      "start": 1,
+      "end": 3,
+      "kind": "frontmatter",
+      "index": 1,
+      "goal_id": "6bfca419-305f-4556-9648-132828bdb64d",
+      "goal_status": "completed"
+    },
+    {
+      "title": "Study unit — PDF pages 4–8",
+      "start": 4,
+      "end": 8,
+      "kind": "page-range",
+      "index": 2,
+      "goal_id": "54f34390-dca0-4066-b276-9ae89f3816cb",
+      "goal_status": "completed"
+    },
+    {
+      "title": "Study unit — PDF pages 9–13",
+      "start": 9,
+      "end": 13,
+      "kind": "page-range",
+      "index": 3,
+      "goal_id": "73ac6aea-6dec-48c9-aa42-4fd4e8290dde",
+      "goal_status": "completed"
+    },
+    {
+      "title": "Study unit — PDF pages 14–18",
+      "start": 14,
+      "end": 18,
+      "kind": "page-range",
+      "index": 4,
+      "goal_id": "a332dc2e-8172-44e7-9dc2-95249e248a43",
+      "goal_status": "completed"
+    },
+    {
+      "title": "Study unit — PDF pages 19–23",
+      "start": 19,
+      "end": 23,
+      "kind": "page-range",
+      "index": 5,
+      "goal_id": "387d81a9-a810-4c50-814b-4e89a910b5a1",
+      "goal_status": "completed"
+    },
+    {
+      "title": "Study unit — PDF pages 24–28",
+      "start": 24,
+      "end": 28,
+      "kind": "page-range",
+      "index": 6,
+      "goal_id": "82080c8c-8538-4d5c-8b1d-31900d36cc73",
+      "goal_status": "completed"
+    },
+    {
+      "title": "Study unit — PDF pages 29–33",
+      "start": 29,
+      "end": 33,
+      "kind": "page-range",
+      "index": 7,
+      "goal_id": "61e86f10-89c3-42f9-92bd-d41f5d356256",
+      "goal_status": "completed"
+    },
+    {
+      "title": "Study unit — PDF pages 34–38",
+      "start": 34,
+      "end": 38,
+      "kind": "page-range",
+      "index": 8,
+      "goal_id": "95e990d2-aee6-4d2b-ac99-9ef7e210dfb6",
+      "goal_status": "completed"
+    },
+    {
+      "title": "Study unit — PDF pages 39–43",
+      "start": 39,
+      "end": 43,
+      "kind": "page-range",
+      "index": 9,
+      "goal_id": "be2a52e3-1f95-4206-9930-56f0133ad8ac",
+      "goal_status": "completed"
+    },
+    {
+      "title": "Study unit — PDF pages 44–48",
+      "start": 44,
+      "end": 48,
+      "kind": "page-range",
+      "index": 10,
+      "goal_id": "6568b68e-cd95-43fd-a603-71a79c4e5942",
+      "goal_status": "completed"
+    },
+    {
+      "title": "Study unit — PDF pages 49–53",
+      "start": 49,
+      "end": 53,
+      "kind": "page-range",
+      "index": 11,
+      "goal_id": "bbb156c7-7a05-4b3e-be3e-1dd0c98391dd",
+      "goal_status": "completed"
+    },
+    {
+      "title": "Study unit — PDF pages 54–58",
+      "start": 54,
+      "end": 58,
+      "kind": "page-range",
+      "index": 12,
+      "goal_id": "3a84ae84-1a35-47cc-b3ac-8495f7f62c88",
+      "goal_status": "completed"
+    },
+    {
+      "title": "Study unit — PDF pages 59–61",
+      "start": 59,
+      "end": 61,
+      "kind": "page-range",
+      "index": 13,
+      "goal_id": "81da2f97-791c-4267-8c49-ccdc0c5b9e56",
+      "goal_status": "completed"
+    }
+  ]
+}

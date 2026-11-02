@@ -1,0 +1,79 @@
+{
+  "source_id": 1,
+  "pdf_pages": 61,
+  "indexed_pages": 60,
+  "units": [
+    {
+      "title": "Preface and introductory material",
+      "start": 1,
+      "end": 3,
+      "kind": "frontmatter",
+      "index": 1,
+      "goal_id": "6bfca419-305f-4556-9648-132828bdb64d",
+      "goal_status": "queued"
+    },
+    {
+      "title": "Chapter 4 — Practice Set ................................ .............................",
+      "start": 4,
+      "end": 4,
+      "kind": "chapter",
+      "index": 2,
+      "goal_id": null,
+      "goal_status": "not_queued"
+    },
+    {
+      "title": "Chapter 8 — Practice Set ................................ .............................",
+      "start": 5,
+      "end": 37,
+      "kind": "chapter",
+      "index": 3,
+      "goal_id": null,
+      "goal_status": "not_queued"
+    },
+    {
+      "title": "Chapter 9 — PRACTIC E SET",
+      "start": 38,
+      "end": 38,
+      "kind": "chapter",
+      "index": 4,
+      "goal_id": null,
+      "goal_status": "not_queued"
+    },
+    {
+      "title": "Chapter 10 — OBJECT ORIENTED  PRO GRAMMING",
+      "start": 39,
+      "end": 46,
+      "kind": "chapter",
+      "index": 5,
+      "goal_id": null,
+      "goal_status": "not_queued"
+    },
+    {
+      "title": "Chapter 11 — PRAC TIC E SET",
+      "start": 47,
+      "end": 48,
+      "kind": "chapter",
+      "index": 6,
+      "goal_id": null,
+      "goal_status": "not_queued"
+    },
+    {
+      "title": "Chapter 12 — ADVANCED PYTHON 1",
+      "start": 49,
+      "end": 53,
+      "kind": "chapter",
+      "index": 7,
+      "goal_id": null,
+      "goal_status": "not_queued"
+    },
+    {
+      "title": "Chapter 13 — ADVANCED PYTHON 2",
+      "start": 54,
+      "end": 61,
+      "kind": "chapter",
+      "index": 8,
+      "goal_id": null,
+      "goal_status": "not_queued"
+    }
+  ]
+}

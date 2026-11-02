@@ -1,0 +1,74 @@
+import './hermes-chat.css';
+
+type Turn={id:number;role:'user'|'assistant';content:string;created_at:string;task_id:string|null};
+type Conversation={id:string;title:string;updated_at:string};
+type Task={id:string;state:string;result?:string;error?:string};
+type Evt={sequence:number;task_id:string|null;type:string;payload:Record<string,unknown>;timestamp:string};
+const stored='hermes-life-chat-conversation';
+let conversationId=localStorage.getItem(stored)||'';
+let pendingRevision:{id:number;content:string}|null=null;
+let activeTask='';let activeState='idle';let lastSeq=0;let socket:WebSocket|null=null;
+// PHASE47_STREAMING: incremental assistant output is never inserted into durable history.
+let liveTask='';let liveText='';let liveBubble:HTMLElement|null=null;
+
+const root=document.createElement('div');root.id='hermes-chat-root';
+root.innerHTML=`<button id="hc-toggle" aria-label="Open Hermes chat" title="Hermes chat"><span class="hc-sigil" aria-hidden="true">✦</span><span>Chat</span></button>
+<section id="hc-panel" role="dialog" aria-label="Hermes conversation" hidden>
+ <header class="hc-head"><div class="hc-brand"><span class="hc-logo" aria-hidden="true">✦</span><div class="hc-brand-copy"><strong>Hermes</strong><small id="hc-state">Connected to Hermes Life</small></div></div><div class="hc-actions"><button id="hc-new" type="button" title="New conversation"><span class="hc-action-icon" aria-hidden="true">＋</span> New Chat</button><button id="hc-history" type="button" title="Conversation history"><span class="hc-action-icon" aria-hidden="true">☷</span> Threads</button><button id="hc-close" type="button" title="Close chat"><span class="hc-action-icon" aria-hidden="true">×</span> Close</button></div></header>
+ <nav id="hc-threads" aria-label="Previous conversations" hidden></nav>
+ <main id="hc-messages" aria-live="polite"><div class="hc-empty">Start a conversation with Hermes.<br>Messages and tasks share the same thread.</div></main>
+ <div id="hc-progress" hidden><span id="hc-progress-label">Hermes is working…</span><button id="hc-details">Activity ▾</button></div>
+ <div id="hc-events" hidden></div>
+ <div id="hc-feedback" role="status"></div>
+ <form id="hc-form"><textarea id="hc-input" rows="1" placeholder="Message Hermes…" aria-label="Message Hermes"></textarea><button id="hc-send" type="submit" title="Send message"><span aria-hidden="true">➤</span> Send</button></form>
+</section>`;
+document.body.append(root);
+const el=(id:string)=>document.getElementById(id)!;
+const panel=el('hc-panel'),messages=el('hc-messages'),feedback=el('hc-feedback');
+function state(text:string){el('hc-state').textContent=text;}
+function setRunning(running:boolean){(el('hc-send') as HTMLButtonElement).disabled=running;el('hc-progress').hidden=!running;}
+async function request<T>(path:string,options?:RequestInit):Promise<T>{const res=await fetch(path,options);if(!res.ok){let info='';try{info=JSON.stringify(await res.json())}catch{}throw new Error(`HTTP ${res.status} ${info}`)}return await res.json() as T;}
+function followBottom(){return messages.scrollHeight-messages.scrollTop-messages.clientHeight<110;}
+function addBubble(role:'user'|'assistant',content:string,at?:string,taskId?:string|null,turnId?:number){const stick=followBottom();const section=document.createElement('article');section.className='hc-bubble '+role;
+ const body=document.createElement('div');body.className='hc-body';body.textContent=content;
+ const meta=document.createElement('small');meta.textContent=at?new Date(at).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'}):new Date().toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'});
+ const actions=document.createElement('div');actions.className='hc-bubble-actions';const copy=document.createElement('button');copy.textContent='Copy';copy.onclick=()=>void navigator.clipboard.writeText(body.textContent||'');actions.append(copy);
+ const edit=document.createElement('button');edit.textContent='Edit & rerun';
+ edit.onclick=()=>{if(!turnId){feedback.textContent='Message ID unavailable; refresh first.';return;}
+ const revised=window.prompt(role==='assistant'?'Write a correction to this response:':'Revise this instruction:',content);
+ if(revised===null||!revised.trim())return;
+ pendingRevision={id:turnId,content:revised.trim()};
+ const input=el('hc-input') as HTMLTextAreaElement;
+ input.value=role==='assistant'?`Correction to Hermes response (my revision is authoritative):\n${revised}`:`Revised instruction replacing turn ${turnId}:\n${revised}\nDo not automatically repeat completed external actions.`;
+ input.focus();feedback.textContent='Revision linked to original turn. Review and press Send to execute; original is preserved.';
+ };actions.append(edit);
+ if(role==='user'&&turnId){const keep=document.createElement('button');keep.textContent='Remember';keep.onclick=async()=>{const content=window.prompt('Save lasting memory (edit for accuracy):',body.textContent||'');if(!content)return;try{await request('/api/memories',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({content,kind:'decision',conversation_id:conversationId,turn_id:turnId})});feedback.textContent='Saved durable memory.';}catch(e){feedback.textContent='Memory not saved: '+String(e)}};actions.append(keep);}
+ section.append(body,meta,actions);if(taskId)section.dataset.taskId=taskId;messages.append(section);if(stick)messages.scrollTop=messages.scrollHeight;
+}
+function streamBubble(taskId:string,delta:string){
+ if(taskId!==activeTask||!delta)return;
+ const stick=followBottom();
+ if(liveTask!==taskId){liveTask=taskId;liveText='';liveBubble=null;}
+ if(!liveBubble||!liveBubble.isConnected){
+   const section=document.createElement('article');section.className='hc-bubble assistant hc-streaming';section.dataset.streamTask=taskId;
+   const body=document.createElement('div');body.className='hc-body';body.setAttribute('aria-label','Hermes response streaming');
+   section.append(body);messages.append(section);liveBubble=body;
+ }
+ liveText+=delta;liveBubble.textContent=liveText;
+ if(stick)messages.scrollTop=messages.scrollHeight;
+}
+function clearStream(){liveTask='';liveText='';liveBubble=null;}
+async function render(){messages.replaceChildren();if(!conversationId){messages.innerHTML='<div class="hc-empty">Start a conversation with Hermes.<br>Messages and tasks share the same thread.</div>';return;}try{const data=await request<{turns:Turn[]}>(`/api/conversations/${encodeURIComponent(conversationId)}`);if(!data.turns.length){messages.textContent='No messages yet.';return;}for(const t of data.turns)addBubble(t.role,t.content,t.created_at,t.task_id,t.id);if(activeTask&&liveTask===activeTask&&liveText){const text=liveText;clearStream();streamBubble(activeTask,text);}const last=data.turns[data.turns.length-1];if(last.role==='user'&&last.task_id&&!['completed','failed','stopped'].includes(activeState)){activeTask=last.task_id;void pollTask();}}catch(err){feedback.textContent='History unavailable: '+String(err)}}
+async function refreshThreads(){try{const data=await request<{conversations:Conversation[]}>('/api/conversations');const nav=el('hc-threads');nav.replaceChildren();for(const t of data.conversations){const b=document.createElement('button');b.textContent=t.title||'Conversation';b.title=t.updated_at;b.onclick=()=>{conversationId=t.id;localStorage.setItem(stored,t.id);nav.hidden=true;clearStream();activeTask='';void render()};nav.append(b)}}catch(err){feedback.textContent=String(err)}}
+async function pollTask(){if(!activeTask)return;try{const t=await request<Task>('/api/tasks/'+encodeURIComponent(activeTask));activeState=t.state;state('Task '+t.state);const running=['queued','running','pending'].includes(t.state);setRunning(running);if(!running){activeTask='';await renderFinished();}}catch(err){feedback.textContent=String(err)}}
+async function renderFinished(){clearStream();await render();}
+function eventItem(e:Evt){if(e.task_id!==activeTask)return;if(e.sequence<=lastSeq)return;lastSeq=e.sequence;if(e.type==='hermes.text'){const delta=e.payload?.text;if(typeof delta==='string')streamBubble(e.task_id||'',delta);return;}const events=el('hc-events');const d=document.createElement('div');d.textContent=`${new Date(e.timestamp).toLocaleTimeString()} · ${e.type} · ${JSON.stringify(e.payload).slice(0,550)}`;events.append(d);while(events.childElementCount>120)events.firstElementChild?.remove();events.scrollTop=events.scrollHeight;if(e.type==='task.completed'||e.type==='task.failed'){void pollTask()}else if(e.type==='task.started')state('Hermes is executing');}
+function connect(){socket?.close();const ws=new WebSocket(`${location.protocol==='https:'?'wss':'ws'}://${location.host}/ws/events?after=${lastSeq}`);socket=ws;ws.onmessage=ev=>{try{eventItem(JSON.parse(ev.data) as Evt)}catch{}};ws.onclose=()=>{if(socket===ws)setTimeout(connect,2500)};}
+el('hc-toggle').onclick=()=>{panel.hidden=!panel.hidden;if(!panel.hidden){void render();void refreshThreads();if(!socket||socket.readyState>1)connect()}};
+el('hc-close').onclick=()=>panel.hidden=true;
+el('hc-new').onclick=()=>{if(activeTask&&['queued','running'].includes(activeState)){feedback.textContent='Finish the active task before starting another conversation.';return;}conversationId='';localStorage.removeItem(stored);activeTask='';pendingRevision=null;void render();state('New conversation')};
+el('hc-history').onclick=()=>{const nav=el('hc-threads');nav.hidden=!nav.hidden;if(!nav.hidden)void refreshThreads()};
+el('hc-details').onclick=()=>el('hc-events').hidden=!el('hc-events').hidden;
+el('hc-form').addEventListener('submit',async ev=>{ev.preventDefault();const box=el('hc-input') as HTMLTextAreaElement;const prompt=box.value.trim();if(!prompt||activeTask)return;feedback.textContent='';setRunning(true);try{const t=await request<Task&{conversation_id:string}>('/api/tasks',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({prompt,conversation_id:conversationId||null,...(pendingRevision?{revision_of:pendingRevision.id,revision_text:pendingRevision.content}:{})})});conversationId=t.conversation_id;localStorage.setItem(stored,conversationId);clearStream();activeTask=t.id;activeState=t.state;box.value='';pendingRevision=null;await render();state('Hermes is working');}catch(err){feedback.textContent='Not submitted: '+String(err);setRunning(false)}});
+(el('hc-input') as HTMLTextAreaElement).addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();el('hc-form').dispatchEvent(new Event('submit',{cancelable:true}))}});
+setInterval(()=>{if(activeTask)void pollTask()},1500);

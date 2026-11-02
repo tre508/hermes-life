@@ -1,0 +1,121 @@
+/* Phase 4.5: correct Phase 4.4 unbounded grid and canvas sizing. */
+@media (min-width: 1101px) {
+  html, body { min-height:100%; }
+  #shell {
+    box-sizing:border-box;
+    height:100dvh !important;
+    min-height:0 !important;
+    max-width:none !important;
+    overflow:hidden !important;
+    display:flex !important;
+    flex-direction:column;
+  }
+  #shell > header { flex:0 0 auto; }
+  #shell > main {
+    flex:1 1 auto;
+    min-height:0 !important;
+    height:auto !important;
+    overflow:hidden !important;
+    display:grid !important;
+    grid-template-columns:minmax(0, 1fr) minmax(340px, 28%) !important;
+    grid-template-rows:auto minmax(0, 1fr) !important;
+    align-items:stretch !important;
+    gap:12px;
+  }
+  #shell > main > .status-strip {grid-column:1/-1; grid-row:1;}
+  #shell > main > .world-wrap {
+    grid-column:1; grid-row:2;
+    min-width:0;
+    min-height:0 !important;
+    height:100% !important;
+    max-height:none !important;
+    overflow:hidden !important;
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+    justify-content:center !important;
+    padding:clamp(8px,1.3vw,18px);
+  }
+  #shell > main > .world-wrap #game {
+    width:100%; min-width:0; min-height:0;
+    flex:1 1 auto;
+    display:flex; align-items:center; justify-content:center;
+    overflow:hidden;
+  }
+  #shell > main > .world-wrap #game canvas {
+    display:block;
+    width:min(100%, calc((100dvh - 180px) * 1.8)) !important;
+    height:auto !important;
+    max-width:100% !important;
+    max-height:100% !important;
+    object-fit:contain;
+    flex:0 1 auto;
+  }
+  #shell > main > .world-wrap .hint {flex:0 0 auto; align-self:stretch;}
+  #shell > main > aside {
+    grid-column:2; grid-row:2;
+    min-height:0 !important;
+    height:100% !important;
+    max-height:none !important;
+    overflow:hidden !important;
+    display:flex !important;
+    flex-direction:column;
+  }
+  #shell > main > aside #ops-nav {flex:0 0 auto;}
+  #shell > main > aside #ops-views {
+    min-height:0 !important;
+    height:auto !important;
+    flex:1 1 auto !important;
+    overflow:hidden !important;
+  }
+  #shell > main > aside #ops-views > .ops-view {
+    height:100% !important;
+    min-height:0 !important;
+    max-height:none !important;
+    overflow-y:auto !important;
+    overscroll-behavior:contain;
+    scrollbar-width:thin;
+  }
+  /* Preserve inactive tabs; the original CSS uses display:none. */
+  #shell > main > aside #ops-views > .ops-view:not(.active) {display:none !important;}
+  #shell > main > aside #ops-views > .ops-view.active:not(#ops-evidence) {display:block !important;}
+  #shell > main > aside #ops-views > #ops-evidence.active {display:flex !important;}
+  #shell > main > aside #ops-views #events,
+  #shell > main > aside #ops-views #goal-list,
+  #shell > main > aside #ops-views #discovery-list,
+  #shell > main > aside #ops-views #formulation-list,
+  #shell > main > aside #ops-views #curiosity-list {
+    max-height:none;
+  }
+  #shell > main > aside #ops-evidence #response-workspace {min-height:0 !important;}
+  #shell > main > aside #ops-evidence #response-workspace.expanded {
+    position:fixed !important;
+    inset:14px !important;
+    height:auto !important;
+    z-index:1000;
+  }
+}
+/* At narrow widths the world must come before long operations lists, never after them. */
+@media (max-width:1100px) {
+  #shell > main {display:flex !important; flex-direction:column !important;}
+  #shell > main > .world-wrap {
+    order:1; min-height:0 !important;
+    height:min(65dvh,620px) !important;
+    overflow:hidden !important;
+    justify-content:center !important;
+  }
+  #shell > main > .status-strip {order:0;}
+  #shell > main > aside {
+    order:2; min-height:0 !important;
+    height:min(65dvh,620px) !important;
+    max-height:none !important;
+    overflow:hidden !important;
+    display:flex !important;
+    flex-direction:column;
+  }
+  #shell > main > .world-wrap #game {min-height:0;flex:1 1 auto;overflow:hidden;}
+  #shell > main > .world-wrap #game canvas {max-height:100% !important;max-width:100% !important;width:auto !important;height:auto !important;object-fit:contain;}
+  #shell > main > aside #ops-views {flex:1 1 auto !important;min-height:0 !important;overflow:hidden !important;}
+  #shell > main > aside #ops-views > .ops-view.active {height:100% !important;overflow-y:auto !important;}
+  #shell > main > aside #ops-views > .ops-view:not(.active) {display:none !important;}
+}
