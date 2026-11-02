@@ -475,7 +475,7 @@ class WorldScene extends Phaser.Scene {
     this.walkNext();
   }
 }
-new Phaser.Game({type:Phaser.AUTO,resolution:Math.min(window.devicePixelRatio||1,2),parent:'game',width:800,height:425,backgroundColor:'#142734',pixelArt:true,scale:{mode:Phaser.Scale.FIT,autoCenter:Phaser.Scale.CENTER_HORIZONTALLY},scene:[WorldScene]});
+new Phaser.Game({type:Phaser.AUTO,parent:'game',width:800,height:425,backgroundColor:'#142734',pixelArt:true,scale:{mode:Phaser.Scale.FIT,autoCenter:Phaser.Scale.CENTER_HORIZONTALLY},scene:[WorldScene]});
 async function hydrate(){
   try {
     const state = await fetch('/api/world/state').then(r=>{if(!r.ok)throw Error('API offline');return r.json() as Promise<WorldState>});
@@ -801,3 +801,6 @@ import './phase45-world-layout.css';
 
 // Phase 4.6: live Hermes activity banner and high-DPI world rendering.
 import './phase46-world-status.css';
+
+// PHASE412_PROJECT_PICKER
+import './phase412-project-ui';
