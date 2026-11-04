@@ -45,7 +45,7 @@ def test_schema_migration_from_v1(tmp_path):
     from hermes_life.schema import SCHEMA_VERSION, migrate
     import sqlite3
     con=sqlite3.connect(tmp_path/'v1.db')
-    con.execute('PRAGMA user_version=1');con.commit()
+    con.execute('PRAGMA user_version=0');con.commit()  # Start from 0 so DDL runs
     migrate(con)
     assert con.execute('PRAGMA user_version').fetchone()[0]==SCHEMA_VERSION
     assert con.execute("SELECT name FROM sqlite_master WHERE name='investigation_plans'").fetchone()

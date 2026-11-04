@@ -1,7 +1,7 @@
 """Explicit, versioned schema setup and single-owner restart recovery."""
 from .store import now
 
-SCHEMA_VERSION = 17
+SCHEMA_VERSION = 18
 DDL = r'''
 
             CREATE TABLE IF NOT EXISTS tasks (
@@ -114,13 +114,15 @@ def migrate(connection):
         _upgrade_to_v16(connection)
     if version < 17:
         _upgrade_to_v17(connection)
+    if version < 18:
+        _upgrade_to_v18(connection)
     # Repair partially-applied v4 installations without touching earlier data.
     has_personality = connection.execute(
         "SELECT 1 FROM sqlite_master WHERE type='table' AND name='agent_personality'"
     ).fetchone()
     if not has_personality:
         _upgrade_to_v4(connection)
-        connection.execute('PRAGMA user_version=17')
+        connection.execute('PRAGMA user_version=18')
         connection.commit()
     else:
         connection.execute("""INSERT OR IGNORE INTO agent_personality
@@ -397,4 +399,33 @@ def _upgrade_to_v17(connection):
     )""")
     connection.execute('CREATE INDEX IF NOT EXISTS idx_study_units_source_state ON study_units(source_id, state)')
     connection.execute('PRAGMA user_version=17')
+    connection.commit()
+
+
+def _upgrade_to_v18(connection):
+    # FIX-006: Event envelope linking fields (HL-EVENT-001, HL-EVENT-002)
+    # Add nullable columns for workflow traceability
+    columns = {r[1] for r in connection.execute('PRAGMA table_info(events)').fetchall()}
+    new_columns = [
+        ('project_id', 'TEXT'),
+        ('goal_id', 'TEXT'),
+        ('discovery_id', 'TEXT'),
+        ('formulation_id', 'TEXT'),
+        ('plan_id', 'TEXT'),
+        ('run_id', 'TEXT'),
+        ('attempt_id', 'TEXT'),
+        ('origin', 'TEXT NOT NULL DEFAULT \'unknown\''),
+        ('correlation_id', 'TEXT'),
+        ('error', 'TEXT'),
+    ]
+    for col_name, col_type in new_columns:
+        if col_name not in columns:
+            connection.execute(f'ALTER TABLE events ADD COLUMN {col_name} {col_type}')
+    # Indexes for common query patterns
+    connection.execute('CREATE INDEX IF NOT EXISTS idx_events_goal_id ON events(goal_id)')
+    connection.execute('CREATE INDEX IF NOT EXISTS idx_events_run_id ON events(run_id)')
+    connection.execute('CREATE INDEX IF NOT EXISTS idx_events_plan_id ON events(plan_id)')
+    connection.execute('CREATE INDEX IF NOT EXISTS idx_events_project_id ON events(project_id)')
+    connection.execute('CREATE INDEX IF NOT EXISTS idx_events_correlation_id ON events(correlation_id)')
+    connection.execute('PRAGMA user_version=18')
     connection.commit()

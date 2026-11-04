@@ -55,20 +55,61 @@ class Store:
         with self.lock:
             return dict(self.connection.execute('SELECT state,current_task,updated_at FROM agent_state WHERE id=1').fetchone())
 
-    def emit(self, kind, payload, task_id=None):
-        evt = {'id':str(uuid4()),'type':kind,'timestamp':now(),'task_id':task_id,'payload':payload}
+    def emit(self, kind, payload, task_id=None, **links):
+        """Emit an event with optional linking fields for workflow traceability.
+
+        HL-EVENT-001: Events carry project_id, goal_id, discovery_id, formulation_id,
+        plan_id, run_id, attempt_id, origin, correlation_id, error.
+        Existing call sites pass only (kind, payload, task_id) and continue working.
+        """
+        allowed_links = {
+            'project_id', 'goal_id', 'discovery_id', 'formulation_id',
+            'plan_id', 'run_id', 'attempt_id', 'origin', 'correlation_id', 'error'
+        }
+        link_values = {k: v for k, v in links.items() if k in allowed_links}
+        # Default origin to 'unknown' for backward compatibility
+        if 'origin' not in link_values:
+            link_values['origin'] = 'unknown'
+
+        evt = {'id': str(uuid4()), 'type': kind, 'timestamp': now(), 'task_id': task_id,
+               'payload': json.dumps(payload), **link_values}
         with self.lock:
-            cur = self.connection.execute('INSERT INTO events (id,task_id,type,timestamp,payload) VALUES (?,?,?,?,?)',
-                                          (evt['id'],task_id,kind,evt['timestamp'],json.dumps(payload)))
+            cols = ['id', 'task_id', 'type', 'timestamp', 'payload'] + list(link_values.keys())
+            placeholders = ','.join(['?'] * len(cols))
+            cur = self.connection.execute(
+                f'INSERT INTO events ({",".join(cols)}) VALUES ({placeholders})',
+                [evt[c] for c in cols]
+            )
             self.connection.commit()
             evt['sequence'] = cur.lastrowid
         return evt
 
-    def events(self, after=0, limit=200):
+    def events(self, after=0, limit=200, **filters):
+        """Get events after a sequence number, optionally filtered by linking fields.
+
+        HL-EVENT-002: Supports filtering by project_id, goal_id, run_id, plan_id,
+        correlation_id, etc. for single-query timelines.
+        """
+        allowed_filters = {
+            'project_id', 'goal_id', 'discovery_id', 'formulation_id',
+            'plan_id', 'run_id', 'attempt_id', 'correlation_id'
+        }
+        where_clauses = ['sequence > ?']
+        params = [after]
+
+        for key, value in filters.items():
+            if key in allowed_filters and value is not None:
+                where_clauses.append(f'{key} = ?')
+                params.append(value)
+
+        params.append(min(limit, 500))
+
         with self.lock:
-            rows = self.connection.execute('SELECT * FROM events WHERE sequence>? ORDER BY sequence LIMIT ?',
-                                           (after, min(limit,500))).fetchall()
-            return [{**dict(r), 'payload':json.loads(r['payload'])} for r in rows]
+            rows = self.connection.execute(
+                f'SELECT * FROM events WHERE {" AND ".join(where_clauses)} ORDER BY sequence LIMIT ?',
+                params
+            ).fetchall()
+            return [{**dict(r), 'payload': json.loads(r['payload'])} for r in rows]
 
     def world(self):
         with self.lock:

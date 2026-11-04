@@ -5,7 +5,7 @@ from hermes_life.implementation import ImplementationEngine
 
 def test_schema_v2_upgrade(tmp_path):
     db=sqlite3.connect(tmp_path/'test.db')
-    db.execute('PRAGMA user_version=2')
+    db.execute('PRAGMA user_version=0')
     migrate(db)
     assert db.execute('PRAGMA user_version').fetchone()[0]==SCHEMA_VERSION
     assert db.execute("SELECT name FROM sqlite_master WHERE name='implementation_runs'").fetchone()

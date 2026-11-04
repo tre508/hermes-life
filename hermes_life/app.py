@@ -703,8 +703,26 @@ def create_app(database=None, adapter=None):
             raise HTTPException(500, f'Maintenance error: {exc}')
 
     @app.get('/api/events')
-    def events(after: int=0, limit: int=200):
-        return runtime.store.events(after,limit)
+    def events(after: int=0, limit: int=200,
+               goal_id: str | None = None, run_id: str | None = None,
+               plan_id: str | None = None, project_id: str | None = None,
+               correlation_id: str | None = None):
+        """Get events with optional filtering by linking fields (HL-EVENT-002)."""
+        filters = {}
+        if goal_id: filters['goal_id'] = goal_id
+        if run_id: filters['run_id'] = run_id
+        if plan_id: filters['plan_id'] = plan_id
+        if project_id: filters['project_id'] = project_id
+        if correlation_id: filters['correlation_id'] = correlation_id
+        return runtime.store.events(after, limit, **filters)
+
+    @app.get('/api/events/{sequence}')
+    def event_by_sequence(sequence: int):
+        """Get a single event by sequence number."""
+        events = runtime.store.events(sequence - 1, 1)
+        if not events:
+            raise HTTPException(404, 'Event not found')
+        return events[0]
 
     @app.websocket('/ws/events')
     async def ws_events(websocket: WebSocket):
