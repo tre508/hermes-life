@@ -308,17 +308,15 @@ class ImplementationEngine:
             row = self.get(ident)
             if not row:
                 raise KeyError('Implementation not found')
-            # Allow reevaluation from interrupted state if workspaces were prepared
-            eligible_states = ('candidate_failed', 'candidate_passed', 'evaluation_error')
-            if row['state'] == 'interrupted' and row['candidate_path'] and row['baseline_path']:
-                # Recovery path: workspaces exist, can re-evaluate
-                pass
-            elif row['state'] not in eligible_states:
-                raise ValueError('Implementation is not eligible for reevaluation')
             # Candidate and baseline must already have been prepared. The guest
             # helper independently verifies the fixed experiments root and run ID.
             if not row['candidate_path'] or not row['baseline_path']:
                 raise ValueError('Implementation has no prepared workspaces')
+            # Allow reevaluation from standard eligible states OR from interrupted
+            # state (recovery path) since workspaces are verified above.
+            eligible_states = ('candidate_failed', 'candidate_passed', 'evaluation_error', 'interrupted')
+            if row['state'] not in eligible_states:
+                raise ValueError('Implementation is not eligible for reevaluation')
             before = row['state']
             # Preserve the prior recorded evaluation before overwriting the
             # original *_json columns. Older records predate history support.
