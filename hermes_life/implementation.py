@@ -18,14 +18,15 @@ from .store import now
 # FLOW-007A: interpreter resolution and environment provisioning are owned by
 # guest_env so the revision worker cannot drift away from this path.
 GUEST = ENV_RESOLVER + ENV_PROVISION + r'''
-import importlib.util,json,pathlib,re,shutil,subprocess,sys
+import importlib.util,json,pathlib,re,shutil,subprocess,sys,time
 
 def valid_name(s):
  return isinstance(s,str) and re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_.-]{0,79}',s) is not None and s not in ('.','..')
 
-def result(status,code,output,python=None,command=None,env_source=None):
+def result(status,code,output,python=None,command=None,env_source=None,duration_ms=None,directory=None):
  print(json.dumps({'status':status,'exit_code':code,'output':output[-12000:],
-                   'python':python,'command':command,'env_source':env_source}))
+                   'python':python,'command':command,'env_source':env_source,
+                   'duration_ms':duration_ms,'directory':directory}))
 
 x=json.load(sys.stdin)
 root=pathlib.Path('/home/hermes/projects').resolve()
@@ -52,7 +53,9 @@ elif op=='test':
  python,env_source=resolve_interpreter(str(environment_path(ident)),str(directory/'.venv'))
  command=[python,'-m','pytest','-q']
  try:
+  start_time=time.time()
   r=subprocess.run(command,cwd=directory,capture_output=True,text=True,timeout=120,env=runtime_env())
+  duration_ms=int((time.time()-start_time)*1000)
   output=(r.stdout+'\n'+r.stderr)[-12000:]
   if r.returncode==0:
    status='passed'
@@ -64,11 +67,11 @@ elif op=='test':
    status='evaluation_error' # interrupted, internal error, usage error
   else:
    status='failed' # pytest ran and tests failed (usually exit 1)
-  result(status,r.returncode,output,python,command,env_source)
+  result(status,r.returncode,output,python,command,env_source,duration_ms,str(directory))
  except subprocess.TimeoutExpired:
-  result('evaluation_error',124,'Test timed out',python,command,env_source)
+  result('evaluation_error',124,'Test timed out',python,command,env_source,120000,str(directory))
  except OSError as exc:
-  result('evaluation_error',None,f'Cannot run test interpreter: {exc}',python,command,env_source)
+  result('evaluation_error',None,f'Cannot run test interpreter: {exc}',python,command,env_source,None,str(directory))
 elif op=='environment':
  ident=x.get('id')
  if not isinstance(ident,str) or re.fullmatch(r'[0-9a-f-]{36}',ident) is None:raise ValueError('Invalid run ID')
@@ -121,14 +124,17 @@ class ImplementationEngine:
             )''')
             self.store.connection.commit()
 
-    def _record_evaluation(self, ident, previous_state, resulting_state, baseline, candidate):
+    def _record_evaluation(self, ident, previous_state, resulting_state, baseline, candidate, duration_ms=None, directory=None):
         self._ensure_evaluation_history()
+        # Get current environment for provenance
+        env = self.environment(ident)
+        env_json = json.dumps(env) if env else None
         with self.store.lock:
             self.store.connection.execute('''INSERT INTO implementation_evaluations
-                (run_id,evaluated_at,previous_state,resulting_state,baseline_json,candidate_json)
-                VALUES (?,?,?,?,?,?)''',
+                (run_id,evaluated_at,previous_state,resulting_state,baseline_json,candidate_json,environment_json,duration_ms,directory)
+                VALUES (?,?,?,?,?,?,?,?,?)''',
                 (ident, now(), previous_state, resulting_state,
-                 json.dumps(baseline), json.dumps(candidate)))
+                 json.dumps(baseline), json.dumps(candidate), env_json, duration_ms, directory))
             self.store.connection.commit()
 
     def _ensure_environment_history(self):
@@ -227,7 +233,10 @@ class ImplementationEngine:
             baseline = self._guest({'operation': 'test', 'id': ident, 'kind': 'baseline'})
         candidate = self._guest({'operation': 'test', 'id': ident, 'kind': 'candidate'})
         state = self._result_state(candidate)
-        self._record_evaluation(ident, previous_state, state, baseline, candidate)
+        # Extract provenance from candidate result
+        duration_ms = candidate.get('duration_ms')
+        directory = candidate.get('directory')
+        self._record_evaluation(ident, previous_state, state, baseline, candidate, duration_ms, directory)
         self._update(ident, state,
                      baseline_json=json.dumps(baseline),
                      candidate_json=json.dumps(candidate), error=None)

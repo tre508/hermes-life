@@ -1,7 +1,7 @@
 """Explicit, versioned schema setup and single-owner restart recovery."""
 from .store import now
 
-SCHEMA_VERSION = 18
+SCHEMA_VERSION = 19
 DDL = r'''
 
             CREATE TABLE IF NOT EXISTS tasks (
@@ -116,13 +116,15 @@ def migrate(connection):
         _upgrade_to_v17(connection)
     if version < 18:
         _upgrade_to_v18(connection)
+    if version < 19:
+        _upgrade_to_v19(connection)
     # Repair partially-applied v4 installations without touching earlier data.
     has_personality = connection.execute(
         "SELECT 1 FROM sqlite_master WHERE type='table' AND name='agent_personality'"
     ).fetchone()
     if not has_personality:
         _upgrade_to_v4(connection)
-        connection.execute('PRAGMA user_version=18')
+        connection.execute('PRAGMA user_version=19')
         connection.commit()
     else:
         connection.execute("""INSERT OR IGNORE INTO agent_personality
@@ -428,4 +430,36 @@ def _upgrade_to_v18(connection):
     connection.execute('CREATE INDEX IF NOT EXISTS idx_events_project_id ON events(project_id)')
     connection.execute('CREATE INDEX IF NOT EXISTS idx_events_correlation_id ON events(correlation_id)')
     connection.execute('PRAGMA user_version=18')
+    connection.commit()
+
+
+def _upgrade_to_v19(connection):
+    # FIX-010: Add environment provenance, duration_ms, and directory to implementation_evaluations
+    # The table may not exist yet (created lazily by _ensure_evaluation_history), so create it if needed.
+    tables = {r[0] for r in connection.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()}
+    if 'implementation_evaluations' not in tables:
+        connection.execute("""CREATE TABLE IF NOT EXISTS implementation_evaluations (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            run_id TEXT NOT NULL,
+            evaluated_at TEXT NOT NULL,
+            previous_state TEXT NOT NULL,
+            resulting_state TEXT NOT NULL,
+            baseline_json TEXT,
+            candidate_json TEXT,
+            environment_json TEXT,
+            duration_ms INTEGER,
+            directory TEXT,
+            FOREIGN KEY (run_id) REFERENCES implementation_runs(id)
+        )""")
+    else:
+        columns = {r[1] for r in connection.execute('PRAGMA table_info(implementation_evaluations)').fetchall()}
+        new_columns = [
+            ('environment_json', 'TEXT'),
+            ('duration_ms', 'INTEGER'),
+            ('directory', 'TEXT'),
+        ]
+        for col_name, col_type in new_columns:
+            if col_name not in columns:
+                connection.execute(f'ALTER TABLE implementation_evaluations ADD COLUMN {col_name} {col_type}')
+    connection.execute('PRAGMA user_version=19')
     connection.commit()
