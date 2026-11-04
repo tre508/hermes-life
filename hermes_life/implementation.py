@@ -7,6 +7,7 @@ import re
 import shlex
 import subprocess
 import threading
+from pathlib import Path
 from uuid import uuid4
 
 from .guest_env import ENV_PROVISION, ENV_RESOLVER
@@ -350,3 +351,187 @@ class ImplementationEngine:
                 'UPDATE implementation_runs SET ' + ','.join(columns) + ' WHERE id=?',
                 [state, now(), *values.values(), ident])
             self.store.connection.commit()
+
+    def apply_to_host(self, ident, confirmation):
+        """Apply an accepted candidate to the registered host repository.
+
+        Requires:
+        - An 'accepted' review row for this run_id
+        - The candidate diff still hashes to review.evidence_sha256
+        - The host repo is at the recorded base commit with a clean tree
+        - The provided confirmation phrase matches exactly
+
+        On success, applies the diff to the host working tree (uncommitted)
+        and records an audit event. A moved base invalidates the acceptance.
+        """
+        if not self.lock.acquire(blocking=False):
+            raise ValueError('Implementation already in progress')
+        if not self.runtime.active.acquire(blocking=False):
+            self.lock.release()
+            raise ValueError('Hermes is busy')
+        try:
+            run = self.get(ident)
+            if not run:
+                raise KeyError('Implementation not found')
+
+            # 1. Require an accepted review
+            review = self.runtime.store.connection.execute(
+                'SELECT * FROM implementation_reviews WHERE run_id=?', (ident,)
+            ).fetchone()
+            if not review:
+                raise ValueError('No review exists for this implementation')
+            if review['decision'] != 'accepted':
+                raise ValueError('Review decision is not "accepted"; cannot apply')
+
+            # 2. Re-derive the candidate diff and verify SHA-256 matches review
+            from .implementation_review import SNAPSHOT_GUEST
+            import shlex, subprocess, json
+            adapter = self.runtime.adapter
+            if getattr(adapter, 'transport', None) != 'ssh':
+                raise ValueError('VM SSH transport required for apply')
+            command = adapter._ssh_base() + ['python3 -c ' + shlex.quote(SNAPSHOT_GUEST)]
+            p = subprocess.run(command, input=json.dumps({'id': ident}), text=True,
+                               capture_output=True, timeout=60)
+            if p.returncode:
+                raise RuntimeError('Snapshot guest failed: ' + p.stderr[-500:])
+            snapshot = json.loads(p.stdout)
+            actual_sha256 = snapshot['snapshot_sha256']
+            if actual_sha256 != review['evidence_sha256']:
+                raise ValueError('Candidate has changed since review; re-review required')
+
+            # 3. Get project and host path
+            project = run['project']
+            project_row = self.runtime.store.connection.execute(
+                'SELECT * FROM hl_projects WHERE name=?', (project,)
+            ).fetchone()
+            if not project_row:
+                raise ValueError('Project not registered')
+            if not project_row['host_path'] or not project_row['commit_hash']:
+                raise ValueError('Project is not synchronized; sync first')
+
+            # 4. Verify host repo is at base commit with clean tree
+            host = Path(project_row['host_path']).resolve(strict=True)
+            allowed_root = self.runtime.project_workspaces.allowed_root
+            if not host.is_relative_to(allowed_root):
+                raise ValueError('Registered host path is no longer permitted')
+
+            # Use the existing git helper from project_workspaces
+            git = self.runtime.project_workspaces._git
+            host_head = git(['rev-parse', 'HEAD'], host).strip()
+            if host_head != project_row['commit_hash']:
+                raise ValueError('Host commit has changed since review; synchronize and re-review')
+            status = git(['status', '--porcelain', '--untracked-files=all'], host).strip()
+            if status:
+                raise ValueError('Host working tree is not clean; commit or resolve changes first')
+
+            # 5. Build the diff to apply (same as review snapshot but full diff)
+            diff = snapshot.get('diff', '')
+            if not diff.strip():
+                raise ValueError('No changes to apply')
+
+            # 6. Require confirmation phrase
+            expected_confirmation = f'APPLY {project}'
+            if confirmation != expected_confirmation:
+                raise ValueError(f'Confirmation must be exactly: {expected_confirmation}')
+
+            # 7. git apply --check then git apply
+            import subprocess
+            payload = diff.encode()
+            for args in (['git', 'apply', '--check'], ['git', 'apply']):
+                proc = subprocess.run(args, cwd=host, input=payload,
+                                      capture_output=True, timeout=40)
+                if proc.returncode:
+                    raise ValueError('Could not apply reviewed changes: ' +
+                                     proc.stderr.decode(errors='replace')[-700:])
+
+            # 8. Record applied state and emit event
+            stamp = now()
+            with self.store.lock:
+                self.store.connection.execute('''UPDATE implementation_runs
+                    SET state='applied', updated_at=?, applied_at=?, apply_sha256=?
+                    WHERE id=?''', (stamp, stamp, actual_sha256, ident))
+                self.store.connection.commit()
+
+            self.store.emit('implementation.applied', {
+                'run_id': ident, 'project': project,
+                'base_commit': project_row['commit_hash'],
+                'apply_sha256': actual_sha256,
+                'host_path': str(host)
+            })
+
+            return {'status': 'applied', 'run_id': ident, 'project': project,
+                    'base_commit': project_row['commit_hash'],
+                    'apply_sha256': actual_sha256,
+                    'host_path': str(host),
+                    'note': 'Files changed in host working tree; changes were not committed'}
+
+        except Exception as exc:
+            self.store.emit('implementation.apply_failed', {'run_id': ident, 'error': str(exc)[:300]})
+            raise
+        finally:
+            self.runtime.active.release()
+            self.lock.release()
+
+    def apply_preview(self, ident):
+        """Return the diff that would be applied, without applying it."""
+        run = self.get(ident)
+        if not run:
+            raise KeyError('Implementation not found')
+
+        # Require an accepted review
+        review = self.runtime.store.connection.execute(
+            'SELECT * FROM implementation_reviews WHERE run_id=?', (ident,)
+        ).fetchone()
+        if not review:
+            raise ValueError('No review exists for this implementation')
+        if review['decision'] != 'accepted':
+            raise ValueError('Review decision is not "accepted"')
+
+        # Re-derive snapshot to get the diff
+        from .implementation_review import SNAPSHOT_GUEST
+        import shlex, subprocess, json
+        adapter = self.runtime.adapter
+        if getattr(adapter, 'transport', None) != 'ssh':
+            raise ValueError('VM SSH transport required')
+        command = adapter._ssh_base() + ['python3 -c ' + shlex.quote(SNAPSHOT_GUEST)]
+        p = subprocess.run(command, input=json.dumps({'id': ident}), text=True,
+                           capture_output=True, timeout=60)
+        if p.returncode:
+            raise RuntimeError('Snapshot guest failed: ' + p.stderr[-500:])
+        snapshot = json.loads(p.stdout)
+
+        if snapshot['snapshot_sha256'] != review['evidence_sha256']:
+            raise ValueError('Candidate has changed since review; re-review required')
+
+        project = run['project']
+        project_row = self.runtime.store.connection.execute(
+            'SELECT * FROM hl_projects WHERE name=?', (project,)
+        ).fetchone()
+        if not project_row:
+            raise ValueError('Project not registered')
+
+        # Check host state
+        host = Path(project_row['host_path']).resolve(strict=True)
+        allowed_root = self.runtime.project_workspaces.allowed_root
+        if not host.is_relative_to(allowed_root):
+            raise ValueError('Registered host path is no longer permitted')
+
+        git = self.runtime.project_workspaces._git
+        host_head = git(['rev-parse', 'HEAD'], host).strip()
+        status = git(['status', '--porcelain', '--untracked-files=all'], host).strip()
+
+        return {
+            'run_id': ident,
+            'project': project,
+            'base_commit': project_row['commit_hash'],
+            'host_head': host_head,
+            'host_clean': not bool(status),
+            'apply_sha256': snapshot['snapshot_sha256'],
+            'review_sha256': review['evidence_sha256'],
+            'diff': snapshot.get('diff', ''),
+            'changed_files': snapshot.get('changed_files', 0),
+            'truncated': snapshot.get('truncated', False),
+            'can_apply': (host_head == project_row['commit_hash'] and not status),
+            'blockers': [] if (host_head == project_row['commit_hash'] and not status)
+                        else ['host_commit_changed' if host_head != project_row['commit_hash'] else 'host_working_tree_dirty']
+        }

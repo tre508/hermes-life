@@ -415,6 +415,37 @@ def create_app(database=None, adapter=None):
         except RuntimeError as exc:
             raise HTTPException(503, str(exc))
 
+    class ApplyInput(BaseModel):
+        confirmation: str = Field(min_length=1, max_length=200)
+
+    @app.get('/api/implementations/{ident}/apply-preview')
+    def implementation_apply_preview(ident: str):
+        """Preview the diff that would be applied to the host, without applying it."""
+        try:
+            return implementer.apply_preview(ident)
+        except KeyError as exc:
+            raise HTTPException(404, str(exc))
+        except ValueError as exc:
+            raise HTTPException(409, str(exc))
+        except RuntimeError as exc:
+            raise HTTPException(503, str(exc))
+
+    @app.post('/api/implementations/{ident}/apply')
+    def implementation_apply(ident: str, payload: ApplyInput):
+        """Apply an accepted candidate to the registered host repository.
+
+        Requires an accepted review, matching snapshot SHA-256, host at base commit
+        with clean tree, and exact confirmation phrase.
+        """
+        try:
+            return implementer.apply_to_host(ident, payload.confirmation)
+        except KeyError as exc:
+            raise HTTPException(404, str(exc))
+        except ValueError as exc:
+            raise HTTPException(409, str(exc))
+        except RuntimeError as exc:
+            raise HTTPException(503, str(exc))
+
     @app.get('/api/implementations/{ident}')
     def implementation(ident: str):
         value=implementer.get(ident)

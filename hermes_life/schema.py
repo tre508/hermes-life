@@ -1,7 +1,7 @@
 """Explicit, versioned schema setup and single-owner restart recovery."""
 from .store import now
 
-SCHEMA_VERSION = 12
+SCHEMA_VERSION = 16
 DDL = r'''
 
             CREATE TABLE IF NOT EXISTS tasks (
@@ -104,13 +104,21 @@ def migrate(connection):
         _upgrade_to_v11(connection)
     if version < 12:
         _upgrade_to_v12(connection)
+    if version < 13:
+        _upgrade_to_v13(connection)
+    if version < 14:
+        _upgrade_to_v14(connection)
+    if version < 15:
+        _upgrade_to_v15(connection)
+    if version < 16:
+        _upgrade_to_v16(connection)
     # Repair partially-applied v4 installations without touching earlier data.
     has_personality = connection.execute(
         "SELECT 1 FROM sqlite_master WHERE type='table' AND name='agent_personality'"
     ).fetchone()
     if not has_personality:
         _upgrade_to_v4(connection)
-        connection.execute('PRAGMA user_version=9')
+        connection.execute('PRAGMA user_version=16')
         connection.commit()
     else:
         connection.execute("""INSERT OR IGNORE INTO agent_personality
@@ -130,7 +138,8 @@ def _upgrade_to_v3(connection):
       id TEXT PRIMARY KEY, plan_id TEXT NOT NULL UNIQUE, project TEXT NOT NULL,
       state TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
       candidate_path TEXT, baseline_path TEXT, baseline_json TEXT,
-      candidate_json TEXT, response TEXT, error TEXT
+      candidate_json TEXT, response TEXT, error TEXT,
+      applied_at TEXT, apply_sha256 TEXT
     )""")
     connection.execute('PRAGMA user_version=3')
     connection.commit()
@@ -323,4 +332,33 @@ def _upgrade_to_v12(connection):
         connection.execute("ALTER TABLE investigation_plans ADD COLUMN approved_at TEXT")
     connection.execute("UPDATE investigation_plans SET state='proposed' WHERE state IS NULL OR state=''")
     connection.execute('PRAGMA user_version=12')
+    connection.commit()
+
+
+def _upgrade_to_v13(connection):
+    # FIX-002: Add applied_at and apply_sha256 columns to implementation_runs
+    columns = {r[1] for r in connection.execute('PRAGMA table_info(implementation_runs)').fetchall()}
+    if 'applied_at' not in columns:
+        connection.execute("ALTER TABLE implementation_runs ADD COLUMN applied_at TEXT")
+    if 'apply_sha256' not in columns:
+        connection.execute("ALTER TABLE implementation_runs ADD COLUMN apply_sha256 TEXT")
+    connection.execute('PRAGMA user_version=13')
+    connection.commit()
+
+
+def _upgrade_to_v14(connection):
+    # No new tables; v13 added applied_at and apply_sha256 to implementation_runs
+    connection.execute('PRAGMA user_version=14')
+    connection.commit()
+
+
+def _upgrade_to_v15(connection):
+    # FIX-001 scope enforcement: no schema change, just version bump for tracking
+    connection.execute('PRAGMA user_version=15')
+    connection.commit()
+
+
+def _upgrade_to_v16(connection):
+    # FIX-002 apply_to_host: no schema change beyond v13, version bump for tracking
+    connection.execute('PRAGMA user_version=16')
     connection.commit()
