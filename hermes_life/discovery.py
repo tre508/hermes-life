@@ -11,6 +11,7 @@ REMOTE_SCAN = r'''
 import io
 import json
 import os
+import time
 from pathlib import Path
 import re
 import tokenize
@@ -18,12 +19,15 @@ import tokenize
 # Read-only, bounded scan of VM-approved projects. Never imports or executes source.
 root = Path('/home/hermes/projects')
 found = []
+examined = 0
+skipped_by_rule = 0
+errors = 0
+start_time = time.time()
 SKIP = {'.git', '.venv', 'venv', 'node_modules', 'build', 'dist', '__pycache__',
         'tests', '__tests__', 'fixtures', '.pytest_cache', 'coverage'}
 SOURCE = {'.py', '.ts', '.tsx', '.js', '.jsx', '.cpp', '.hpp', '.h', '.qml'}
 PREFIX = re.compile(r'^(?://|/\*|\*)\s*(?:TODO|FIXME)\b', re.I)
 PY_MARKER = re.compile(r'^#\s*(?:TODO|FIXME)\b', re.I)
-
 
 def scan_file(file):
     if file.suffix == '.py':
@@ -51,22 +55,23 @@ if root.is_dir():
     for project in sorted(root.iterdir()):
         if project.is_symlink() or not project.is_dir():
             continue
-        inspected = 0
         for base, dirs, files in os.walk(project, followlinks=False):
             dirs[:] = sorted(d for d in dirs if d not in SKIP and not Path(base, d).is_symlink())
             if len(Path(base).relative_to(project).parts) >= 4:
                 dirs[:] = []
             for name in sorted(files):
-                if inspected >= 500 or len(found) >= 80:
+                if examined >= 500 or len(found) >= 80:
                     break
                 file = Path(base, name)
                 if (file.is_symlink() or file.suffix not in SOURCE
                         or name.startswith(('test_', 'spec_'))
                         or name.endswith(('.test.ts', '.spec.ts', '.test.js', '.spec.js'))):
+                    skipped_by_rule += 1
                     continue
-                inspected += 1
+                examined += 1
                 try:
                     if file.stat().st_size > 100000:
+                        skipped_by_rule += 1
                         continue
                     for line, note in scan_file(file):
                         found.append({'project': project.name, 'file': str(file.relative_to(project)),
@@ -74,12 +79,22 @@ if root.is_dir():
                         if len(found) >= 80:
                             break
                 except OSError:
+                    errors += 1
                     continue
-            if inspected >= 500 or len(found) >= 80:
+            if examined >= 500 or len(found) >= 80:
                 break
         if len(found) >= 80:
             break
-print(json.dumps(found))
+
+elapsed_ms = int((time.time() - start_time) * 1000)
+truncated = examined >= 500 or len(found) >= 80
+print(json.dumps({'findings': found, 'metrics': {
+    'examined': examined,
+    'skipped_by_rule': skipped_by_rule,
+    'errors': errors,
+    'elapsed_ms': elapsed_ms,
+    'truncated': truncated
+}}))
 '''
 
 class Discovery:
@@ -108,9 +123,16 @@ class Discovery:
   result=subprocess.run(command,capture_output=True,text=True,timeout=45,check=False)
   if result.returncode:
    raise RuntimeError('Guest scan failed: '+result.stderr[-500:])
-  records=json.loads(result.stdout)
+  payload=json.loads(result.stdout)
+  # Support both old format (list of findings) and new format (object with findings+metrics)
+  if isinstance(payload, list):
+   findings=payload
+   metrics={}
+  else:
+   findings=payload.get('findings',[])
+   metrics=payload.get('metrics',{})
   added=0
-  for item in records:
+  for item in findings:
    fp=Discovery.fingerprint(item['project'],item['file'],item['note'])
    ident=str(uuid4())
    title=f"Investigate TODO in {item['project']}/{item['file']}:{item['line']}"
@@ -128,8 +150,12 @@ class Discovery:
    if cur.rowcount:
     added+=1
     self.store.emit('discovery.proposed',{'discovery_id':ident,'title':title,'project':item['project']})
-  self.store.emit('discovery.scan_completed',{'found':len(records),'new':added})
-  return {'found':len(records),'new':added}
+  # Persist scan metrics on decision_settings and emit with full metrics
+  with self.store.lock:
+   self.store.connection.execute('UPDATE decision_settings SET last_scan=? WHERE id=1',(now(),))
+   self.store.connection.commit()
+  self.store.emit('discovery.scan_completed',{'found':len(findings),'new':added,'metrics':metrics})
+  return {'found':len(findings),'new':added,'metrics':metrics}
 
  def transition(self,ident,action):
   if action not in ('approve','dismiss','defer'):raise ValueError('Invalid decision')

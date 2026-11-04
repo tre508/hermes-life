@@ -62,8 +62,8 @@ class DecisionEngine:
    with self.store.lock:
     self.store.connection.execute('UPDATE decision_settings SET last_scan=?,last_error=NULL WHERE id=1',(now(),))
     self.store.connection.commit()
-   self.store.emit('decision.completed',{'action':'discover','questions_added':new,**outcome})
-   return {'action':'discover','questions_added':new,**outcome}
+   # Forward metrics in the return value for API consumers
+   return {'action':'discover','questions_added':new,'found':outcome.get('found',0),'new':outcome.get('new',0),'metrics':outcome.get('metrics',{})}
   except Exception as e:
    with self.store.lock:
     self.store.connection.execute('UPDATE decision_settings SET last_scan=?,last_error=? WHERE id=1',(now(),str(e)[:500]))
