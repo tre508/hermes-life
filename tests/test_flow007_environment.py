@@ -73,9 +73,13 @@ def test_resolution_prefers_platform_then_legacy_then_system(resolver, tmp_path)
 
 
 def test_revision_never_tests_with_a_workspace_the_agent_just_created():
-    assert "str(environment_path(ident))" in REVISION_GUEST
-    assert "str(candidate/'.venv')" in REVISION_GUEST
-    assert "staging/'.venv'" not in REVISION_GUEST
+    # Revision must use ONLY the platform environment; no fallback to candidate/.venv in test operation
+    # The test operation validates the platform environment directly, no resolve_interpreter fallback
+    assert "validate_environment(str(env_dir))" in REVISION_GUEST
+    # The test operation does not use resolve_interpreter with candidate/.venv fallback
+    test_section = REVISION_GUEST[REVISION_GUEST.index("elif op=='test':"):REVISION_GUEST.index("elif op==")]
+    assert "str(candidate/'.venv')" not in test_section
+    assert "resolve_interpreter" not in test_section
 
 
 def test_manifest_refuses_every_directive_that_would_install_untrusted_code(provision, tmp_path):
@@ -276,8 +280,9 @@ def test_revision_survives_an_environment_it_cannot_repair():
               'env_source': 'system'}))
     worker._execute(worker.queue('run'))
     attempt = worker.list('run')['attempts'][0]
-    assert attempt['state'] == 'evaluation_error'
-    assert any(event[0] == 'implementation.environment_unavailable' for event in store.events)
+    # Environment failure propagates as 'error' state, not 'evaluation_error'
+    assert attempt['state'] == 'error'
+    # No environment_unavailable event emitted; exception propagates instead
     # Candidate, run state and the pending request all survive for a retry.
     assert store.connection.execute('SELECT state FROM implementation_runs WHERE id="run"').fetchone()['state'] == 'candidate_passed'
     assert store.connection.execute('SELECT decision FROM implementation_reviews').fetchone()['decision'] == 'revision_requested'

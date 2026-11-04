@@ -1,7 +1,7 @@
 """Explicit, versioned schema setup and single-owner restart recovery."""
 from .store import now
 
-SCHEMA_VERSION = 19
+SCHEMA_VERSION = 27
 DDL = r'''
 
             CREATE TABLE IF NOT EXISTS tasks (
@@ -118,13 +118,29 @@ def migrate(connection):
         _upgrade_to_v18(connection)
     if version < 19:
         _upgrade_to_v19(connection)
+    if version < 20:
+        _upgrade_to_v20(connection)
+    if version < 21:
+        _upgrade_to_v21(connection)
+    if version < 22:
+        _upgrade_to_v22(connection)
+    if version < 23:
+        _upgrade_to_v23(connection)
+    if version < 24:
+        _upgrade_to_v24(connection)
+    if version < 25:
+        _upgrade_to_v25(connection)
+    if version < 26:
+        _upgrade_to_v26(connection)
+    if version < 27:
+        _upgrade_to_v27(connection)
     # Repair partially-applied v4 installations without touching earlier data.
     has_personality = connection.execute(
         "SELECT 1 FROM sqlite_master WHERE type='table' AND name='agent_personality'"
     ).fetchone()
     if not has_personality:
         _upgrade_to_v4(connection)
-        connection.execute('PRAGMA user_version=19')
+        connection.execute('PRAGMA user_version=27')
         connection.commit()
     else:
         connection.execute("""INSERT OR IGNORE INTO agent_personality
@@ -462,4 +478,150 @@ def _upgrade_to_v19(connection):
             if col_name not in columns:
                 connection.execute(f'ALTER TABLE implementation_evaluations ADD COLUMN {col_name} {col_type}')
     connection.execute('PRAGMA user_version=19')
+    connection.commit()
+
+
+def _upgrade_to_v20(connection):
+    # FIX-013: implementation_reviews table (from implementation_review.py)
+    connection.execute("""CREATE TABLE IF NOT EXISTS implementation_reviews (
+        run_id TEXT PRIMARY KEY,
+        decision TEXT NOT NULL CHECK(decision IN ('accepted','rejected','revision_requested')),
+        evidence_sha256 TEXT NOT NULL,
+        criteria_json TEXT NOT NULL,
+        feedback TEXT NOT NULL,
+        decided_at TEXT NOT NULL,
+        FOREIGN KEY(run_id) REFERENCES implementation_runs(id)
+    )""")
+    connection.execute('PRAGMA user_version=20')
+    connection.commit()
+
+
+def _upgrade_to_v21(connection):
+    # FIX-013: implementation_revisions and implementation_review_history tables (from implementation_revision.py)
+    connection.execute("""CREATE TABLE IF NOT EXISTS implementation_revisions (
+        id TEXT PRIMARY KEY, run_id TEXT NOT NULL, attempt INTEGER NOT NULL,
+        state TEXT NOT NULL, feedback TEXT NOT NULL, snapshot_sha256 TEXT NOT NULL,
+        staging_path TEXT, response TEXT, test_json TEXT, error TEXT, original_run_json TEXT,
+        created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
+        UNIQUE(run_id,attempt), FOREIGN KEY(run_id) REFERENCES implementation_runs(id)
+    )""")
+    connection.execute("""CREATE TABLE IF NOT EXISTS implementation_review_history (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, run_id TEXT NOT NULL,
+        decision TEXT NOT NULL, evidence_sha256 TEXT NOT NULL,
+        criteria_json TEXT NOT NULL, feedback TEXT NOT NULL,
+        decided_at TEXT NOT NULL, archived_at TEXT NOT NULL
+    )""")
+    connection.execute('PRAGMA user_version=21')
+    connection.commit()
+
+
+def _upgrade_to_v22(connection):
+    # FIX-013: hl_projects table (from project_workspaces.py)
+    connection.execute("""CREATE TABLE IF NOT EXISTS hl_projects (
+        name TEXT PRIMARY KEY, host_path TEXT NOT NULL, spec_path TEXT,
+        vm_path TEXT, commit_hash TEXT, synced_at TEXT
+    )""")
+    connection.execute('PRAGMA user_version=22')
+    connection.commit()
+
+
+def _upgrade_to_v23(connection):
+    # FIX-013: Conversation memory tables (from conversation_memory.py)
+    connection.execute("""CREATE TABLE IF NOT EXISTS hl_conversations (
+        id TEXT PRIMARY KEY, created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
+        title TEXT NOT NULL DEFAULT 'New conversation'
+    )""")
+    connection.execute("""CREATE TABLE IF NOT EXISTS hl_conversation_turns (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, conversation_id TEXT NOT NULL,
+        task_id TEXT, role TEXT NOT NULL CHECK(role IN ('user','assistant')),
+        content TEXT NOT NULL, created_at TEXT NOT NULL,
+        FOREIGN KEY(conversation_id) REFERENCES hl_conversations(id)
+    )""")
+    connection.execute('CREATE INDEX IF NOT EXISTS idx_hl_turns_conversation ON hl_conversation_turns(conversation_id,id)')
+    connection.execute('CREATE INDEX IF NOT EXISTS idx_hl_turns_task ON hl_conversation_turns(task_id)')
+    connection.execute('PRAGMA user_version=23')
+    connection.commit()
+
+
+def _upgrade_to_v24(connection):
+    # FIX-013: Vault memory tables (from conversation_recall.py and vault_memory.py)
+    # hl_memories and hl_turn_revisions from conversation_recall.py
+    connection.execute("""CREATE TABLE IF NOT EXISTS hl_memories (
+        id TEXT PRIMARY KEY, content TEXT NOT NULL, kind TEXT NOT NULL,
+        source_conversation_id TEXT, source_turn_id INTEGER,
+        status TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('active','superseded')),
+        superseded_by TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+    )""")
+    connection.execute('CREATE INDEX IF NOT EXISTS idx_hl_memories_status ON hl_memories(status)')
+    connection.execute("""CREATE TABLE IF NOT EXISTS hl_turn_revisions (
+        id TEXT PRIMARY KEY, conversation_id TEXT NOT NULL,
+        original_turn_id INTEGER NOT NULL, revised_content TEXT NOT NULL,
+        task_id TEXT NOT NULL UNIQUE, created_at TEXT NOT NULL,
+        FOREIGN KEY(original_turn_id) REFERENCES hl_conversation_turns(id)
+    )""")
+    # hl_memory_extraction_runs and hl_memory_reviews from vault_memory.py
+    connection.execute("""CREATE TABLE IF NOT EXISTS hl_memory_extraction_runs (
+        task_id TEXT PRIMARY KEY, state TEXT NOT NULL, note TEXT, completed_at TEXT DEFAULT CURRENT_TIMESTAMP
+    )""")
+    connection.execute("""CREATE TABLE IF NOT EXISTS hl_memory_reviews (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, task_id TEXT NOT NULL,
+        candidate TEXT NOT NULL, existing_memory_id TEXT, reason TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'pending', created_at TEXT DEFAULT CURRENT_TIMESTAMP
+    )""")
+    connection.execute('PRAGMA user_version=24')
+    connection.commit()
+
+
+def _upgrade_to_v25(connection):
+    # FIX-013: Knowledge library tables (from knowledge_library.py)
+    connection.execute("""CREATE TABLE IF NOT EXISTS library_sources (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        url TEXT NOT NULL UNIQUE, title TEXT NOT NULL,
+        kind TEXT NOT NULL DEFAULT 'document', sha256 TEXT,
+        revision TEXT, status TEXT NOT NULL DEFAULT 'registered',
+        created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+    )""")
+    connection.execute("""CREATE TABLE IF NOT EXISTS library_chunks (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        source_id INTEGER NOT NULL REFERENCES library_sources(id),
+        page INTEGER NOT NULL CHECK(page>0), ordinal INTEGER NOT NULL,
+        content TEXT NOT NULL, sha256 TEXT NOT NULL,
+        UNIQUE(source_id,page,ordinal)
+    )""")
+    connection.execute('CREATE INDEX IF NOT EXISTS idx_library_chunks_source ON library_chunks(source_id,page)')
+    connection.execute('PRAGMA user_version=25')
+    connection.commit()
+
+
+def _upgrade_to_v26(connection):
+    # FIX-013: implementation_environments table (from implementation.py:_ensure_environment_history)
+    connection.execute("""CREATE TABLE IF NOT EXISTS implementation_environments (
+        run_id TEXT PRIMARY KEY,
+        status TEXT NOT NULL,
+        python_version TEXT,
+        interpreter TEXT,
+        manifest_json TEXT NOT NULL,
+        packages_json TEXT,
+        install_json TEXT,
+        error TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        FOREIGN KEY (run_id) REFERENCES implementation_runs(id)
+    )""")
+    connection.execute('PRAGMA user_version=26')
+    connection.commit()
+
+
+def _upgrade_to_v27(connection):
+    # FIX-013: implementation_reviews table (from implementation_review.py)
+    connection.execute("""CREATE TABLE IF NOT EXISTS implementation_reviews (
+        run_id TEXT PRIMARY KEY,
+        decision TEXT NOT NULL CHECK(decision IN ('accepted','rejected','revision_requested')),
+        evidence_sha256 TEXT NOT NULL,
+        criteria_json TEXT NOT NULL,
+        feedback TEXT NOT NULL,
+        decided_at TEXT NOT NULL,
+        FOREIGN KEY(run_id) REFERENCES implementation_runs(id)
+    )""")
+    connection.execute('PRAGMA user_version=27')
     connection.commit()

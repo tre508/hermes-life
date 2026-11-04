@@ -37,7 +37,13 @@ if op=='prepare':
  print(json.dumps({'path':str(staging)}))
 elif op=='test':
  if not staging.is_dir() or not candidate.is_dir():raise ValueError('Missing revision workspace')
- python,env_source=resolve_interpreter(str(environment_path(ident)),str(candidate/'.venv'))
+ # Revision must use ONLY the platform environment (env-<run-id>).
+ # No fallback to candidate/.venv, staging/.venv, or system python.
+ env_dir=environment_path(ident)
+ ok,reason,python=validate_environment(str(env_dir))
+ if not ok:
+  print(json.dumps({'status':'evaluation_error','exit_code':None,'output':'Platform environment unavailable: '+reason,'python':None,'command':None,'env_source':'platform'}))
+  sys.exit(0)
  cmd=[python,'-m','pytest','-q']
  try:
   r=subprocess.run(cmd,cwd=staging,text=True,capture_output=True,timeout=120,env=runtime_env())
@@ -288,11 +294,7 @@ class ImplementationRevision:
             # workspace the agent just created. A pre-FLOW-007 run keeps its recorded venv, and
             # an environment that cannot be made usable is reported instead of silently
             # switching evaluator; the original candidate is left untouched either way.
-            try:
-                self.implementer._ensure_environment(run_id)
-            except Exception as exc:
-                self.store.emit('implementation.environment_unavailable',
-                                {'run_id':run_id,'attempt_id':ident,'error':str(exc)[:300]})
+            self.implementer._ensure_environment(run_id)
             target=self._guest({'operation':'prepare','id':run_id,'attempt':ident})['path']
             self._update(ident,'running',staging_path=target)
             with self.store.lock:
