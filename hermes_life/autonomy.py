@@ -93,6 +93,7 @@ class Autonomy:
         # Only one in-flight task for manual and autonomous calls.
         if not self.runtime.active.acquire(blocking=False):
             return False
+        handed_off = False
         try:
             with self.store.lock:
                 goal=self.store.connection.execute("SELECT * FROM goals WHERE state='pending' ORDER BY priority DESC,created_at ASC LIMIT 1").fetchone()
@@ -116,14 +117,14 @@ class Autonomy:
                     # HL-FLOW-001: advance a completed investigation into planning.
                     self._advance_lifecycle(goal['id'], status)
             threading.Thread(target=runner,daemon=True).start()
+            handed_off = True
             return True
         except Exception:
-            self.runtime.active.release()
             raise
         finally:
             # Keep active lock held while the Hermes thread is running.
-            # The 'return False' path must release it.
-            if 'task' not in locals():
+            # The 'return False' path and early exception path must release it.
+            if not handed_off:
                 self.runtime.active.release()
 
     def _advance_lifecycle(self, goal_id, status):
