@@ -22,6 +22,7 @@ from .conversation_recall import Recall
 from .vault_memory import VaultMemory  # PHASE49_VAULT_MEMORY
 from .knowledge_library import KnowledgeLibrary, KnowledgeAdapter
 from .project_workspaces import ProjectWorkspaces, add_project_routes, SELECTOR  # PHASE411_PROJECT_WORKSPACES
+from .project_knowledge import ProjectKnowledge, add_knowledge_routes  # PHASE414_PROJECT_KNOWLEDGE
 from .project_approvals import add_approval_routes  # PHASE412_APPROVALS
 
 class GoalInput(BaseModel):
@@ -49,6 +50,7 @@ class Runtime:
         self.adapter = KnowledgeAdapter(PersonalityAdapter(adapter or HermesAdapter(timeout_seconds=int(os.getenv('HERMES_LIFE_TIMEOUT','1800'))), self.personality), self.knowledge_library)
         self.vault_memory.adapter = self.adapter  # PHASE4101_SEMANTIC_MEMORY
         self.project_workspaces = ProjectWorkspaces(self)
+        self.project_knowledge = ProjectKnowledge(self)
         self.active = threading.Lock()
 
     def run_task(self, ident):
@@ -63,10 +65,10 @@ class Runtime:
             # Select a registered project from chat or goal prompts using @project slug.
             selected = SELECTOR.search(self.store.task(ident)['prompt'])
             if selected:
-                context = self.project_workspaces.context(selected.group(1)) + context
+                context = self.project_workspaces.context(selected.group(1)) + self.project_knowledge.context(selected.group(1), self.store.task(ident)['prompt']) + context
 
             recall = self.recall.retrieve(self.store.task(ident)['prompt'], conversation_id) if conversation_id else ''
-            recall += self.vault_memory.retrieve_notes(self.store.task(ident)['prompt']) if conversation_id else ''
+            recall += self.vault_memory.retrieve_notes(self.store.task(ident)['prompt'])
             result = self.adapter.run(recall + context + self.store.task(ident)['prompt'], on_event)
             self.store.update_task(ident, 'completed', **result)
             if conversation_id:
@@ -112,6 +114,7 @@ def create_app(database=None, adapter=None):
     app = FastAPI(title='Hermes Life', version='0.3.8', lifespan=lifespan)
     app.state.runtime = runtime
     add_project_routes(app, runtime, runtime.project_workspaces)
+    add_knowledge_routes(app, runtime.project_knowledge)
     add_approval_routes(app, runtime.project_workspaces)
     app.state.autonomy = autonomy
     app.state.discovery = discovery

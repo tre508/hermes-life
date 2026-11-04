@@ -1,0 +1,25 @@
+/* Phase 4.15 – compact project bar; review surface hidden unless requested. */
+#hc-panel.hc415-chat{width:min(660px,calc(100vw - 24px));height:min(760px,calc(100dvh - 95px));position:absolute;min-width:0}
+#hc-panel.hc415-expanded{width:calc(100vw - 40px);height:calc(100dvh - 55px);max-width:1200px}
+#hc-project-workspace{flex:0 0 auto;display:flex;align-items:center;gap:9px;padding:8px 14px;background:#102e37;border-top:1px solid #315d63;min-width:0;font-size:12px}
+#hc-project-workspace label{white-space:nowrap;color:#a8d2cf}
+#hc-project-picker{flex:0 1 190px;min-width:76px;max-width:220px;color:#e6f8f0;background:#183a43;border:1px solid #557e7f;border-radius:7px;padding:5px 8px;font-size:12px}
+#hc-project-workspace button{background:#214b4f;color:#dcf7ee;border:1px solid #5b9390;border-radius:7px;padding:6px 10px;white-space:nowrap;cursor:pointer;font-size:12px}
+#hc415-project-hint{margin-left:auto;color:#9fbfbd;font-size:11px;white-space:nowrap}
+#hc415-workspace-drawer[hidden],#hc415-review[hidden]{display:none!important}
+#hc415-workspace-drawer{position:absolute;inset:0;z-index:3;background:#0d2833;display:flex;flex-direction:column;gap:14px;padding:17px;overflow-y:auto;color:#e7f6f5;box-shadow:0 0 0 1px #5c9088 inset;font-size:13px}
+.hc415-drawer-head{display:flex;align-items:center;justify-content:space-between;gap:10px;position:sticky;top:-17px;z-index:1;background:#0d2833;padding:0 0 12px;border-bottom:1px solid #436b70}
+#hc415-workspace-drawer button{border:1px solid #639c90;border-radius:7px;padding:8px 11px;background:#25544f;color:#e1fff4;cursor:pointer;font-size:12px}
+#hc415-workspace-drawer button:disabled{opacity:.55;cursor:wait}
+#hc415-workspace-drawer button:hover:not(:disabled){background:#327364}
+#hc415-info{color:#aacdca;margin:0;overflow-wrap:anywhere}
+.hc415-actions{display:flex;flex-wrap:wrap;gap:7px}
+#hc415-status{color:#c3e3da;min-height:1.3em;overflow-wrap:anywhere}
+#hc415-review{border-top:1px solid #436b70;padding-top:12px;display:flex;flex-direction:column;gap:10px;min-height:0}
+#hc415-review h3{margin:0;font-size:15px}
+.hc415-review-meta{color:#a2c9c6;font:11px ui-monospace,monospace;overflow-wrap:anywhere}
+.hc415-diff{white-space:pre;overflow:auto;width:100%;min-height:170px;max-height:45dvh;border:1px solid #436b70;padding:12px;background:#081b25;color:#e3f3ef;font:12px/1.55 ui-monospace,monospace;margin:0}
+#hc415-confirmation{width:100%;background:#1a3945;color:#f3faf8;padding:11px;border:1px solid #568f8a;border-radius:8px;font-size:13px}
+#hc415-workspace-drawer #hc415-apply{background:#69c7aa;color:#082b2b;font-weight:700}
+#hc-panel .hc-head .hc-actions #hc415-expand{font-size:11px}
+@media(max-width:650px){#hc-panel.hc415-chat,#hc-panel.hc415-expanded{width:calc(100vw - 16px);height:calc(100dvh - 77px)}#hc-project-workspace{padding:8px;gap:6px}#hc415-project-hint{display:none}#hc-project-workspace label{display:none}#hc-project-picker{max-width:none;flex:1}#hc415-expand{font-size:0!important;min-width:34px}#hc415-expand::first-letter{font-size:15px}}

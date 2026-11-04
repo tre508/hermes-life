@@ -804,3 +804,9 @@ import './phase46-world-status.css';
 
 // PHASE412_PROJECT_PICKER
 import './phase412-project-ui';
+
+// UI-413-01: Discover presentation (non-invasive)
+import './phase41301-discover';
+
+// UI-413-01 replacement view
+import './phase41301-rework';
