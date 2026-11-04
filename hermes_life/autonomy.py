@@ -12,6 +12,7 @@ class Autonomy:
         self.worker = None
         # Injected by create_app after the planning engine exists (avoids a cycle).
         self.planner = None
+        self.study = None
 
     def settings(self):
         with self.store.lock:
@@ -81,9 +82,17 @@ class Autonomy:
             except Exception as exc:self.store.emit('autonomy.error',{'error':str(exc)})
 
     def tick(self):
-        if not self.settings()['enabled'] or not self.runtime.adapter.available():return False
+        if not self.settings()['enabled'] or not self.runtime.adapter.available():
+            return False
+        # HL-STUDY-004: advance study units under the single-scheduler rule.
+        if self.study:
+            try:
+                self.study.tick(self)
+            except Exception as exc:
+                self.store.emit('study.tick_error', {'error': str(exc)[:300]})
         # Only one in-flight task for manual and autonomous calls.
-        if not self.runtime.active.acquire(blocking=False):return False
+        if not self.runtime.active.acquire(blocking=False):
+            return False
         try:
             with self.store.lock:
                 goal=self.store.connection.execute("SELECT * FROM goals WHERE state='pending' ORDER BY priority DESC,created_at ASC LIMIT 1").fetchone()

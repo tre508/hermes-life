@@ -1,7 +1,7 @@
 """Explicit, versioned schema setup and single-owner restart recovery."""
 from .store import now
 
-SCHEMA_VERSION = 16
+SCHEMA_VERSION = 17
 DDL = r'''
 
             CREATE TABLE IF NOT EXISTS tasks (
@@ -112,13 +112,15 @@ def migrate(connection):
         _upgrade_to_v15(connection)
     if version < 16:
         _upgrade_to_v16(connection)
+    if version < 17:
+        _upgrade_to_v17(connection)
     # Repair partially-applied v4 installations without touching earlier data.
     has_personality = connection.execute(
         "SELECT 1 FROM sqlite_master WHERE type='table' AND name='agent_personality'"
     ).fetchone()
     if not has_personality:
         _upgrade_to_v4(connection)
-        connection.execute('PRAGMA user_version=16')
+        connection.execute('PRAGMA user_version=17')
         connection.commit()
     else:
         connection.execute("""INSERT OR IGNORE INTO agent_personality
@@ -361,4 +363,38 @@ def _upgrade_to_v15(connection):
 def _upgrade_to_v16(connection):
     # FIX-002 apply_to_host: no schema change beyond v13, version bump for tracking
     connection.execute('PRAGMA user_version=16')
+    connection.commit()
+
+
+def _upgrade_to_v17(connection):
+    # FIX-005: Directed study subsystem (HL-STUDY-001..004)
+    connection.execute("""CREATE TABLE IF NOT EXISTS study_sources (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        uri TEXT NOT NULL,
+        title TEXT,
+        sha256 TEXT,
+        pages_total INTEGER NOT NULL,
+        pages_indexed INTEGER NOT NULL,
+        kind TEXT NOT NULL DEFAULT 'pdf',
+        registered_at TEXT NOT NULL
+    )""")
+    connection.execute("""CREATE TABLE IF NOT EXISTS study_units (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        source_id INTEGER NOT NULL REFERENCES study_sources(id),
+        ordinal INTEGER NOT NULL,
+        title TEXT NOT NULL,
+        kind TEXT NOT NULL,
+        start_page INTEGER NOT NULL,
+        end_page INTEGER NOT NULL,
+        state TEXT NOT NULL CHECK(state IN ('not_queued','queued','running','completed','failed','blocked')) DEFAULT 'not_queued',
+        goal_id TEXT,
+        report_path TEXT,
+        checks_path TEXT,
+        error TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        UNIQUE(source_id, ordinal)
+    )""")
+    connection.execute('CREATE INDEX IF NOT EXISTS idx_study_units_source_state ON study_units(source_id, state)')
+    connection.execute('PRAGMA user_version=17')
     connection.commit()

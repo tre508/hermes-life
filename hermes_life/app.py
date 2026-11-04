@@ -7,6 +7,7 @@ from contextlib import asynccontextmanager
 from .schema import migrate, recover_interrupted
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel, Field
+from typing import List
 from .store import Store
 from .hermes_adapter import HermesAdapter, PROFILES
 from .world import sync_world
@@ -28,6 +29,7 @@ from .project_workspaces import ProjectWorkspaces, add_project_routes, SELECTOR 
 from .project_knowledge import ProjectKnowledge, add_knowledge_routes  # PHASE414_PROJECT_KNOWLEDGE
 from .project_approvals import add_approval_routes  # PHASE412_APPROVALS
 from .maintenance import MaintenanceService
+from .study import StudyService, create_study_service
 
 class GoalInput(BaseModel):
     title: str = Field(min_length=1, max_length=160)
@@ -67,6 +69,7 @@ class Runtime:
         self.project_workspaces = ProjectWorkspaces(self)
         self.project_knowledge = ProjectKnowledge(self)
         self.maintenance = MaintenanceService(self)
+        self.study = create_study_service(self.store, self)
         self.active = threading.Lock()
 
     def task_scope(self, ident):
@@ -149,6 +152,7 @@ def create_app(database=None, adapter=None):
     reviewer = ImplementationReview(runtime, implementer)
     revisions = ImplementationRevision(runtime, implementer, reviewer)
     autonomy.planner = planner  # lifecycle handoff at goal completion needs the planner
+    autonomy.study = runtime.study  # HL-STUDY-004: scheduler hook for study units
     @asynccontextmanager
     async def lifespan(app):
         with runtime.store.lock:
@@ -542,6 +546,90 @@ def create_app(database=None, adapter=None):
             runtime.store.connection.execute('UPDATE hl_memory_reviews SET status=? WHERE id=?',(decision,review_id))
             runtime.store.connection.commit()
         return {'id':review_id,'status':decision}
+
+    # Study routes (HL-STUDY-001..004)
+    class StudySourceInput(BaseModel):
+        uri: str = Field(min_length=1, max_length=500)
+        title: str = Field(min_length=1, max_length=200)
+        sha256: str = Field(min_length=1, max_length=128)
+        pages_total: int = Field(ge=1)
+        pages_indexed: int = Field(ge=0)
+        kind: str = Field(default='pdf', pattern='^(pdf|epub|html|text)$')
+
+    class StudyUnitCreateInput(BaseModel):
+        ordinal: int = Field(ge=1)
+        title: str = Field(min_length=1, max_length=200)
+        kind: str = Field(min_length=1, max_length=50)
+        start_page: int = Field(ge=1)
+        end_page: int = Field(ge=1)
+
+    @app.get('/api/study/sources')
+    def list_study_sources():
+        return {'sources': [s.__dict__ for s in runtime.study.list_sources()]}
+
+    @app.post('/api/study/sources', status_code=201)
+    def register_study_source(payload: StudySourceInput):
+        source = runtime.study.register_source(
+            payload.uri, payload.title, payload.sha256,
+            payload.pages_total, payload.pages_indexed, payload.kind
+        )
+        return source.__dict__
+
+    @app.get('/api/study/sources/{source_id}')
+    def get_study_source(source_id: int):
+        source = runtime.study.get_source(source_id)
+        if not source:
+            raise HTTPException(404, 'Study source not found')
+        return source.__dict__
+
+    @app.get('/api/study/sources/{source_id}/units')
+    def list_study_units(source_id: int):
+        units = runtime.study.list_units(source_id)
+        return {'units': [u.__dict__ for u in units]}
+
+    @app.post('/api/study/sources/{source_id}/units', status_code=201)
+    def create_study_units(source_id: int, payload: List[StudyUnitCreateInput]):
+        if not runtime.study.get_source(source_id):
+            raise HTTPException(404, 'Study source not found')
+        units_data = [u.__dict__ for u in payload]
+        units = runtime.study.create_units(source_id, units_data)
+        return {'units': [u.__dict__ for u in units]}
+
+    @app.get('/api/study/sources/{source_id}/next')
+    def get_next_study_unit(source_id: int):
+        unit = runtime.study.get_next_queuable_unit(source_id)
+        if not unit:
+            return {'unit': None, 'message': 'No queuable unit available (blocked, completed, or failed)'}
+        return {'unit': unit.__dict__}
+
+    @app.get('/api/study/sources/{source_id}/progress')
+    def get_study_progress(source_id: int):
+        """Get overall progress for a study source (HL-STUDY-004)."""
+        source = runtime.study.get_source(source_id)
+        if not source:
+            raise HTTPException(404, 'Study source not found')
+        units = runtime.study.list_units(source_id)
+        total = len(units)
+        completed = sum(1 for u in units if u.state == 'completed')
+        queued = sum(1 for u in units if u.state == 'queued')
+        running = sum(1 for u in units if u.state == 'running')
+        failed = sum(1 for u in units if u.state == 'failed')
+        blocked = sum(1 for u in units if u.state == 'blocked')
+        not_queued = sum(1 for u in units if u.state == 'not_queued')
+        return {
+            'source_id': source_id,
+            'title': source.title,
+            'pages_total': source.pages_total,
+            'pages_indexed': source.pages_indexed,
+            'total_units': total,
+            'completed': completed,
+            'queued': queued,
+            'running': running,
+            'failed': failed,
+            'blocked': blocked,
+            'not_queued': not_queued,
+            'progress_pct': round((completed / total * 100) if total else 0, 1),
+        }
 
     @app.get('/api/memories')
     def memories(limit: int = 100):
