@@ -13,11 +13,25 @@ from hermes_life.app import create_app
 
 PLAN_DOC = {
     'summary': 'The module lacks reliable automated regression coverage.',
+    'project_scope': {
+        'repo': 'demo', 'commit': 'abc123', 'source_paths': ['/home/hermes/workspaces/demo/abc123/main.py'],
+        'linked_discovery_id': 'd', 'linked_formulation_id': 'f', 'linked_goal_id': 'g', 'linked_task_id': 't'
+    },
     'evidence': ['Investigation found no test file in the candidate project'],
     'unknowns': [],
     'steps': ['Add a minimal unit test to the candidate workspace'],
-    'acceptance_criteria': ['The new test passes in the isolated workspace'],
-    'risks': []
+    'test_approach': {
+        'baseline_command': 'pytest -q', 'candidate_command': 'pytest -q',
+        'expected_environment': 'python3.11', 'expected_dependencies': ['pytest'], 'test_framework': 'pytest'
+    },
+    'risks': {
+        'permissions': 'candidate_write', 'blockers': [], 'dependencies': [],
+        'risks': []
+    },
+    'status_dates': {
+        'created': '2024-01-01T00:00:00+00:00', 'approved': '2024-01-01T00:00:00+00:00',
+        'started': None, 'last_event': None, 'completed': None, 'reviewed': None
+    }
 }
 
 SAMPLE = [{'project': 'demo', 'file': 'main.py', 'line': 3, 'note': '# TODO: add tests'}]
@@ -53,6 +67,8 @@ def _scan(app, sample=SAMPLE):
             r = c.post('/api/discoveries/scan')
             assert r.json()['new'] == 1
             disc = c.get('/api/discoveries').json()[0]
+            # Register the project for the plan to find
+            c.post('/api/projects', json={'name': 'demo', 'host_path': '/home/gayzer/Apps/hermes-life', 'spec_path': None})
             yield c, disc
 
 

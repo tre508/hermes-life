@@ -170,6 +170,15 @@ class Discovery:
     # The raw proposed_prompt (which embeds marker text) is NEVER handed to the
     # execution adapter; read_only_investigation_prompt treats the marker as data.
     safe_prompt=read_only_investigation_prompt(row)
+
+    # FIX-009: Scope the investigation to the registered project when available
+    try:
+        project=self.runtime.project_workspaces._read(row['project'])
+    except ValueError:
+        project=None
+    if project and project.get('vm_path'):
+        safe_prompt=('@project ' + row['project'] + '\n' + safe_prompt)
+
     goal=self.autonomy.add(f"Investigate {row['project']}/{row['path']}:{row['line']}",safe_prompt,40)
     goal_id=goal['id']
     self._create_approved_formulation(row,goal_id)
