@@ -125,17 +125,23 @@ class ProjectWorkspaces:
                 self.runtime.store.connection.commit()
             return self._read(name)
 
-    def context(self,name):
+    def context(self,name,read_only=False):
         project=self._read(name)
         if not project['vm_path']:
             raise WorkspaceError('Project is not synchronized; POST /api/projects/'+name+'/sync first')
         spec=(f"Project requirements: {project['vm_path']}/{project['spec_path']}\n" if project['spec_path'] else '')
+        # HL-AUTO-004: the workspace instruction must match the enforced scope.
+        authority=('This is a READ-ONLY task: inspect this workspace and report evidence. '
+                   'Do not modify it, install packages, or change system settings.\n'
+                   if read_only else
+                   'Work ONLY inside this VM workspace. You may investigate, modify and run tests there. '
+                   'Do not modify host paths or apply/deploy results. Report changed files, verification results and remaining risks. '
+                   'Edits are provisional until separately reviewed.\n')
         return ('[Hermes Life selected project workspace]\n'
                 f"Project: {name}\nWorkspace: {project['vm_path']}\n"
                 f"Base commit: {project['commit_hash']}\n{spec}"
-                'Work ONLY inside this VM workspace. You may investigate, modify and run tests there. '
-                'Do not modify host paths or apply/deploy results. Report changed files, verification results and remaining risks. '
-                'Edits are provisional until separately reviewed.\n[/Project workspace]\n\n')
+                + authority +
+                '[/Project workspace]\n\n')
 
     def changes(self,name):
         p=self._read(name)

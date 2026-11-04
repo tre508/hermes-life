@@ -8,7 +8,7 @@ from .schema import migrate, recover_interrupted
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel, Field
 from .store import Store
-from .hermes_adapter import HermesAdapter
+from .hermes_adapter import HermesAdapter, PROFILES
 from .world import sync_world
 from .autonomy import Autonomy
 from .discovery import Discovery
@@ -50,17 +50,44 @@ class Runtime:
         self.recall = Recall(self.store)
         self.vault_memory = VaultMemory(self.store, self.recall)
         self.knowledge_library = KnowledgeLibrary(self.store)
-        self.adapter = KnowledgeAdapter(PersonalityAdapter(adapter or HermesAdapter(timeout_seconds=int(os.getenv('HERMES_LIFE_TIMEOUT','1800'))), self.personality), self.knowledge_library)
+        timeout = int(os.getenv('HERMES_LIFE_TIMEOUT', '1800'))
+
+        def chain(profile):
+            # HL-AUTO-004: a scope is a capability, not a label. A call site holds the
+            # chain matching the approval it acts on, so an approved read-only
+            # investigation cannot reach the interactive toolset.
+            delegate = adapter if adapter is not None else HermesAdapter(
+                timeout_seconds=timeout, profile=profile)
+            return KnowledgeAdapter(PersonalityAdapter(delegate, self.personality), self.knowledge_library)
+
+        self.adapters = {profile: chain(profile) for profile in PROFILES}
+        self.adapter = self.adapters['interactive']
         self.vault_memory.adapter = self.adapter  # PHASE4101_SEMANTIC_MEMORY
         self.project_workspaces = ProjectWorkspaces(self)
         self.project_knowledge = ProjectKnowledge(self)
         self.active = threading.Lock()
 
+    def task_scope(self, ident):
+        """HL-AUTO-004: the approval that created a task decides its capability.
+
+        Both approval paths (curiosity/discovery evidence and formulation) link the
+        goal to an approved formulation, so a read-only investigation is identified
+        from durable lineage rather than from prompt text. Manual chat and manual
+        goals carry no such lineage and keep the interactive scope.
+        """
+        with self.store.lock:
+            row = self.store.connection.execute(
+                "SELECT 1 FROM goals g JOIN formulated_goals f ON f.goal_id=g.id "
+                "WHERE g.task_id=? AND f.state='approved' LIMIT 1", (ident,)).fetchone()
+        return 'read_only' if row else 'interactive'
+
     def run_task(self, ident):
         try:
+            scope = self.task_scope(ident)
+            adapter = self.adapters[scope]
             self.store.update_task(ident, 'running')
             self.store.set_agent('executing',ident)
-            self.store.emit('task.started', {}, ident)
+            self.store.emit('task.started', {'scope': scope}, ident)
             def on_event(name, payload):
                 self.store.emit(name, payload, ident)
             conversation_id = self.conversations.conversation_for_task(ident)
@@ -68,11 +95,14 @@ class Runtime:
             # Select a registered project from chat or goal prompts using @project slug.
             selected = SELECTOR.search(self.store.task(ident)['prompt'])
             if selected:
-                context = self.project_workspaces.context(selected.group(1)) + self.project_knowledge.context(selected.group(1), self.store.task(ident)['prompt']) + context
+                # A read-only scope must not be told it may modify the workspace.
+                workspace = self.project_workspaces.context(
+                    selected.group(1), read_only=(scope == 'read_only'))
+                context = workspace + self.project_knowledge.context(selected.group(1), self.store.task(ident)['prompt']) + context
 
             recall = self.recall.retrieve(self.store.task(ident)['prompt'], conversation_id) if conversation_id else ''
             recall += self.vault_memory.retrieve_notes(self.store.task(ident)['prompt'])
-            result = self.adapter.run(recall + context + self.store.task(ident)['prompt'], on_event)
+            result = adapter.run(recall + context + self.store.task(ident)['prompt'], on_event)
             self.store.update_task(ident, 'completed', **result)
             if conversation_id:
                 self.conversations.finish(conversation_id, ident, result)
