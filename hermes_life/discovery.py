@@ -4,35 +4,81 @@ import subprocess
 import shlex
 from uuid import uuid4
 from .store import now
+from .formulation import read_only_investigation_prompt
 
 # Fixed script: no paths, commands, or prompts from user input. The scanning scope is the guest's ~/projects.
 REMOTE_SCAN = r'''
-import json, os, pathlib, re
-root=pathlib.Path('/home/hermes/projects')
-found=[]
+import io
+import json
+import os
+from pathlib import Path
+import re
+import tokenize
+
+# Read-only, bounded scan of VM-approved projects. Never imports or executes source.
+root = Path('/home/hermes/projects')
+found = []
+SKIP = {'.git', '.venv', 'venv', 'node_modules', 'build', 'dist', '__pycache__',
+        'tests', '__tests__', 'fixtures', '.pytest_cache', 'coverage'}
+SOURCE = {'.py', '.ts', '.tsx', '.js', '.jsx', '.cpp', '.hpp', '.h', '.qml'}
+PREFIX = re.compile(r'^(?://|/\*|\*)\s*(?:TODO|FIXME)\b', re.I)
+PY_MARKER = re.compile(r'^#\s*(?:TODO|FIXME)\b', re.I)
+
+
+def scan_file(file):
+    if file.suffix == '.py':
+        # Python tokenizer distinguishes actual comments from quoted strings,
+        # triple-quoted examples and SQL containing TODO/FIXME.
+        try:
+            with tokenize.open(file) as handle:
+                for token in tokenize.generate_tokens(handle.readline):
+                    if token.type == tokenize.COMMENT and PY_MARKER.match(token.string.strip()):
+                        yield token.start[0], token.string.strip()[:180]
+        except (OSError, UnicodeError, SyntaxError, tokenize.TokenError):
+            return
+    else:
+        # Only standalone comments; inline strings/examples are not candidates.
+        try:
+            with file.open(encoding='utf-8', errors='replace') as handle:
+                for number, line in enumerate(handle, 1):
+                    trimmed = line.strip()
+                    if PREFIX.match(trimmed):
+                        yield number, trimmed[:180]
+        except (OSError, UnicodeError):
+            return
+
 if root.is_dir():
- for repo in sorted(root.iterdir()):
-  if repo.is_symlink() or not repo.is_dir(): continue
-  # Bounded scan: named repositories only, no recursive symlink following.
-  count=0
-  for base,dirs,files in os.walk(repo,followlinks=False):
-   dirs[:]=sorted(d for d in dirs if d not in {'.git','.venv','node_modules','build','dist','__pycache__'} and not pathlib.Path(base,d).is_symlink())
-   if len(pathlib.Path(base).relative_to(repo).parts)>=4: dirs[:]=[]
-   for file in sorted(files):
-    if count>=500: break
-    p=pathlib.Path(base,file)
-    if p.is_symlink() or p.suffix not in {'.py','.ts','.tsx','.js','.cpp','.hpp','.h','.md','.qml'}:continue
-    count+=1
-    try:
-     if p.stat().st_size>100000:continue
-     for lineno,line in enumerate(p.read_text(encoding='utf-8',errors='replace').splitlines(),1):
-      if re.search(r'\bTODO\b|\bFIXME\b',line,re.I):
-       found.append({'project':repo.name,'file':str(p.relative_to(repo)),'line':lineno,'note':line.strip()[:180]})
-       if len(found)>=80:break
-    except (OSError,ValueError):pass
-    if len(found)>=80:break
-   if count>=500 or len(found)>=80:break
-  if len(found)>=80:break
+    for project in sorted(root.iterdir()):
+        if project.is_symlink() or not project.is_dir():
+            continue
+        inspected = 0
+        for base, dirs, files in os.walk(project, followlinks=False):
+            dirs[:] = sorted(d for d in dirs if d not in SKIP and not Path(base, d).is_symlink())
+            if len(Path(base).relative_to(project).parts) >= 4:
+                dirs[:] = []
+            for name in sorted(files):
+                if inspected >= 500 or len(found) >= 80:
+                    break
+                file = Path(base, name)
+                if (file.is_symlink() or file.suffix not in SOURCE
+                        or name.startswith(('test_', 'spec_'))
+                        or name.endswith(('.test.ts', '.spec.ts', '.test.js', '.spec.js'))):
+                    continue
+                inspected += 1
+                try:
+                    if file.stat().st_size > 100000:
+                        continue
+                    for line, note in scan_file(file):
+                        found.append({'project': project.name, 'file': str(file.relative_to(project)),
+                                      'line': line, 'note': note})
+                        if len(found) >= 80:
+                            break
+                except OSError:
+                    continue
+            if inspected >= 500 or len(found) >= 80:
+                break
+        if len(found) >= 80:
+            break
 print(json.dumps(found))
 '''
 
@@ -41,6 +87,14 @@ class Discovery:
   self.runtime=runtime
   self.autonomy=autonomy
   self.store=runtime.store
+
+ @staticmethod
+ def fingerprint(project,path,note):
+  # Canonical identity = project + relative path + normalized issue content.
+  # Line number is evidence, not identity (spec 8.2, HL-GOAL-0001): an identical
+  # TODO shifted to a different line must NOT become a separate finding.
+  norm=" ".join(note.split())
+  return json.dumps([project,path,norm],sort_keys=True)
 
  def list(self):
   with self.store.lock:
@@ -57,7 +111,7 @@ class Discovery:
   records=json.loads(result.stdout)
   added=0
   for item in records:
-   fp=json.dumps([item['project'],item['file'],item['line'],item['note']],sort_keys=True)
+   fp=Discovery.fingerprint(item['project'],item['file'],item['note'])
    ident=str(uuid4())
    title=f"Investigate TODO in {item['project']}/{item['file']}:{item['line']}"
    prompt=(f"Inside the VM, inspect /home/hermes/projects/{item['project']}/{item['file']} "
@@ -84,12 +138,40 @@ class Discovery:
    if not row:return None
    row=dict(row)
    if row['state'] not in ('proposed','deferred'):raise ValueError('Candidate already decided')
-   goal=None
+   goal=None;goal_id=None
    if action=='approve':
-    goal=self.autonomy.add(f"Investigate {row['project']}/{row['path']}:{row['line']}",row['proposed_prompt'],40)
+    # Route through the formulation process with a source-derived read-only prompt.
+    # The raw proposed_prompt (which embeds marker text) is NEVER handed to the
+    # execution adapter; read_only_investigation_prompt treats the marker as data.
+    safe_prompt=read_only_investigation_prompt(row)
+    goal=self.autonomy.add(f"Investigate {row['project']}/{row['path']}:{row['line']}",safe_prompt,40)
+    goal_id=goal['id']
+    self._create_approved_formulation(row,goal_id)
    state={'approve':'approved','dismiss':'dismissed','defer':'deferred'}[action]
    self.store.connection.execute('UPDATE discoveries SET state=?,updated_at=?,goal_id=? WHERE id=?',
-        (state,now(),goal['id'] if goal else None,ident))
+        (state,now(),goal_id,ident))
    self.store.connection.commit()
-  self.store.emit('discovery.'+state,{'discovery_id':ident,'goal_id':goal['id'] if goal else None})
+  self.store.emit('discovery.'+state,{'discovery_id':ident,'goal_id':goal_id})
   return dict(self.store.connection.execute('SELECT * FROM discoveries WHERE id=?',(ident,)).fetchone())
+
+ def _create_approved_formulation(self,source,goal_id):
+  # Traceable discovery -> formulation -> goal chain, derived from source fields only.
+  # Idempotent: an existing formulation for this discovery is re-linked, never duplicated.
+  ident=str(uuid4());stamp=now()
+  title=f"Investigate {source['project']}/{source['path']}:{source['line']}"
+  acceptance=json.dumps([
+    'A reproducible acceptance criterion and source-referenced evidence are documented '
+    'from read-only inspection of the reported marker.'])
+  with self.store.lock:
+   existing=self.store.connection.execute(
+     'SELECT id FROM formulated_goals WHERE discovery_id=?',(source['id'],)).fetchone()
+   if existing:
+    self.store.connection.execute('UPDATE formulated_goals SET state=?,goal_id=?,updated_at=? WHERE id=?',
+      ('approved',goal_id,stamp,existing['id']))
+    self.store.emit('formulation.proposed',{'proposal_id':existing['id'],'discovery_id':source['id'],'action':'research'})
+    return existing['id']
+   self.store.connection.execute('INSERT INTO formulated_goals VALUES (?,?,?,?,?,?,?,?,?,?,?,?)',
+     (ident,source['id'],title,'research',source['rationale'],acceptance,
+      read_only_investigation_prompt(source),40,'approved',goal_id,stamp,stamp))
+  self.store.emit('formulation.proposed',{'proposal_id':ident,'discovery_id':source['id'],'action':'research'})
+  return ident

@@ -10,7 +10,7 @@ const records=(data:unknown,fields:string[]):R[]=>{if(Array.isArray(data))return
 const node=(tag:string,cls='',t?:string)=>{const n=document.createElement(tag);if(cls)n.className=cls;if(t!==undefined)n.textContent=t;return n};
 const btn=(name:string,fn:()=>void)=>{const b=node('button','',name) as HTMLButtonElement;b.type='button';b.addEventListener('click',fn);return b};
 const endpoint=async(path:string,method='GET')=>{const res=await fetch('/api'+path,{method});const raw=await res.text();if(!res.ok)throw Error(`${method} ${path}: ${res.status} ${raw.slice(0,250)}`);return raw?JSON.parse(raw):{}};
-const active=(r:R)=>['open','new','proposed','pending','approved','queued','running'].includes(state(r));
+const active=(r:R)=>['open','new','proposed','pending','approved','queued','running','investigating'].includes(state(r));
 const stamp=(r:R)=>text(r.updated_at)||text(r.created_at);
 const order=(a:R,b:R)=>Date.parse(stamp(b)) - Date.parse(stamp(a))||0;
 const SEEN='hermes-life:discover:last-seen:v2';
@@ -32,7 +32,17 @@ function install(){
  let filter:'active'|'new'|'history'='active',ds:R[]=[],qs:R[]=[],lastRefresh='',scanTime='',scanResult:R|null=null,loading=false,error='',notice='';
  let seen='';try{seen=localStorage.getItem(SEEN)||''}catch{}
  const unseen=(r:R)=>!!stamp(r)&&(!seen||Date.parse(stamp(r))>Date.parse(seen))&&!['dismissed','deferred','completed','resolved'].includes(state(r));
- const pick=(r:R)=>filter==='history'?!active(r):filter==='new'?unseen(r):active(r);
+ const qualifies=(r:R)=>{
+ if(r.quality==='excluded'||r.quality==='missing')return false;
+ if(r.quality==='eligible')return true;
+ const path=text(r.path).toLowerCase();
+ const parts=path.split('/');const filename=parts[parts.length-1]||'';
+ if(parts.some(p=>['tests','__tests__','fixtures','node_modules','.venv','dist','build'].includes(p))||filename.startsWith('test_')||/\.(test|spec)\.(ts|js)$/.test(filename))return false;
+ const note=text(r.note).trim();
+ if(note.includes('{item[')||note.includes('INSERT INTO discoveries')||note.includes('${'))return false;
+ return /^(?:#|\/\/|\/\*|\*)\s*(?:TODO|FIXME)\b/i.test(note);
+};
+const pick=(r:R)=>filter==='history'?(!active(r)||!qualifies(r)):filter==='new'?(unseen(r)&&qualifies(r)):(active(r)&&qualifies(r));
  const toolbar=node('div','hl413r-toolbar');
  const top=node('div','hl413r-top');const heading=node('div');heading.append(node('h2','', 'Discover'),node('p','hl413r-muted','Independent discovery · Findings, decisions and history'));
  const status=node('span','hl413r-status','Loading');top.append(heading,status);
@@ -42,8 +52,19 @@ function install(){
  wrapper.append(top,metrics,meta,toolbar,actions,message,sections,advanced);
  function render(){
   status.textContent=loading?'Updating…':error?'Connection error':'Discovery dashboard';status.dataset.state=error?'error':loading?'loading':'ok';
-  metrics.replaceChildren();const items:[string,string][]=[['Total findings',String(ds.length)],['Active findings',String(ds.filter(active).length)],['Unseen',String([...ds,...qs].filter(unseen).length)],['Questions',String(qs.length)]];
-  for(const [k,v] of items){const m=node('div','hl413r-metric');m.append(node('strong','',v),node('span','',k));metrics.append(m)}
+  metrics.replaceChildren();const items:[string,string][]=[['Total findings',String(ds.length)],['Active findings',String(ds.filter(r=>active(r)&&qualifies(r)).length)],['Unseen',String([...ds,...qs].filter(r=>unseen(r)&&qualifies(r)).length)],['Questions',String(qs.filter(qualifies).length)]];
+  for(const [k,v] of items){
+   const m=node('div','hl413r-metric');
+   if(k==='Questions'||k==='Unseen'||k==='Active findings'){
+    const b=btn(`${v} ${k} · View`,()=>{
+      if(k==='Unseen')filter='new';else filter='active';
+      render();
+      const groups=Array.from(sections.querySelectorAll<HTMLElement>('.hl413r-group'));
+      (k==='Questions'?groups[1]:groups[0])?.scrollIntoView({behavior:'smooth',block:'start'});
+    });b.className='hl413r-metric-button';m.append(b);
+   }else{m.append(node('strong','',v),node('span','',k))}
+   metrics.append(m)
+  }
   meta.textContent=`Last data refresh: ${when(lastRefresh)} · Last scan: ${when(scanTime)}${scanResult?' · Last scan: '+val(scanResult.found??'?')+' found, '+val(scanResult.new??'?')+' new':''}`;
   toolbar.replaceChildren();for(const [f,label] of [['active','Active'],['new','New'],['history','History']] as const){const b=btn(label,()=>{filter=f;render()});b.setAttribute('aria-pressed',String(filter===f));toolbar.append(b)}
   const mark=btn('Mark new as seen',()=>{seen=new Date().toISOString();try{localStorage.setItem(SEEN,seen)}catch{}render()});mark.disabled=![...ds,...qs].some(unseen);toolbar.append(mark);
@@ -56,15 +77,42 @@ function install(){
    for(const r of results){const card=node('article','hl413r-card');const head=node('div','hl413r-card-head');head.append(node('strong','',curiosityMode?text(r.question)||'Question':text(r.note)||text(r.proposed_prompt)||'Finding'),node('span','hl413r-chip',state(r)));
     card.append(head,node('p','hl413r-muted',`${curiosityMode?text(r.category)||'Curiosity':text(r.project)||'Unknown project'}${r.path?' · '+text(r.path)+(r.line?':'+val(r.line):''):''} · Updated: ${when(stamp(r))}`));
     if(r.rationale)card.append(node('p','hl413r-muted',text(r.rationale)));
-    const buttons=node('div','hl413r-card-actions');for(const command of curiosityMode?['open','deferred','dismissed']:['approve','defer','dismiss']){const button=btn(command,()=>void mutate(curiosityMode?'curiosity':'discoveries',r,command));button.disabled=!r.id;buttons.append(button)}card.append(buttons);box.append(card)}
+    const buttons=node('div','hl413r-card-actions');
+    if(curiosityMode){
+      const quality=text(r.quality),qualityReason=text(r.quality_reason);
+      const status=text(r.investigation_status);
+      card.append(node('p','hl413r-muted',`Investigation: ${status || 'not started'}${r.goal_id||r.discovery_goal_id?' · Goal '+val(r.discovery_goal_id||r.goal_id).slice(0,8):''}${quality==='excluded'?' · Needs review: '+qualityReason:''}`));
+      if(r.can_investigate===true){buttons.append(btn('Investigate',()=>void investigate(r)))}
+      if(r.task_id){buttons.append(btn('View findings',()=>window.dispatchEvent(new CustomEvent('hermes:open-task',{detail:{id:val(r.task_id)}}))))}
+      if(r.plan_id){buttons.append(btn('View plan',()=>{
+        const t=Array.from(document.querySelectorAll<HTMLButtonElement>('button')).find(x=>x.textContent?.trim()==='Planning'&&!x.closest('#chat-panel'));
+        t?.click();
+      }))}
+      for(const command of ['open','deferred','dismissed']){
+        const button=btn(command==='open'?'Reopen':command==='deferred'?'Defer':'Dismiss',()=>void mutate('curiosity',r,command));
+        button.disabled=!r.id||command===state(r);buttons.append(button)
+      }
+    }else{
+      for(const command of ['approve','defer','dismiss']){
+        const button=btn(command,()=>void mutate('discoveries',r,command));button.disabled=!r.id;buttons.append(button)
+      }
+    }
+    card.append(buttons);box.append(card)}
    sections.append(box)
   }
   advBody.replaceChildren();const interval=$('decision-scan-interval') as HTMLInputElement|null;
   const schedule=node('p','hl413r-muted',`Scheduled discovery controls remain configured in the existing backend${interval?' · Interval: '+interval.value+' seconds':''}.`);
   const raw=node('pre','',scanResult?JSON.stringify(scanResult,null,2):'No scan result captured by this browser.');advBody.append(schedule,raw);
  }
- async function refresh(){loading=true;error='';render();try{const [d,q]=await Promise.all([endpoint('/discoveries'),endpoint('/curiosity')]);ds=records(d,['discoveries','items','records']);qs=records(q,['curiosity','questions','items','records']);lastRefresh=new Date().toISOString()}catch(e){error=val(e)}finally{loading=false;render()}}
+ async function refresh(){loading=true;error='';render();try{const [d,q]=await Promise.all([endpoint('/discoveries'),endpoint('/curiosity/workflow')]);ds=records(d,['discoveries','items','records']);qs=records(q,['curiosity','questions','items','records']);lastRefresh=new Date().toISOString()}catch(e){error=val(e)}finally{loading=false;render()}}
  async function mutate(kind:string,r:R,action:string){notice=`Updating ${action}…`;render();try{await endpoint(`/${kind}/${encodeURIComponent(val(r.id))}/${action}`,'POST');notice=`${action} saved`;await refresh()}catch(e){notice=val(e);render()}}
+ async function investigate(r:R){
+  if(!window.confirm('Approve a read-only investigation for this question?'))return;
+  notice='Creating linked read-only investigation…';render();
+  try{const result=await endpoint(`/curiosity/${encodeURIComponent(val(r.id))}/investigate`,'POST') as R;
+      notice='Investigation requested · Goal '+val(result.goal_id).slice(0,8);await refresh();}
+  catch(e){notice='Investigation rejected: '+val(e);render()}
+ }
  async function scan(){notice='Scanning VM projects…';render();try{const x=await endpoint('/discoveries/scan','POST') as R;scanResult=x;scanTime=new Date().toISOString();notice='Scan complete';await refresh()}catch(e){notice='Scan failed: '+val(e);render()}}
  async function decision(){notice='Running independent decision…';render();try{const x=await endpoint('/decisions/scan','POST') as R;scanResult=x;scanTime=new Date().toISOString();notice='Decision completed';await refresh()}catch(e){notice='Decision failed: '+val(e);render()}}
  render();void refresh();window.setInterval(()=>{if(!document.contains(wrapper))return;void refresh()},30000);

@@ -13,9 +13,12 @@ from .world import sync_world
 from .autonomy import Autonomy
 from .discovery import Discovery
 from .decision import DecisionEngine
+from .curiosity_workflow import register_routes as register_curiosity_workflow_routes  # HL_FLOW_003
 from .formulation import GoalFormulator
 from .investigation import InvestigationPlanner
 from .implementation import ImplementationEngine
+from .implementation_review import ImplementationReview
+from .implementation_revision import ImplementationRevision
 from .personality import Personality, PersonalityAdapter
 from .conversation_memory import ConversationMemory
 from .conversation_recall import Recall
@@ -88,6 +91,20 @@ class Runtime:
             self.active.release()
 
 
+def _recover_lifecycle_handoffs(autonomy, planner):
+    """Restart recovery: replan approved investigations whose plan was never recorded.
+
+    Runs once per backend start, only while autonomy is enabled, and is fully
+    idempotent (plan() skips formulations that already have a plan).
+    """
+    try:
+        if not autonomy.settings().get('enabled'):
+            return
+        planner.recover_pending()
+    except Exception:
+        pass  # recovery is best-effort and must never block or crash startup
+
+
 def create_app(database=None, adapter=None):
     path = database or os.getenv('HERMES_LIFE_DB', str(Path.home() / '.local/share/hermes-life/life.db'))
     runtime = Runtime(path,adapter)
@@ -97,6 +114,9 @@ def create_app(database=None, adapter=None):
     formulation = GoalFormulator(runtime, autonomy, discovery)
     planner = InvestigationPlanner(runtime, autonomy, formulation)
     implementer = ImplementationEngine(runtime, planner)
+    reviewer = ImplementationReview(runtime, implementer)
+    revisions = ImplementationRevision(runtime, implementer, reviewer)
+    autonomy.planner = planner  # lifecycle handoff at goal completion needs the planner
     @asynccontextmanager
     async def lifespan(app):
         with runtime.store.lock:
@@ -104,11 +124,17 @@ def create_app(database=None, adapter=None):
             runtime.knowledge_library.migrate()
             recover_interrupted(runtime.store.connection)
         autonomy.start()
+        revisions.start()
         decision.start()
+        # Best-effort restart recovery for a handoff lost between goal completion and
+        # plan creation. Gated on autonomy being enabled so planned/disabled installs
+        # and the manual API flows are unaffected; plan() itself is idempotent.
+        threading.Thread(target=_recover_lifecycle_handoffs, args=(autonomy, planner), daemon=True).start()
         try:
             yield
         finally:
             decision.stop()
+            revisions.stop()
             autonomy.stop()
 
     app = FastAPI(title='Hermes Life', version='0.3.8', lifespan=lifespan)
@@ -223,6 +249,8 @@ def create_app(database=None, adapter=None):
     def curiosity_queue():
         return decision.curiosity()
 
+    register_curiosity_workflow_routes(app, runtime, discovery)  # HL_FLOW_003
+
     @app.post('/api/curiosity/{ident}/{state}')
     def curiosity_change(ident: str,state: str):
         try: result=decision.set_curiosity_state(ident,state)
@@ -252,6 +280,13 @@ def create_app(database=None, adapter=None):
     def investigation_plans():
         return planner.list()
 
+    @app.post('/api/investigation-plans/{plan_id}/approve')
+    def approve_investigation_plan(plan_id: str):
+        try: item = planner.approve(plan_id)
+        except ValueError as exc: raise HTTPException(409,str(exc))
+        if item is None: raise HTTPException(404,'Plan not found')
+        return item
+
     @app.post('/api/investigation-plans/from-formulation/{formulation_id}', status_code=201)
     def create_investigation_plan(formulation_id: str):
         try: return planner.plan(formulation_id)
@@ -265,6 +300,82 @@ def create_app(database=None, adapter=None):
     @app.get('/api/implementations')
     def implementations():
         return implementer.list()
+
+    @app.post('/api/implementations/{ident}/reevaluate')
+    def reevaluate_implementation(ident: str):
+        try:
+            return implementer.reevaluate(ident)
+        except KeyError as exc:
+            raise HTTPException(404, str(exc))
+        except ValueError as exc:
+            raise HTTPException(409, str(exc))
+        except RuntimeError as exc:
+            raise HTTPException(503, str(exc))
+
+    @app.get('/api/implementations/{ident}/evaluations')
+    def implementation_evaluations(ident: str):
+        try:
+            return implementer.evaluations(ident)
+        except KeyError as exc:
+            raise HTTPException(404, str(exc))
+
+    class ImplementationReviewInput(BaseModel):
+        decision: str
+        snapshot_sha256: str
+        criteria: list[bool]
+        feedback: str = ''
+
+    @app.get('/api/implementations/{ident}/revisions')
+    def get_implementation_revisions(ident: str):
+        try:
+            return revisions.list(ident)
+        except KeyError as exc:
+            raise HTTPException(404, str(exc))
+
+    @app.post('/api/implementations/{ident}/revisions/retry')
+    def retry_implementation_revision(ident: str):
+        try:
+            return revisions.queue(ident)
+        except KeyError as exc:
+            raise HTTPException(404, str(exc))
+        except ValueError as exc:
+            raise HTTPException(409, str(exc))
+
+    @app.get('/api/implementations/{ident}/review-state')
+    def implementation_review_state(ident: str):
+        if implementer.get(ident) is None:
+            raise HTTPException(404, 'Implementation not found')
+        return reviewer.get_decision(ident)
+
+    @app.get('/api/implementations/{ident}/review')
+    def get_implementation_review(ident: str):
+        try:
+            return reviewer.view(ident)
+        except KeyError as exc:
+            raise HTTPException(404, str(exc))
+        except (ValueError, RuntimeError) as exc:
+            raise HTTPException(409, str(exc))
+
+    @app.post('/api/implementations/{ident}/review')
+    def decide_implementation_review(ident: str, payload: ImplementationReviewInput):
+        try:
+            result = reviewer.decide(ident, payload.decision, payload.snapshot_sha256,
+                                     payload.criteria, payload.feedback)
+            if payload.decision == 'revision_requested':
+                try:
+                    attempt = revisions.queue(ident)
+                    result['revision'] = {'attempt_id': attempt['id'], 'state': attempt['state']}
+                    result['next_action'] = 'Revision queued automatically in isolated VM staging workspace'
+                except (ValueError, KeyError) as exc:
+                    # The review is already durable; startup recovery can enqueue it.
+                    result['revision_queue_error'] = str(exc)
+            return result
+        except KeyError as exc:
+            raise HTTPException(404, str(exc))
+        except ValueError as exc:
+            raise HTTPException(409, str(exc))
+        except RuntimeError as exc:
+            raise HTTPException(503, str(exc))
 
     @app.get('/api/implementations/{ident}')
     def implementation(ident: str):

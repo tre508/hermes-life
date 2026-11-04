@@ -20,6 +20,55 @@ class InvestigationPlanner:
             r = self.store.connection.execute('SELECT * FROM investigation_plans WHERE id=?',(ident,)).fetchone()
             return dict(r) if r else None
 
+    def approve(self, plan_id):
+        """Explicit human gate before implementation may start (spec 8.6).
+
+        Only a plan backed by a successfully completed investigation can be approved;
+        plan() already enforces that before creating the record, so approval is a
+        state flip that never invokes the adapter.
+        """
+        with self.store.lock:
+            row = self.store.connection.execute('SELECT * FROM investigation_plans WHERE id=?',(plan_id,)).fetchone()
+            if not row: return None
+            row = dict(row)
+            if row['state'] != 'proposed':
+                raise ValueError('Plan already decided')
+            self.store.connection.execute('UPDATE investigation_plans SET state=?,approved_at=?,created_at=created_at WHERE id=?',
+                ('approved', now(), plan_id))
+            self.store.connection.commit()
+        self.store.emit('investigation.plan_approved',{'plan_id':plan_id,'formulation_id':row['formulation_id']})
+        return self.get(plan_id)
+
+    def recover_pending(self):
+        """Best-effort restart recovery: complete any handoff that finished its
+        investigation but crashed before its plan was recorded.
+
+        Purely idempotent: investigation_plans.formulation_id is UNIQUE, so a plan
+        that already exists is never recreated. Only runs when the caller gates it
+        on autonomy being enabled. Failed/incomplete investigations never match
+        (goal/task must be 'completed').
+        """
+        with self.store.lock:
+            rows = self.store.connection.execute(
+                """SELECT f.id AS fid
+                   FROM formulated_goals f
+                   JOIN goals g ON g.id = f.goal_id
+                   JOIN tasks t   ON t.id = g.task_id
+                   WHERE f.state='approved' AND g.state='completed'
+                     AND NOT EXISTS (SELECT 1 FROM investigation_plans p
+                                     WHERE p.formulation_id=f.id)"""
+            ).fetchall()
+        recovered = []
+        for (fid,) in rows:
+            try:
+                self.plan(fid)
+                recovered.append(fid)
+            except ValueError:
+                pass  # duplicate, ineligible, or busy: idempotent no-op
+            except Exception:
+                pass  # environment (adapter/transport) — do not crash startup
+        return recovered
+
     def plan(self, formulation_id):
         if not self.lock.acquire(blocking=False): raise ValueError('Another plan is being generated')
         if not self.runtime.active.acquire(blocking=False):
@@ -65,8 +114,9 @@ class InvestigationPlanner:
                     raise ValueError('Invalid '+key)
             ident=str(uuid4());stamp=now()
             with self.store.lock:
-                self.store.connection.execute('INSERT INTO investigation_plans (id,formulation_id,task_id,report,created_at) VALUES (?,?,?,?,?)',
-                    (ident,formulation_id,task_id,json.dumps(value,ensure_ascii=False),stamp))
+                # Plans are created awaiting approval; implementation requires state='approved'.
+                self.store.connection.execute('INSERT INTO investigation_plans (id,formulation_id,task_id,report,state,created_at) VALUES (?,?,?,?,?,?)',
+                    (ident,formulation_id,task_id,json.dumps(value,ensure_ascii=False),'proposed',stamp))
                 self.store.connection.commit()
             self.store.emit('investigation.plan_completed',{'plan_id':ident,'formulation_id':formulation_id,'task_id':task_id})
             return self.get(ident)

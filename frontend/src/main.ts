@@ -810,3 +810,20 @@ import './phase41301-discover';
 
 // UI-413-01 replacement view
 import './phase41301-rework';
+
+// UI-413-02: open a task in the existing Evidence response viewer.
+window.addEventListener('hermes:open-task', (ev: Event) => {
+  const id = (ev as CustomEvent<{id:string}>).detail?.id;
+  if (!id) return;
+  setFollowLive(false);
+  void loadTask(id);
+  // The tab click uses existing dashboard navigation, not a new viewer.
+  const tabs = Array.from(document.querySelectorAll<HTMLButtonElement>('button'));
+  const evidence = tabs.find(b => b.textContent?.trim() === 'Evidence' &&
+    !b.closest('#response-workspace') && !b.closest('#chat-panel'));
+  if (evidence) evidence.click();
+  document.getElementById('response-workspace')?.scrollIntoView({block:'nearest'});
+});
+import './phase41302-workflow';
+
+import './phase415-review';

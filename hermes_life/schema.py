@@ -1,7 +1,7 @@
 """Explicit, versioned schema setup and single-owner restart recovery."""
 from .store import now
 
-SCHEMA_VERSION = 11
+SCHEMA_VERSION = 12
 DDL = r'''
 
             CREATE TABLE IF NOT EXISTS tasks (
@@ -102,6 +102,8 @@ def migrate(connection):
         _upgrade_to_v10(connection)
     if version < 11:
         _upgrade_to_v11(connection)
+    if version < 12:
+        _upgrade_to_v12(connection)
     # Repair partially-applied v4 installations without touching earlier data.
     has_personality = connection.execute(
         "SELECT 1 FROM sqlite_master WHERE type='table' AND name='agent_personality'"
@@ -301,4 +303,24 @@ def _upgrade_to_v11(connection):
         UNIQUE(lesson_id,challenge_max_id)
     )""")
     connection.execute('PRAGMA user_version=11')
+    connection.commit()
+
+
+def _upgrade_to_v12(connection):
+    # Plan-approval gate (spec 8.6 / HL-FLOW-001): implementation must not start
+    # from an unapproved plan. Pre-existing plans are treated as awaiting approval.
+    # Self-sufficient: create the table if an earlier partial install lacked it.
+    connection.execute("""CREATE TABLE IF NOT EXISTS investigation_plans (
+      id TEXT PRIMARY KEY, formulation_id TEXT NOT NULL UNIQUE,
+      task_id TEXT NOT NULL, report TEXT NOT NULL,
+      state TEXT NOT NULL DEFAULT 'proposed', approved_at TEXT,
+      created_at TEXT NOT NULL
+    )""")
+    columns = {r[1] for r in connection.execute('PRAGMA table_info(investigation_plans)').fetchall()}
+    if 'state' not in columns:
+        connection.execute("ALTER TABLE investigation_plans ADD COLUMN state TEXT NOT NULL DEFAULT 'proposed'")
+    if 'approved_at' not in columns:
+        connection.execute("ALTER TABLE investigation_plans ADD COLUMN approved_at TEXT")
+    connection.execute("UPDATE investigation_plans SET state='proposed' WHERE state IS NULL OR state=''")
+    connection.execute('PRAGMA user_version=12')
     connection.commit()

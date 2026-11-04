@@ -1,5 +1,6 @@
 """Persisted, opt-in autonomous goal queue. No autonomous repository scanning in v0.3."""
 import threading
+import time
 from uuid import uuid4
 from .store import now
 
@@ -9,6 +10,8 @@ class Autonomy:
         self.store = runtime.store
         self.stop_event = threading.Event()
         self.worker = None
+        # Injected by create_app after the planning engine exists (avoids a cycle).
+        self.planner = None
 
     def settings(self):
         with self.store.lock:
@@ -101,6 +104,8 @@ class Autonomy:
                     outcome=self.store.task(task['id'])
                     status='completed' if outcome and outcome['state']=='completed' else 'failed'
                     self.update(goal['id'],status,error=outcome['error'] if outcome else 'Task missing')
+                    # HL-FLOW-001: advance a completed investigation into planning.
+                    self._advance_lifecycle(goal['id'], status)
             threading.Thread(target=runner,daemon=True).start()
             return True
         except Exception:
@@ -111,3 +116,36 @@ class Autonomy:
             # The 'return False' path must release it.
             if 'task' not in locals():
                 self.runtime.active.release()
+
+    def _advance_lifecycle(self, goal_id, status):
+        """Idempotent investigation -> planning handoff (spec 8.1 / FLOW-01).
+
+        Fires on the goal-completion boundary inside the single existing scheduler.
+        Only a successfully completed goal whose formulation was approved is advanced;
+        failed, cancelled or incomplete investigations never produce a plan. plan() is
+        itself idempotent (investigation_plans.formulation_id is UNIQUE), so repeated
+        completion events or restarts cannot duplicate records.
+        """
+        if status != 'completed':
+            return
+        planner = getattr(self, 'planner', None)
+        if planner is None:
+            return
+        with self.store.lock:
+            f = self.store.connection.execute(
+                "SELECT id FROM formulated_goals WHERE goal_id=? AND state='approved'",
+                (goal_id,)).fetchone()
+        if f is None:
+            return  # manual goal with no approved formulation: nothing to plan
+        # Retry briefly on scheduler contention so a handoff is never silently dropped.
+        for attempt in range(5):
+            try:
+                planner.plan(f['id'])
+                return
+            except ValueError as exc:
+                if 'busy' in str(exc).lower() and attempt < 4:
+                    time.sleep(0.3 * (attempt + 1))
+                    continue
+                return  # duplicate or ineligible: idempotent no-op
+            except Exception:
+                return  # environment error: non-fatal to the autonomy loop
