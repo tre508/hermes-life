@@ -27,6 +27,7 @@ from .knowledge_library import KnowledgeLibrary, KnowledgeAdapter
 from .project_workspaces import ProjectWorkspaces, add_project_routes, SELECTOR  # PHASE411_PROJECT_WORKSPACES
 from .project_knowledge import ProjectKnowledge, add_knowledge_routes  # PHASE414_PROJECT_KNOWLEDGE
 from .project_approvals import add_approval_routes  # PHASE412_APPROVALS
+from .maintenance import MaintenanceService
 
 class GoalInput(BaseModel):
     title: str = Field(min_length=1, max_length=160)
@@ -65,6 +66,7 @@ class Runtime:
         self.vault_memory.adapter = self.adapter  # PHASE4101_SEMANTIC_MEMORY
         self.project_workspaces = ProjectWorkspaces(self)
         self.project_knowledge = ProjectKnowledge(self)
+        self.maintenance = MaintenanceService(self)
         self.active = threading.Lock()
 
     def task_scope(self, ident):
@@ -587,6 +589,30 @@ def create_app(database=None, adapter=None):
         except Exception:
             runtime.active.release()
             raise
+
+    # Maintenance routes (HL-MAINT-001/002, HL-ENV-004)
+    class PruneInput(BaseModel):
+        older_than_days: float = Field(default=30, ge=1, le=3650)
+        confirm: bool = False
+
+    @app.post('/api/maintenance/prune-experiments')
+    def prune_experiments(payload: PruneInput):
+        """Preview or execute experiment pruning.
+
+        With confirm=false (default): dry-run preview only.
+        With confirm=true: actually delete eligible entries and emit audit events.
+        """
+        try:
+            if payload.confirm:
+                return runtime.maintenance.prune(payload.older_than_days, confirm=True)
+            else:
+                return runtime.maintenance.preview(payload.older_than_days)
+        except ValueError as exc:
+            raise HTTPException(409, str(exc))
+        except RuntimeError as exc:
+            raise HTTPException(503, str(exc))
+        except Exception as exc:
+            raise HTTPException(500, f'Maintenance error: {exc}')
 
     @app.get('/api/events')
     def events(after: int=0, limit: int=200):
