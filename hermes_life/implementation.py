@@ -308,7 +308,12 @@ class ImplementationEngine:
             row = self.get(ident)
             if not row:
                 raise KeyError('Implementation not found')
-            if row['state'] not in ('candidate_failed', 'candidate_passed', 'evaluation_error'):
+            # Allow reevaluation from interrupted state if workspaces were prepared
+            eligible_states = ('candidate_failed', 'candidate_passed', 'evaluation_error')
+            if row['state'] == 'interrupted' and row['candidate_path'] and row['baseline_path']:
+                # Recovery path: workspaces exist, can re-evaluate
+                pass
+            elif row['state'] not in eligible_states:
                 raise ValueError('Implementation is not eligible for reevaluation')
             # Candidate and baseline must already have been prepared. The guest
             # helper independently verifies the fixed experiments root and run ID.
@@ -340,6 +345,50 @@ class ImplementationEngine:
         finally:
             self.runtime.active.release()
             self.lock.release()
+
+    def recover_interrupted(self):
+        """Recover implementation runs that were interrupted by a backend restart.
+
+        Runs in preparing/testing_baseline/implementing/evaluating are marked
+        'interrupted' with a reason. Runs with prepared workspaces become
+        eligible for reevaluation; runs without workspaces are terminal.
+        """
+        stamp = now()
+        with self.store.lock:
+            # Find runs in transient states
+            rows = self.store.connection.execute(
+                "SELECT id, state, candidate_path, baseline_path FROM implementation_runs "
+                "WHERE state IN ('preparing','testing_baseline','implementing','evaluating')"
+            ).fetchall()
+
+            for row in rows:
+                ident = row['id']
+                old_state = row['state']
+                has_workspaces = bool(row['candidate_path'] and row['baseline_path'])
+
+                if has_workspaces:
+                    # Can be reevaluated - workspaces are intact
+                    new_state = 'interrupted'
+                    error_msg = f'Backend restarted during {old_state}'
+                else:
+                    # No workspaces prepared - terminal interrupted state
+                    new_state = 'interrupted'
+                    error_msg = f'Backend restarted during {old_state} (no workspaces prepared)'
+
+                self.store.connection.execute(
+                    "UPDATE implementation_runs SET state=?, updated_at=?, error=? WHERE id=?",
+                    (new_state, stamp, error_msg, ident)
+                )
+                self.store.connection.commit()
+
+                # Emit event for each recovered run
+                self.store.emit('implementation.interrupted', {
+                    'run_id': ident,
+                    'previous_state': old_state,
+                    'reason': error_msg,
+                    'has_workspaces': has_workspaces,
+                    'reevaluable': has_workspaces
+                })
 
     def _update(self, ident, state, **fields):
         allowed = {'candidate_path', 'baseline_path', 'baseline_json',

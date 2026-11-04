@@ -156,6 +156,8 @@ def create_app(database=None, adapter=None):
         autonomy.start()
         revisions.start()
         decision.start()
+        # Recover interrupted implementation runs (mark as interrupted, emit events)
+        implementer.recover_interrupted()
         # Best-effort restart recovery for a handoff lost between goal completion and
         # plan creation. Gated on autonomy being enabled so planned/disabled installs
         # and the manual API flows are unaffected; plan() itself is idempotent.
