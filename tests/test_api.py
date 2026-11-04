@@ -36,3 +36,23 @@ def test_invalid_prompt(tmp_path):
     client.__enter__()
     assert client.post('/api/tasks',json={'prompt':''}).status_code == 422
     client.__exit__(None,None,None)
+
+def test_api_only_calls_engine_methods_that_exist():
+    """Guard against route/engine drift: an orphaned call is a 500 at request time, not a
+    test failure, so nothing else catches it (a removed ImplementationRevision.abandon did)."""
+    import re
+    from pathlib import Path
+    from hermes_life.implementation import ImplementationEngine
+    from hermes_life.implementation_revision import ImplementationRevision
+    from hermes_life.implementation_review import ImplementationReview
+
+    source = Path(__file__).resolve().parent.parent / 'hermes_life' / 'app.py'
+    text = source.read_text(encoding='utf-8')
+    engines = {'revisions': ImplementationRevision, 'implementer': ImplementationEngine,
+               'reviewer': ImplementationReview}
+    missing = sorted(
+        f'{name}.{attribute}'
+        for name, engine in engines.items()
+        for attribute in set(re.findall(rf'\b{name}\.([A-Za-z_][A-Za-z0-9_]*)', text))
+        if not hasattr(engine, attribute))
+    assert missing == [], f'app.py calls methods that no longer exist: {missing}'

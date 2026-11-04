@@ -93,6 +93,11 @@ function renderReview(){let root=$('hl415-review');if(!root){root=node('section'
  if(s(baseline?.status)!=='passed')root.append(node('p','Baseline test evaluation did not pass. Confirm behavioral equivalence separately before acceptance.','hl415-error'));
  const attempts=Array.isArray(revisionData?.attempts)?revisionData!.attempts as Rec[]:[];
  if(attempts.length){const latest=attempts[0];root.append(node('p',`Revision attempt ${s(latest.attempt)} · ${s(latest.state)} · ${stamp(latest.updated_at)}`,'hl415-status'));if(latest.error)root.append(node('p',s(latest.error),'hl415-error'));if(latest.test_json){let evidence:Rec={};try{evidence=JSON.parse(s(latest.test_json)) as Rec}catch{}root.append(node('pre',s(evidence.output)||'No test output'))}}
+ if(!previous&&attempts.length&&['tests_failed','evaluation_error','error'].includes(s(attempts[0].state))){
+  const history=Array.isArray(revisionData?.review_history)?revisionData!.review_history as Rec[]:[];
+  if(history.some(h=>s(h.decision)==='revision_requested'))
+   root.append(node('p','The previous revision request is closed after failed attempts. You can Reject this candidate or explicitly Request a new revision with updated feedback.','hl415-status'));
+ }
  if(previous){root.append(node('p',`Decision recorded: ${s(previous.decision)} · ${stamp(previous.decided_at)}`,'hl415-good'));
    if(s(previous.decision)==='revision_requested'&&attempts.length&&['tests_failed','evaluation_error','error'].includes(s(attempts[0].state))){root.append(btn('Retry isolated revision',()=>{if(!confirm('Retry the stored revision request in another isolated staging workspace?'))return;void api(`/implementations/${encodeURIComponent(s(run.id))}/revisions/retry`,'POST').then(()=>void openReview(run)).catch(e=>{reviewError=s(e);renderReview()})}))}
    root.append(node('p','Revision requests run automatically in the VM. Original projects and host remain unchanged.','hl415-caption'));return}

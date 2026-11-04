@@ -9,19 +9,22 @@ import subprocess
 import threading
 from uuid import uuid4
 
+from .guest_env import ENV_PROVISION, ENV_RESOLVER
 from .store import now
 
 # Runs inside the VM. A fixed command is selected by the evaluator, never by
 # untrusted plan/agent output. Only prepared experiment directories are tested.
-GUEST = r'''
+# FLOW-007A: interpreter resolution and environment provisioning are owned by
+# guest_env so the revision worker cannot drift away from this path.
+GUEST = ENV_RESOLVER + ENV_PROVISION + r'''
 import importlib.util,json,pathlib,re,shutil,subprocess,sys
 
 def valid_name(s):
  return isinstance(s,str) and re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_.-]{0,79}',s) is not None and s not in ('.','..')
 
-def result(status,code,output,python=None,command=None):
+def result(status,code,output,python=None,command=None,env_source=None):
  print(json.dumps({'status':status,'exit_code':code,'output':output[-12000:],
-                   'python':python,'command':command}))
+                   'python':python,'command':command,'env_source':env_source}))
 
 x=json.load(sys.stdin)
 root=pathlib.Path('/home/hermes/projects').resolve()
@@ -45,11 +48,10 @@ elif op=='test':
  if kind not in ('candidate','baseline'):raise ValueError('Invalid test workspace')
  directory=(experiments/(kind+'-'+ident)).resolve(strict=True)
  if directory.parent!=experiments or not directory.is_dir() or directory.is_symlink():raise ValueError('Invalid test workspace')
- local_python=directory/'.venv'/'bin'/'python'
- python=str(local_python) if local_python.is_file() else sys.executable
+ python,env_source=resolve_interpreter(str(environment_path(ident)),str(directory/'.venv'))
  command=[python,'-m','pytest','-q']
  try:
-  r=subprocess.run(command,cwd=directory,capture_output=True,text=True,timeout=120)
+  r=subprocess.run(command,cwd=directory,capture_output=True,text=True,timeout=120,env=runtime_env())
   output=(r.stdout+'\n'+r.stderr)[-12000:]
   if r.returncode==0:
    status='passed'
@@ -61,11 +63,18 @@ elif op=='test':
    status='evaluation_error' # interrupted, internal error, usage error
   else:
    status='failed' # pytest ran and tests failed (usually exit 1)
-  result(status,r.returncode,output,python,command)
+  result(status,r.returncode,output,python,command,env_source)
  except subprocess.TimeoutExpired:
-  result('evaluation_error',124,'Test timed out',python,command)
+  result('evaluation_error',124,'Test timed out',python,command,env_source)
  except OSError as exc:
-  result('evaluation_error',None,f'Cannot run test interpreter: {exc}',python,command)
+  result('evaluation_error',None,f'Cannot run test interpreter: {exc}',python,command,env_source)
+elif op=='environment':
+ ident=x.get('id')
+ if not isinstance(ident,str) or re.fullmatch(r'[0-9a-f-]{36}',ident) is None:raise ValueError('Invalid run ID')
+ # A missing or invalid baseline is classified by provision_environment rather than raised
+ # here, so the platform reports an environment failure instead of a crashed worker.
+ baseline=experiments/('baseline-'+ident)
+ print(json.dumps(provision_environment(ident,str(baseline))))
 else:raise ValueError('Invalid operation')
 '''
 
@@ -120,6 +129,69 @@ class ImplementationEngine:
                 (ident, now(), previous_state, resulting_state,
                  json.dumps(baseline), json.dumps(candidate)))
             self.store.connection.commit()
+
+    def _ensure_environment_history(self):
+        # Additive migration. Existing schema/data and approval gates untouched.
+        with self.store.lock:
+            self.store.connection.execute('''CREATE TABLE IF NOT EXISTS implementation_environments (
+                run_id TEXT PRIMARY KEY,
+                status TEXT NOT NULL,
+                python_version TEXT,
+                interpreter TEXT,
+                manifest_json TEXT NOT NULL,
+                packages_json TEXT,
+                install_json TEXT,
+                error TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                FOREIGN KEY (run_id) REFERENCES implementation_runs(id)
+            )''')
+            self.store.connection.commit()
+
+    def environment(self, ident):
+        """FLOW-007A: the recorded platform environment for a run, or None."""
+        if self.get(ident) is None:
+            raise KeyError('Implementation not found')
+        self._ensure_environment_history()
+        with self.store.lock:
+            row = self.store.connection.execute(
+                'SELECT * FROM implementation_environments WHERE run_id=?', (ident,)).fetchone()
+        return dict(row) if row else None
+
+    def _record_environment(self, ident, result):
+        self._ensure_environment_history()
+        stamp = now()
+        with self.store.lock:
+            self.store.connection.execute('''INSERT INTO implementation_environments
+                (run_id,status,python_version,interpreter,manifest_json,packages_json,install_json,error,created_at,updated_at)
+                VALUES (?,?,?,?,?,?,?,?,?,?)
+                ON CONFLICT(run_id) DO UPDATE SET
+                 status=excluded.status, python_version=excluded.python_version,
+                 interpreter=excluded.interpreter, manifest_json=excluded.manifest_json,
+                 packages_json=excluded.packages_json, install_json=excluded.install_json,
+                 error=excluded.error, updated_at=excluded.updated_at''',
+                (ident, result.get('status') or 'environment_error', result.get('python_version'),
+                 result.get('interpreter'), json.dumps(result.get('manifest') or {}),
+                 result.get('packages'), json.dumps(result.get('install') or []),
+                 (result.get('reason') or None), stamp, stamp))
+            self.store.connection.commit()
+
+    def _ensure_environment(self, ident):
+        """Create or validate this run's platform-owned test environment.
+
+        Raises ValueError when the environment cannot be made usable, so callers can
+        report an environment failure separately from a candidate test failure.
+        """
+        result = self._guest({'operation': 'environment', 'id': ident})
+        self._record_environment(ident, result)
+        if result.get('status') != 'ok':
+            self.store.emit('implementation.environment_failed',
+                            {'run_id': ident, 'reason': (result.get('reason') or '')[:300]})
+            raise ValueError('Environment setup failed: ' + (result.get('reason') or 'unknown cause'))
+        self.store.emit('implementation.environment_ready',
+                        {'run_id': ident, 'interpreter': result.get('interpreter'),
+                         'python_version': result.get('python_version'), 'created': result.get('created')})
+        return result
 
     def _guest(self, payload):
         adapter = self.runtime.adapter
@@ -198,6 +270,9 @@ class ImplementationEngine:
             paths = self._guest({'operation': 'prepare', 'project': project, 'id': ident})
             self._update(ident, 'testing_baseline',
                          candidate_path=paths['candidate'], baseline_path=paths['baseline'])
+            # FLOW-007B: an unusable environment fails the run before any agent work is spent,
+            # and it is reported as an environment failure rather than a candidate result.
+            self._ensure_environment(ident)
             baseline = self._guest({'operation': 'test', 'id': ident, 'kind': 'baseline'})
             self._update(ident, 'implementing', baseline_json=json.dumps(baseline))
             criteria = report['acceptance_criteria']
@@ -248,6 +323,10 @@ class ImplementationEngine:
                 except (ValueError, TypeError):
                     old_baseline, old_candidate = {}, {}
                 self._record_evaluation(ident, before, before, old_baseline, old_candidate)
+            # FLOW-007B: reuse the recorded environment, rebuilding it when its interpreter is
+            # gone. A changed or missing environment must not destroy a reviewable candidate;
+            # a failure here leaves the previous state intact.
+            self._ensure_environment(ident)
             self._update(ident, 'evaluating')
             self.store.emit('implementation.reevaluation_started', {'run_id': ident})
             try:

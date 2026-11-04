@@ -112,6 +112,7 @@ class ImplementationReview:
                 'summary':report.get('summary',''), 'steps':report.get('steps',[]),
                 'acceptance_criteria':report.get('acceptance_criteria',[])},
                 'baseline':baseline,'candidate':candidate,'snapshot':snapshot,
+                'environment':self.implementer.environment(ident),
                 'decision':self.get_decision(ident)}
 
     def decide(self, ident, decision, sha256, criteria, feedback):

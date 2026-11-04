@@ -341,6 +341,14 @@ def create_app(database=None, adapter=None):
         except ValueError as exc:
             raise HTTPException(409, str(exc))
 
+    @app.get('/api/implementations/{ident}/environment')
+    def implementation_environment(ident: str):
+        """FLOW-007A: recorded platform-owned test environment for a run."""
+        try:
+            return implementer.environment(ident) or {}
+        except KeyError as exc:
+            raise HTTPException(404, str(exc))
+
     @app.get('/api/implementations/{ident}/review-state')
     def implementation_review_state(ident: str):
         if implementer.get(ident) is None:

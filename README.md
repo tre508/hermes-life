@@ -1,65 +1,56 @@
-# HL-FLOW-006 — Automatic isolated revision execution
+# HL-FLOW-007A/B — Reproducible platform-owned test environments
 
-This release extends **HL-FLOW-005**. It does not replace `hermes_life/implementation.py` or change existing project/workspace synchronization.
+This is a guarded backend update to FLOW-004 and FLOW-006.1. It does **not** change UI, schema, review decisions, approval gates, revision recovery, or original project contents.
 
-## Behavior
+## What changes
 
-When a reviewer chooses **Request revision** and supplies feedback, the existing review decision is persisted first. The new revision worker automatically enqueues and performs an isolated attempt, using the *existing* run and approved plan.
+- `hermes_life/guest_env.py`: **one verbatim embedded implementation** of baseline-owned environment provisioning, Python resolution, and pytest execution, injected into both SSH guest scripts. A regression test checks that both code paths embed it.
+- `hermes_life/implementation.py`: Initial baseline and candidate test operations, plus reevaluation, call `_evaluate_workspace(run_id, test_directory)`.
+- `hermes_life/implementation_revision.py`: Revisions test their staging directory through exactly the same `_evaluate_workspace` routine. An agent-created `staging/.venv` or `candidate/.venv` **cannot override** it.
+- `tests/test_flow007_guest_env.py`: Five focused stdlib regression tests.
+- `scripts/install-flow007.py`: Checks the installed originals against the tested FLOW-004/FLOW-006.1 baseline SHA-256 before copying anything, preserving backups and refusing mismatched local code.
 
-1. Check that the candidate still matches the hash the reviewer inspected.
-2. Copy the current candidate into `/home/hermes/experiments/revision-<attempt-id>` (without `.venv` and caches).
-3. Send a bounded instruction to Hermes to edit **only that revision staging copy**. The request includes the user's feedback and original plan acceptance criteria.
-4. Run `pytest` in staging using the existing candidate's Python virtual environment when present.
-5. On failed tests or evaluator error, retain the original candidate intact. Record the attempt and expose **Retry isolated revision** (maximum three attempts).
-6. On passing tests, revalidate the original candidate fingerprint, promote the staged changes into the **VM candidate directory only**, archive the previous `revision_requested` review, and independently reevaluate the promoted candidate.
-7. Clear the old pending review decision after promotion and reevaluation so a user can review/accept/reject/revise the new candidate. Historical decisions and attempts remain in SQLite.
+## Environment policy
 
-A user **must still explicitly accept** a candidate. No code is applied to the host or original VM project automatically. An automatic revision does not imply deployment approval.
+The shared environment is `/home/hermes/experiments/env-<run-id>` in the **isolated VM**. The guest creates it on the first baseline/candidate/revision test or later reevaluation, using the VM's `python3 -m venv` and `pip`, **not** Hermes' private interpreter and not `.venv` from the agent's candidate/staging directory.
 
-## Files
+The environment is provisioned from the **baseline** snapshot:
 
-- `hermes_life/implementation_revision.py` — persistent queue, worker, isolated VM staging/test/promotion, attempt history.
-- `frontend/src/phase415-review.ts` — **complete replacement** of Phase 4.15 review UI module; shows revision attempt status/test output, refreshes while active, supports bounded retry.
-- `scripts/install-flow006.py` — idempotent installer that adds two API routes and attaches the worker to the existing FastAPI lifespan. Creates a timestamped `app.py` backup; refuses unrecognized layouts.
-- `tests/test_flow006_revision.py` — fake VM/SQLite tests.
+- `pytest`, always.
+- Direct index-package specifications from `requirements.txt`, `requirements-dev.txt`, `requirements-test.txt`.
+- `[project].dependencies` and `[project.optional-dependencies]` groups `test`, `tests`, `testing`, `dev` in `pyproject.toml`.
+
+Editable installs, nested `-r`, direct URLs, local files, and pip flags are not supported. Such directives produce `evaluation_error` with an explicit explanation. The evaluator does not run project build backends or install the project itself. Additions to candidate-authored dependency manifests do not change the test environment; those must be approved separately against the trusted baseline.
+
+The environment stores `flow007.json` with dependency manifest fingerprints, resolved package versions (`pip freeze`), Python version/path, and the baseline dependency list. Test results include `env_source: platform-baseline`, the resolved dependency specifications, installed packages, `baseline_sha256`, exact interpreter and test command. If an existing run environment is corrupt or the baseline manifest changed, evaluation returns an environment error instead of silently falling back to an alternate interpreter.
+
+Note: when a baseline has **no tests**, pytest reports no tests collected. This is correctly shown as `evaluation_error`, even if the candidate subsequently passes. The environment itself is no longer missing pytest.
 
 ## Install
 
-From the Kubuntu host:
+Download the ZIP, place it in `~/Downloads`, then:
 
 ```bash
 cd ~/Apps/hermes-life
-unzip -o ~/Downloads/hermes-life-hl-flow006-auto-revision.zip
-.venv/bin/python scripts/install-flow006.py
+unzip -o ~/Downloads/hermes-life-hl-flow007-environments.zip
+.venv/bin/python scripts/install-flow007.py --check
+.venv/bin/python scripts/install-flow007.py
 .venv/bin/python -m pytest -q
-(cd frontend && npm run build)
 ```
 
-**Restart the backend**, then refresh the browser.
+Restart the running FastAPI service. This update makes **no frontend changes**. If the installer refuses a file because your working version differs, do not force it. Reconcile that file with the current host source first.
 
-## API
+## Live verification
 
-- `GET /api/implementations/{id}/revisions` — past attempts plus archived review decisions.
-- `POST /api/implementations/{id}/revisions/retry` — only after a failed attempt and within the three-attempt limit.
-- Existing `POST /api/implementations/{id}/review` with `decision: revision_requested` **automatically queues** the revision; its response includes the attempt ID or a clear enqueue error.
+Use the existing reevaluation endpoint against a non-accepted test run, or a new approved-plan implementation run. Existing runs can provision the new environment from their retained baseline. A test will run first-time dependency installation in the VM, which requires the VM's package index access. Inspect `candidate_json`, `baseline_json` for `env_source`, `python`, `installed_packages`, and `baseline_sha256`.
 
-## Expected example
+This package does not delete experiments or environments; database-governed pruning is FLOW-007C/D.
 
-In Build, open **Review candidate changes**, enter actionable feedback, and choose **Request revision**. A new revision attempt appears automatically with `queued`, `running`, and a final `passed`, `tests_failed`, or `evaluation_error` state. After passing, review the **new** diff and test results before acceptance.
+## Validation in packaging environment
 
-## Boundaries and known limitations
+- Compiled all three backend Python modules and the installer.
+- Compiled the *assembled* embedded guest scripts.
+- Five focused unit tests passed.
+- Guarded installer tested against the archived original SHA-256 files and confirmed idempotence.
 
-- Automatic execution is limited to a **human-submitted revision request**. It does not keep issuing unlimited model attempts.
-- Each revision may consume LLM/tool usage; attempts are capped at three per requested review.
-- `running` attempts interrupted by a backend restart are marked `interrupted` and require manual inspection; they are never re-executed blindly. Already queued requests recover automatically.
-- The VM isolation boundary remains essential: prompts alone cannot enforce filesystem restrictions against every agent tool.
-- If a guest VM operation fails during promotion, the staging/backup directories are retained for investigation; no host changes are made.
-- This patch does not automate applying approved candidate changes to the original project or host and does not replace human validation of acceptance criteria.
-
-## Validation performed in artifact build
-
-- Four isolated regression tests: duplicate queue requests, successful revision history/re-review, failed revision/retry, changed-candidate rejection.
-- Strict TypeScript check of the new UI module.
-- Python compilation and repeat installer compatibility test against the documented FLOW-005 app structure.
-
-Full integration and real SSH VM execution require validation in your actual installed Hermes Life environment.
+**Not verified here:** Full test suite on your installed source, live SSH VM venv creation and dependency resolution, or real project integration. No claim is made that all Python packaging layouts are supported.
