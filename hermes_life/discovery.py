@@ -5,6 +5,7 @@ import shlex
 from uuid import uuid4
 from .store import now
 from .formulation import read_only_investigation_prompt
+from .curiosity_workflow import _COMMENT
 
 # Fixed script: no paths, commands, or prompts from user input. The scanning scope is the guest's ~/projects.
 REMOTE_SCAN = r'''
@@ -105,15 +106,42 @@ class Discovery:
 
  @staticmethod
  def fingerprint(project,path,note):
-  # Canonical identity = project + relative path + normalized issue content.
-  # Line number is evidence, not identity (spec 8.2, HL-GOAL-0001): an identical
-  # TODO shifted to a different line must NOT become a separate finding.
-  norm=" ".join(note.split())
-  return json.dumps([project,path,norm],sort_keys=True)
+   # Canonical identity = project + relative path + normalized issue content.
+   # Line number is evidence, not identity (spec 8.2, HL-GOAL-001): an identical
+   # TODO shifted to a different line must NOT become a separate finding.
+   norm=" ".join(note.split())
+   return json.dumps([project,path,norm],sort_keys=True)
+
+ @staticmethod
+ def finding_quality(project, path, note):
+   """Server-side quality gate for discoveries.
+   Returns tuple of (quality, quality_reason, can_investigate).
+   quality: 'eligible' | 'excluded' | 'missing'
+   """
+   if not note or not path:
+     return 'missing', 'Missing note or path', False
+   if '{item[' in note or '${' in note or 'INSERT INTO discoveries' in note:
+     return 'excluded', 'Marker is a source-code template or database example', False
+   suffix = '.' + path.rsplit('.', 1)[-1] if '.' in path else ''
+   pattern = _COMMENT.get(suffix)
+   if not pattern:
+     return 'excluded', 'Unsupported source or documentation file', False
+   if not pattern.match(note):
+     return 'excluded', 'TODO/FIXME is not an identifiable source comment', False
+   return 'eligible', '', True
 
  def list(self):
-  with self.store.lock:
-   return [dict(r) for r in self.store.connection.execute('SELECT * FROM discoveries ORDER BY created_at DESC LIMIT 100')]
+   with self.store.lock:
+     rows = self.store.connection.execute('SELECT * FROM discoveries ORDER BY created_at DESC LIMIT 100').fetchall()
+     results = []
+     for r in rows:
+       d = dict(r)
+       quality, quality_reason, can_investigate = Discovery.finding_quality(d['project'], d['path'], d['note'])
+       d['quality'] = quality
+       d['quality_reason'] = quality_reason
+       d['can_investigate'] = can_investigate
+       results.append(d)
+     return results
 
  def scan(self):
   adapter=self.runtime.adapter
