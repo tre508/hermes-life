@@ -248,7 +248,50 @@ class ImplementationEngine:
             'candidate_exit': candidate.get('exit_code')})
         return self.get(ident)
 
-    def start(self, plan_id, project):
+    @staticmethod
+    def _valid_project(project):
+        return (isinstance(project, str) and project not in ('.', '..')
+                and re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_.-]{0,79}', project) is not None)
+
+    def resolve_project(self, plan_id, plan=None):
+        """Derive a plan's VM project name from its lineage.
+
+        A plan knows its project through an exact join, not a guess:
+        plan.formulation_id -> formulated_goals.discovery_id -> discoveries.project.
+        discoveries.project is a directory name under /home/hermes/projects, which is
+        exactly what the guest prepare step accepts, so no manual entry is needed.
+
+        Returns the name, or None when the lineage is unavailable or invalid (the
+        caller must then decide: refuse with a reason, or accept an explicit name).
+        """
+        if plan is None:
+            plan = self.planner.get(plan_id)
+        if not plan:
+            return None
+        with self.store.lock:
+            row = self.store.connection.execute(
+                '''SELECT d.project AS project
+                   FROM investigation_plans p
+                   JOIN formulated_goals f ON f.id = p.formulation_id
+                   JOIN discoveries d ON d.id = f.discovery_id
+                   WHERE p.id=?''', (plan_id,)).fetchone()
+        name = row['project'] if row else None
+        if not name:
+            # Fallback for plans whose formulation/discovery rows are gone but whose
+            # report still records the discovery it came from.
+            try:
+                scope = json.loads(plan['report']).get('project_scope') or {}
+            except (KeyError, TypeError, ValueError):
+                scope = {}
+            linked = scope.get('linked_discovery_id')
+            if linked:
+                with self.store.lock:
+                    d = self.store.connection.execute(
+                        'SELECT project FROM discoveries WHERE id=?', (linked,)).fetchone()
+                name = d['project'] if d else None
+        return name if self._valid_project(name) else None
+
+    def start(self, plan_id, project=None):
         if not self.lock.acquire(blocking=False):
             raise ValueError('Implementation already in progress')
         if not self.runtime.active.acquire(blocking=False):
@@ -262,10 +305,22 @@ class ImplementationEngine:
             # Preserve the HL-FLOW-001 approval gate.
             if plan.get('state') != 'approved':
                 raise ValueError('Plan is not approved for implementation')
-            if not isinstance(project, str) or not re.fullmatch(
-                    r'[A-Za-z0-9][A-Za-z0-9_.-]{0,79}', project) or project in ('.', '..'):
+            # HL-FLOW-005: the plan's lineage already names the project, so the caller
+            # does not have to retype it. An explicit name still wins.
+            if not project:
+                project = self.resolve_project(plan_id, plan)
+                if not project:
+                    raise ValueError(
+                        'Plan has no resolvable project; pass project explicitly')
+            if not self._valid_project(project):
                 raise ValueError('Invalid project name')
             report = json.loads(plan['report'])
+            # A plan without acceptance criteria can be neither started nor accepted, so
+            # refuse it with a reason (409) and create no run, rather than failing later
+            # on a missing key with a 404 and a dead 'failed' run row.
+            criteria = report.get('acceptance_criteria')
+            if not isinstance(criteria, list) or not criteria:
+                raise ValueError('Plan has no acceptance criteria; cannot start implementation')
             stamp = now()
             with self.store.lock:
                 if self.store.connection.execute(
@@ -285,7 +340,6 @@ class ImplementationEngine:
             self._ensure_environment(ident)
             baseline = self._guest({'operation': 'test', 'id': ident, 'kind': 'baseline'})
             self._update(ident, 'implementing', baseline_json=json.dumps(baseline))
-            criteria = report['acceptance_criteria']
             prompt = ('Implement this REVIEWED plan in the isolated candidate workspace ONLY: '
                 + paths['candidate'] + ' . '
                 'Never edit the original /home/hermes/projects directory, baseline workspace, host, or Hermes Life infrastructure. '
@@ -461,9 +515,13 @@ class ImplementationEngine:
                 'SELECT * FROM hl_projects WHERE name=?', (project,)
             ).fetchone()
             if not project_row:
-                raise ValueError('Project not registered')
+                raise ValueError(
+                    'project_not_registered: no host project is registered as ' + repr(project)
+                    + '; register it (POST /api/projects) or run the plan against a registered project')
             if not project_row['host_path'] or not project_row['commit_hash']:
-                raise ValueError('Project is not synchronized; sync first')
+                raise ValueError(
+                    'project_unsynced: ' + repr(project)
+                    + ' has no synchronized base commit; sync the project before applying')
 
             # 4. Verify host repo is at base commit with clean tree
             host = Path(project_row['host_path']).resolve(strict=True)
@@ -563,8 +621,31 @@ class ImplementationEngine:
         project_row = self.runtime.store.connection.execute(
             'SELECT * FROM hl_projects WHERE name=?', (project,)
         ).fetchone()
-        if not project_row:
-            raise ValueError('Project not registered')
+        # Host application targets a REGISTERED host repository with a recorded base
+        # commit. A VM source project (/home/hermes/projects/<name>) usually has no host
+        # repository at all, so say exactly which blocker applies instead of refusing
+        # without an explanation (spec failure categories: project_not_registered,
+        # project_unsynced). The reviewed diff is still returned for the reviewer.
+        if not project_row or not project_row['host_path'] or not project_row['commit_hash']:
+            blocker = 'project_unsynced' if project_row else 'project_not_registered'
+            self.store.emit('implementation.apply_blocked',
+                            {'run_id': ident, 'project': project, 'blocker': blocker})
+            return {
+                'run_id': ident,
+                'project': project,
+                'project_registered': bool(project_row),
+                'project_synced': bool(project_row and project_row['commit_hash']),
+                'base_commit': project_row['commit_hash'] if project_row else None,
+                'host_head': None,
+                'host_clean': None,
+                'apply_sha256': snapshot['snapshot_sha256'],
+                'review_sha256': review['evidence_sha256'],
+                'diff': snapshot.get('diff', ''),
+                'changed_files': snapshot.get('changed_files', 0),
+                'truncated': snapshot.get('truncated', False),
+                'can_apply': False,
+                'blockers': [blocker]
+            }
 
         # Check host state
         host = Path(project_row['host_path']).resolve(strict=True)
@@ -579,6 +660,8 @@ class ImplementationEngine:
         return {
             'run_id': ident,
             'project': project,
+            'project_registered': True,
+            'project_synced': True,
             'base_commit': project_row['commit_hash'],
             'host_head': host_head,
             'host_clean': not bool(status),

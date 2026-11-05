@@ -16,6 +16,7 @@ class PlanAdapter:
             'evidence':['Investigation task reported no test file in the project'],
             'unknowns':['Whether tests run in a separate CI environment'],
             'steps':['Add a minimal unit test to a candidate branch'],
+            'acceptance_criteria':['A new test file exists and passes under pytest'],
             'test_approach':{
                 'baseline_command':'pytest -q','candidate_command':'pytest -q',
                 'expected_environment':'python3.11','expected_dependencies':['pytest'],'test_framework':'pytest'
@@ -53,6 +54,26 @@ def test_plan_generation_persistence_and_dedup(tmp_path):
         assert client.post('/api/investigation-plans/from-formulation/f').status_code==409
     with TestClient(create_app(path,PlanAdapter())) as client:
         assert len(client.get('/api/investigation-plans').json())==1
+
+class MissingCriteriaAdapter(PlanAdapter):
+    """A plan response that omits the section the pipeline consumes."""
+
+    def run(self, prompt, callback, task_id=None):
+        doc = json.loads(super().run(prompt, callback, task_id)['result'])
+        doc.pop('acceptance_criteria')
+        return {'result': json.dumps(doc), 'session_id': 'plan-test'}
+
+
+def test_plan_without_acceptance_criteria_is_rejected(tmp_path):
+    """A plan that could never be reviewed or started must not be created at all."""
+    with TestClient(create_app(tmp_path/'p.db',MissingCriteriaAdapter())) as client:
+        seed(client.app.state.runtime.store)
+        client.post('/api/projects', json={'name': 'demo', 'host_path': '/home/gayzer/Apps/hermes-life', 'spec_path': None})
+        response=client.post('/api/investigation-plans/from-formulation/f')
+        assert response.status_code==409,response.text
+        assert 'acceptance_criteria' in response.text
+        assert client.get('/api/investigation-plans').json()==[]
+
 
 def test_cannot_plan_before_investigation_complete(tmp_path):
     with TestClient(create_app(tmp_path/'p.db',PlanAdapter())) as client:

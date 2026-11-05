@@ -333,7 +333,9 @@ def create_app(database=None, adapter=None):
         except Exception as exc: raise HTTPException(422,'Invalid plan: '+str(exc)[:240])
 
     class ImplementationInput(BaseModel):
-        project: str = Field(min_length=1, max_length=80)
+        # HL-FLOW-005: optional. When omitted the engine derives the project from the
+        # plan's lineage (plan -> formulation -> discovery.project).
+        project: str | None = Field(default=None, max_length=80)
 
     @app.get('/api/implementations')
     def implementations():

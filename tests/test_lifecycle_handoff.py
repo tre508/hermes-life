@@ -20,6 +20,7 @@ PLAN_DOC = {
     'evidence': ['Investigation found no test file in the candidate project'],
     'unknowns': [],
     'steps': ['Add a minimal unit test to the candidate workspace'],
+    'acceptance_criteria': ['The project runs under pytest with at least one passing test'],
     'test_approach': {
         'baseline_command': 'pytest -q', 'candidate_command': 'pytest -q',
         'expected_environment': 'python3.11', 'expected_dependencies': ['pytest'], 'test_framework': 'pytest'
@@ -142,3 +143,72 @@ def test_unapproved_plan_cannot_initiate_implementation(tmp_path):
         approved = c.post(f"/api/investigation-plans/{plan['id']}/approve")
         assert approved.status_code == 200 and approved.json()['state'] == 'approved'
         assert c.post(f"/api/investigation-plans/{plan['id']}/approve").status_code == 409
+
+
+def _seed_lineage(app):
+    """discovery('demo') -> approved formulation -> completed investigation task."""
+    with app.state.runtime.store.lock:
+        con = app.state.runtime.store.connection
+        con.execute("INSERT INTO discoveries(id,fingerprint,project,path,line,note,proposed_prompt,rationale,state,created_at,updated_at) VALUES ('d','fp','demo','main.py',1,'TODO','p','r','proposed','now','now')")
+        con.execute("INSERT INTO formulated_goals VALUES ('f','d','Testing','coding','r','[\"ok\"]','read',50,'approved','g','now','now')")
+        con.execute("INSERT INTO goals(id,title,prompt,state,priority,created_at,updated_at,task_id) VALUES ('g','Investigation','Inspect','completed',50,'now','now','t')")
+        con.execute("INSERT INTO tasks(id,prompt,state,created_at,updated_at,result) VALUES ('t','Inspect','completed','now','now','evidence')")
+        con.commit()
+
+
+def test_approved_plan_starts_without_a_typed_project(tmp_path):
+    """HL-FLOW-005: no 'Approved' limbo — the plan's own lineage names the project."""
+    app = create_app(tmp_path / 'derive.db', adapter=LifecycleAdapter())
+    with TestClient(app) as c:
+        _seed_lineage(app)
+        plan = c.post('/api/investigation-plans/from-formulation/f').json()
+        assert c.post(f"/api/investigation-plans/{plan['id']}/approve").status_code == 200
+        # The plan list exposes the derived target so the UI can label the start button.
+        listed = next(p for p in c.get('/api/investigation-plans').json() if p['id'] == plan['id'])
+        assert listed['project'] == 'demo'
+        engine = app.state.implementer
+        assert engine.resolve_project(plan['id']) == 'demo'
+        # Starting with no project argument records the derived project on the run.
+        with patch.object(engine, '_guest', side_effect=[
+                {'candidate': '/home/hermes/experiments/candidate-demo',
+                 'baseline': '/home/hermes/experiments/baseline-demo'},
+                {'status': 'ok', 'interpreter': '/usr/bin/python3', 'python_version': '3.11'},
+                {'status': 'passed', 'exit_code': 0, 'output': 'baseline ok'},
+                {'status': 'passed', 'exit_code': 0, 'output': 'candidate ok'}]):
+            started = c.post(f"/api/implementations/from-plan/{plan['id']}", json={})
+        assert started.status_code == 201, started.text
+        run = started.json()
+        assert run['project'] == 'demo'
+        assert run['state'] == 'candidate_passed'
+
+
+def test_plan_without_lineage_refuses_an_implicit_project(tmp_path):
+    """A plan whose lineage is missing must say so, not silently pick something."""
+    app = create_app(tmp_path / 'nolineage.db', adapter=LifecycleAdapter())
+    with TestClient(app) as c:
+        _seed_lineage(app)
+        plan = c.post('/api/investigation-plans/from-formulation/f').json()
+        c.post(f"/api/investigation-plans/{plan['id']}/approve")
+        # Detach the plan from its lineage (and from any discovery reference in the report).
+        orphan = dict(PLAN_DOC)
+        orphan['project_scope'] = dict(PLAN_DOC['project_scope'], linked_discovery_id=None)
+        with app.state.runtime.store.lock:
+            con = app.state.runtime.store.connection
+            con.execute("UPDATE investigation_plans SET formulation_id='gone', report=? WHERE id=?",
+                        (json.dumps(orphan), plan['id']))
+            con.commit()
+        engine = app.state.implementer
+        assert engine.resolve_project(plan['id']) is None
+        refused = c.post(f"/api/implementations/from-plan/{plan['id']}", json={})
+        assert refused.status_code == 409
+        assert 'no resolvable project' in refused.text
+        # An explicit name is still accepted.
+        with patch.object(engine, '_guest', side_effect=[
+                {'candidate': '/home/hermes/experiments/candidate-manual',
+                 'baseline': '/home/hermes/experiments/baseline-manual'},
+                {'status': 'ok'},
+                {'status': 'passed', 'exit_code': 0, 'output': 'baseline ok'},
+                {'status': 'passed', 'exit_code': 0, 'output': 'candidate ok'}]):
+            explicit = c.post(f"/api/implementations/from-plan/{plan['id']}", json={'project': 'manual'})
+        assert explicit.status_code == 201, explicit.text
+        assert explicit.json()['project'] == 'manual'
