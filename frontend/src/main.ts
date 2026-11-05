@@ -251,9 +251,6 @@ function scheduleTaskRefresh(evt:EventRecord){
     // Completion event is emitted after the task record is updated.
     clearTimeout(pendingRefresh);pendingRefresh=setTimeout(()=>void loadTask(evt.task_id!),100);
   }
-  if(evt.type.startsWith('goal.')||evt.type.startsWith('autonomy.')){void refreshGoals()}
-  if(evt.type.startsWith('discovery.')){void refreshDiscoveries()}
-  if(evt.type.startsWith('formulation.')){void refreshFormulations()}
   if(evt.type==='task.queued'||evt.type==='task.completed'||evt.type==='task.failed'){
     void refreshHistory();
   }

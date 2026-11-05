@@ -32,19 +32,19 @@ function install(){
  let filter:'active'|'new'|'history'='active',ds:R[]=[],qs:R[]=[],lastRefresh='',scanTime='',scanResult:R|null=null,loading=false,error='',notice='';
  let seen='';try{seen=localStorage.getItem(SEEN)||''}catch{}
  const unseen=(r:R)=>!!stamp(r)&&(!seen||Date.parse(stamp(r))>Date.parse(seen))&&!['dismissed','deferred','completed','resolved'].includes(state(r));
- const pick=(r:R)=>{
-  const quality=r.quality as string|undefined;
-  if(quality==='excluded'||quality==='missing')return false;
-  if(quality==='eligible')return true;
-  // Fallback for records without quality field (legacy records)
-  const path=text(r.path).toLowerCase();
-  const parts=path.split('/');const filename=parts[parts.length-1]||'';
-  if(parts.some(p=>['tests','__tests__','fixtures','node_modules','.venv','dist','build'].includes(p))||filename.startsWith('test_')||/\.(test|spec)\.(ts|js)$/.test(filename))return false;
-  const note=text(r.note).trim();
-  if(note.includes('{item[')||note.includes('INSERT INTO discoveries')||note.includes('${'))return false;
-  return /^(?:#|\/\/|\/\*|\*)\s*(?:TODO|FIXME)\b/i.test(note);
-};
-const pick=(r:R)=>filter==='history'?(!active(r)||!pick(r)):filter==='new'?(unseen(r)&&pick(r)):(active(r)&&pick(r));
+ const qualityCheck=(r:R)=>{
+   const quality=r.quality as string|undefined;
+   if(quality==='excluded'||quality==='missing')return false;
+   if(quality==='eligible')return true;
+   // Fallback for records without quality field (legacy records)
+   const path=text(r.path).toLowerCase();
+   const parts=path.split('/');const filename=parts[parts.length-1]||'';
+   if(parts.some(p=>['tests','__tests__','fixtures','node_modules','.venv','dist','build'].includes(p))||filename.startsWith('test_')||/\.(test|spec)\.(ts|js)$/.test(filename))return false;
+   const note=text(r.note).trim();
+   if(note.includes('{item[')||note.includes('INSERT INTO discoveries')||note.includes('${'))return false;
+   return /^(?:#|\/\/|\/\*|\*)\s*(?:TODO|FIXME)\b/i.test(note);
+ };
+ const pick=(r:R)=>filter==='history'?(!active(r)||!qualityCheck(r)):filter==='new'?(unseen(r)&&qualityCheck(r)):(active(r)&&qualityCheck(r));
 const toolbar=node('div','hl413r-toolbar');
 const top=node('div','hl413r-top');const heading=node('div');heading.append(node('h2','', 'Discover'),node('p','hl413r-muted','Independent discovery · Findings, decisions and history'));
 const status=node('span','hl413r-status','Loading');top.append(heading,status);
