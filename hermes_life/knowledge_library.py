@@ -148,6 +148,8 @@ class KnowledgeAdapter:
     @property
     def transport(self):return getattr(self.delegate,'transport',None)
     def _ssh_base(self):return self.delegate._ssh_base()
-    def run(self,prompt,event_callback):
+    def run(self,prompt,event_callback,task_id=None):
         excerpts=self.library.context(prompt)
-        return self.delegate.run(excerpts+'\n'+prompt if excerpts else prompt,event_callback)
+        return self.delegate.run(excerpts+'\n'+prompt if excerpts else prompt,event_callback,task_id)
+    def cancel(self, task_id):
+        return self.delegate.cancel(task_id)

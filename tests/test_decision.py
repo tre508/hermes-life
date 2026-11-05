@@ -7,7 +7,9 @@ class FakeAdapter:
     transport='ssh'
     def _ssh_base(self): return ['ssh','guest']
     def available(self): return True
-    def run(self,prompt,callback): return {'result':'ok','session_id':'guest-session'}
+    def run(self,prompt,callback,task_id=None): return {'result':'ok','session_id':'guest-session'}
+    def cancel(self, task_id):
+        return True
 
 def test_decision_opt_in_and_curiosity_persists(tmp_path):
     path=tmp_path/'life.db'

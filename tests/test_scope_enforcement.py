@@ -20,15 +20,19 @@ class FakeAdapter:
     transport = 'ssh'
 
     def available(self): return True
-    def run(self, prompt, callback): return {'result': 'ok', 'session_id': 's'}
+    def run(self, prompt, callback, task_id=None): return {'result': 'ok', 'session_id': 's'}
+    def cancel(self, task_id):
+        return True
 
 
 class Recorder:
     """Stands in for one capability chain so a test can prove which one was used."""
     def __init__(self): self.calls = []
-    def run(self, prompt, callback):
+    def run(self, prompt, callback, task_id=None):
         self.calls.append(prompt)
         return {'result': 'recorded', 'session_id': 's'}
+    def cancel(self, task_id):
+        return True
 
 
 def _runtime(tmp_path):
@@ -108,7 +112,7 @@ def test_read_only_refuses_the_local_transport(monkeypatch):
 def test_interactive_local_transport_still_runs(monkeypatch):
     monkeypatch.setattr(HermesAdapter, 'available', lambda self: True)
     captured = {}
-    def fake_execute(self, command, prompt_stdin, event_callback):
+    def fake_execute(self, command, prompt_stdin, event_callback, task_id=None):
         captured['command'] = list(command)
         return {'result': 'ok'}
     monkeypatch.setattr(HermesAdapter, '_execute', fake_execute)

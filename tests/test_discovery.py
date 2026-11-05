@@ -6,7 +6,9 @@ class FakeAdapter:
     transport='ssh'
     def _ssh_base(self): return ['ssh','fake-vm']
     def available(self): return True
-    def run(self,prompt,callback):return {'result':'OK','session_id':'demo'}
+    def run(self,prompt,callback,task_id=None):return {'result':'OK','session_id':'demo'}
+    def cancel(self, task_id):
+        return True
 
 def test_candidate_review_persists(tmp_path):
     from fastapi.testclient import TestClient

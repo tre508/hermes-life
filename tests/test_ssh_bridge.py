@@ -20,7 +20,7 @@ def test_ssh_command_and_events(monkeypatch, tmp_path):
     adapter = HermesAdapter(transport='ssh', identity_file=key)
     assert adapter.available()
     events = []
-    monkeypatch.setattr(adapter, '_execute', lambda cmd, prompt, cb: (calls.append((cmd, prompt)), cb('hermes.tool_use', {'name':'terminal'}), {'result':'from VM','session_id':'vm-session'})[-1])
+    monkeypatch.setattr(adapter, '_execute', lambda cmd, prompt, cb, task_id=None: (calls.append((cmd, prompt)), cb('hermes.tool_use', {'name':'terminal'}), {'result':'from VM','session_id':'vm-session'})[-1])
     result = adapter.run('hello; $(dangerous)', lambda *args: events.append(args))
     assert result == {'result':'from VM','session_id':'vm-session'}
     command, payload = calls[-1]

@@ -5,9 +5,11 @@ from hermes_life.app import create_app
 class FakeAdapter:
     transport='ssh'
     def available(self): return True
-    def run(self,prompt,callback):
+    def run(self,prompt,callback,task_id=None):
         callback('hermes.result',{'type':'result'})
         return {'result':json.dumps({'title':'Investigate timeout defect','action':'coding','rationale':'Repeated timeout is reported in repository','acceptance_criteria':['Document reproducible failure'], 'priority':70,'execution_prompt':'Read the file and diagnose the issue without changes'}),'session_id':'test'}
+    def cancel(self, task_id):
+        return True
 
 def test_formulation_approval_and_persistence(tmp_path):
     path=tmp_path/'life.db'

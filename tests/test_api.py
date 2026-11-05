@@ -5,9 +5,11 @@ from hermes_life.app import create_app
 class FakeAdapter:
     def available(self):
         return True
-    def run(self, prompt, callback):
+    def run(self, prompt, callback, task_id=None):
         callback('hermes.tool_use', {'name':'test_tool','input':{'prompt':prompt}})
         return {'result':'Test complete', 'session_id':'fake-session'}
+    def cancel(self, task_id):
+        return True
 
 def test_task_lifecycle_and_restart(tmp_path):
     db = tmp_path / 'life.db'

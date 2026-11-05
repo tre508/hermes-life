@@ -17,7 +17,7 @@ root.innerHTML=`<button id="hc-toggle" aria-label="Open Hermes chat" title="Herm
  <header class="hc-head"><div class="hc-brand"><span class="hc-logo" aria-hidden="true">✦</span><div class="hc-brand-copy"><strong>Hermes</strong><small id="hc-state">Connected to Hermes Life</small></div></div><div class="hc-actions"><button id="hc-new" type="button" title="New conversation"><span class="hc-action-icon" aria-hidden="true">＋</span> New Chat</button><button id="hc-history" type="button" title="Conversation history"><span class="hc-action-icon" aria-hidden="true">☷</span> Threads</button><button id="hc-close" type="button" title="Close chat"><span class="hc-action-icon" aria-hidden="true">×</span> Close</button></div></header>
  <nav id="hc-threads" aria-label="Previous conversations" hidden></nav>
  <main id="hc-messages" aria-live="polite"><div class="hc-empty">Start a conversation with Hermes.<br>Messages and tasks share the same thread.</div></main>
- <div id="hc-progress" hidden><span id="hc-progress-label">Hermes is working…</span><button id="hc-details">Activity ▾</button></div>
+ <div id="hc-progress" hidden><span id="hc-progress-label">Hermes is working…</span><button id="hc-details">Activity ▾</button><button id="hc-stop" type="button" title="Stop current task">Stop</button></div>
  <div id="hc-events" hidden></div>
  <div id="hc-feedback" role="status"></div>
  <form id="hc-form"><textarea id="hc-input" rows="1" placeholder="Message Hermes…" aria-label="Message Hermes"></textarea><button id="hc-send" type="submit" title="Send message"><span aria-hidden="true">➤</span> Send</button></form>
@@ -79,7 +79,7 @@ async function render(forceBottom=false){
     for(const t of data.turns)addBubble(t.role,t.content,t.created_at,t.task_id,t.id);
     if(activeTask&&liveTask===activeTask&&liveText){const text=liveText;clearStream();streamBubble(activeTask,text);}
     const last=data.turns[data.turns.length-1];
-    if(last.role==='user'&&last.task_id&&!['completed','failed','stopped'].includes(activeState)){
+    if(last.role==='user'&&last.task_id&&!['completed','failed','cancelled','stopped'].includes(activeState)){
       activeTask=last.task_id;void pollTask();
     }
     restore();
@@ -88,13 +88,23 @@ async function render(forceBottom=false){
 async function refreshThreads(){try{const data=await request<{conversations:Conversation[]}>('/api/conversations');const nav=el('hc-threads');nav.replaceChildren();for(const t of data.conversations){const b=document.createElement('button');b.textContent=t.title||'Conversation';b.title=t.updated_at;b.onclick=()=>{conversationId=t.id;localStorage.setItem(stored,t.id);nav.hidden=true;clearStream();activeTask='';void render(true)};nav.append(b)}}catch(err){feedback.textContent=String(err)}}
 async function pollTask(){if(!activeTask)return;try{const t=await request<Task>('/api/tasks/'+encodeURIComponent(activeTask));activeState=t.state;state('Task '+t.state);const running=['queued','running','pending'].includes(t.state);setRunning(running);if(!running){activeTask='';await renderFinished();}}catch(err){feedback.textContent=String(err)}}
 async function renderFinished(){clearStream();await render(true);}
-function eventItem(e:Evt){if(e.task_id!==activeTask)return;if(e.sequence<=lastSeq)return;lastSeq=e.sequence;if(e.type==='hermes.text'){const delta=e.payload?.text;if(typeof delta==='string')streamBubble(e.task_id||'',delta);return;}const events=el('hc-events');const d=document.createElement('div');d.textContent=`${new Date(e.timestamp).toLocaleTimeString()} · ${e.type} · ${JSON.stringify(e.payload).slice(0,550)}`;events.append(d);while(events.childElementCount>120)events.firstElementChild?.remove();events.scrollTop=events.scrollHeight;if(e.type==='task.completed'||e.type==='task.failed'){void pollTask()}else if(e.type==='task.started')state('Hermes is executing');}
+function eventItem(e:Evt){if(e.task_id!==activeTask)return;if(e.sequence<=lastSeq)return;lastSeq=e.sequence;if(e.type==='hermes.text'){const delta=e.payload?.text;if(typeof delta==='string')streamBubble(e.task_id||'',delta);return;}const events=el('hc-events');const d=document.createElement('div');d.textContent=`${new Date(e.timestamp).toLocaleTimeString()} · ${e.type} · ${JSON.stringify(e.payload).slice(0,550)}`;events.append(d);while(events.childElementCount>120)events.firstElementChild?.remove();events.scrollTop=events.scrollHeight;if(e.type==='task.completed'||e.type==='task.failed'||e.type==='task.cancelled'){void pollTask()}else if(e.type==='task.started')state('Hermes is executing');}
 function connect(){socket?.close();const ws=new WebSocket(`${location.protocol==='https:'?'wss':'ws'}://${location.host}/ws/events?after=${lastSeq}`);socket=ws;ws.onmessage=ev=>{try{eventItem(JSON.parse(ev.data) as Evt)}catch{}};ws.onclose=()=>{if(socket===ws)setTimeout(connect,2500)};}
 el('hc-toggle').onclick=()=>{panel.hidden=!panel.hidden;if(!panel.hidden){void render(true);void refreshThreads();if(!socket||socket.readyState>1)connect()}};
 el('hc-close').onclick=()=>panel.hidden=true;
 el('hc-new').onclick=()=>{if(activeTask&&['queued','running'].includes(activeState)){feedback.textContent='Finish the active task before starting another conversation.';return;}conversationId='';localStorage.removeItem(stored);activeTask='';pendingRevision=null;void render();state('New conversation')};
 el('hc-history').onclick=()=>{const nav=el('hc-threads');nav.hidden=!nav.hidden;if(!nav.hidden)void refreshThreads()};
 el('hc-details').onclick=()=>el('hc-events').hidden=!el('hc-events').hidden;
+el('hc-stop').onclick=async()=>{
+  if(!activeTask)return;
+  feedback.textContent='Stopping task…';
+  try{
+    await request('/api/tasks/'+encodeURIComponent(activeTask)+'/cancel',{method:'POST'});
+    feedback.textContent='Task stopped';
+  }catch(err){
+    feedback.textContent='Stop failed: '+String(err);
+  }
+};
 el('hc-form').addEventListener('submit',async ev=>{ev.preventDefault();const box=el('hc-input') as HTMLTextAreaElement;const prompt=box.value.trim();if(!prompt||activeTask)return;feedback.textContent='';setRunning(true);try{const t=await request<Task&{conversation_id:string}>('/api/tasks',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({prompt,conversation_id:conversationId||null,...(pendingRevision?{revision_of:pendingRevision.id,revision_text:pendingRevision.content}:{})})});conversationId=t.conversation_id;localStorage.setItem(stored,conversationId);clearStream();activeTask=t.id;activeState=t.state;box.value='';pendingRevision=null;await render();state('Hermes is working');}catch(err){feedback.textContent='Not submitted: '+String(err);setRunning(false)}});
 (el('hc-input') as HTMLTextAreaElement).addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();el('hc-form').dispatchEvent(new Event('submit',{cancelable:true}))}});
 setInterval(()=>{if(activeTask)void pollTask()},1500);

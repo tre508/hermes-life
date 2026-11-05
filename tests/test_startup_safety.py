@@ -6,7 +6,9 @@ from hermes_life.app import create_app
 
 class FakeAdapter:
     def available(self): return True
-    def run(self, prompt, callback): return {'result': prompt, 'session_id': 'test'}
+    def run(self, prompt, callback, task_id=None): return {'result': prompt, 'session_id': 'test'}
+    def cancel(self, task_id):
+        return True
 
 def test_import_does_not_open_or_modify_db(tmp_path):
     db=tmp_path/'life.db'

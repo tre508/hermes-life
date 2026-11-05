@@ -107,7 +107,7 @@ class Runtime:
 
             recall = self.recall.retrieve(self.store.task(ident)['prompt'], conversation_id) if conversation_id else ''
             recall += self.vault_memory.retrieve_notes(self.store.task(ident)['prompt'])
-            result = adapter.run(recall + context + self.store.task(ident)['prompt'], on_event)
+            result = adapter.run(recall + context + self.store.task(ident)['prompt'], on_event, ident)
             self.store.update_task(ident, 'completed', **result)
             if conversation_id:
                 self.conversations.finish(conversation_id, ident, result)
@@ -677,6 +677,27 @@ def create_app(database=None, adapter=None):
         except Exception:
             runtime.active.release()
             raise
+
+    @app.post('/api/tasks/{task_id}/cancel')
+    def cancel_task(task_id: str):
+        """Cancel a running task. Returns the cancelled task state."""
+        task = runtime.store.task(task_id)
+        if not task:
+            raise HTTPException(404, 'Task not found')
+        if task['state'] not in ('queued', 'running', 'pending'):
+            raise HTTPException(409, f'Task cannot be cancelled in state: {task["state"]}')
+        # Try to cancel via the active adapter
+        scope = runtime.task_scope(task_id)
+        adapter = runtime.adapters[scope]
+        if adapter.cancel(task_id):
+            runtime.store.update_task(task_id, 'cancelled', error='Cancelled by user')
+            runtime.store.emit('task.cancelled', {'task_id': task_id}, task_id)
+            # Release the global lock if we hold it
+            runtime.store.set_agent('idle')
+            runtime.active.release()
+            return runtime.store.task(task_id)
+        else:
+            raise HTTPException(409, 'Task not found in active process registry')
 
     # Maintenance routes (HL-MAINT-001/002, HL-ENV-004)
     class PruneInput(BaseModel):

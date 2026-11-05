@@ -4,9 +4,11 @@ from hermes_life.app import create_app
 
 class FakeAdapter:
     def available(self):return True
-    def run(self,prompt,callback):
+    def run(self,prompt,callback,task_id=None):
         callback('hermes.result',{'text':prompt})
         return {'result':prompt,'session_id':'fake'}
+    def cancel(self, task_id):
+        return True
 
 def test_opt_in_queue_execution_and_restart(tmp_path):
     db=tmp_path/'life.db'

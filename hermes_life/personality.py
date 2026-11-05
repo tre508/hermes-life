@@ -47,7 +47,7 @@ class PersonalityAdapter:
         return getattr(self.delegate,'transport',None)
     def _ssh_base(self):
         return self.delegate._ssh_base()
-    def run(self, prompt, event_callback):
+    def run(self, prompt, event_callback, task_id=None):
         reflection=self.personality.reflection
         memory=self.personality.technical_memory
         kinds=[]
@@ -62,7 +62,7 @@ class PersonalityAdapter:
         augmented=(task_context(self.personality.get()) + memory.context(relevant) +
                    reflection.context(prompt) + prompt + '\n\n' + REPORT_INSTRUCTIONS)
         try:
-            result=self.delegate.run(augmented,collect)
+            result=self.delegate.run(augmented,collect,task_id)
         except Exception as exc:
             run_id=reflection.record(prompt,None,kinds,error=exc)
             memory.track_reuse([row['id'] for row in relevant],run_id,'failed')
@@ -77,3 +77,5 @@ class PersonalityAdapter:
             memory.track_reuse([row['id'] for row in relevant],run_id,'completed')
             memory.record_applications(run_id,applied,[row['id'] for row in relevant],tool_evidence)
         return result
+    def cancel(self, task_id):
+        return self.delegate.cancel(task_id)

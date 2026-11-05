@@ -29,6 +29,7 @@ import os
 import selectors
 import shlex
 import shutil
+import signal
 import subprocess
 import threading
 import time
@@ -93,6 +94,9 @@ class HermesAdapter:
         self.port = int(port or os.getenv('HERMES_LIFE_VM_PORT', '22'))
         if self.transport not in ('local', 'ssh'):
             raise ValueError('HERMES_LIFE_TRANSPORT must be local or ssh')
+        # Registry of running processes: task_id -> (pgid, proc)
+        self._running = {}
+        self._running_lock = threading.Lock()
 
     def _ssh_base(self):
         return ['ssh', '-T', '-p', str(self.port), '-i', str(self.identity_file),
@@ -113,7 +117,7 @@ class HermesAdapter:
         except (OSError, subprocess.TimeoutExpired):
             return False
 
-    def run(self, prompt, event_callback):
+    def run(self, prompt, event_callback, task_id=None):
         if not self.available():
             raise HermesError(f'Hermes unavailable via {self.transport} transport')
         if self.transport == 'ssh':
@@ -132,13 +136,18 @@ class HermesAdapter:
                 file = Path(tmp) / 'prompt.txt'
                 file.write_text(prompt, encoding='utf-8')
                 command = [self.executable, 'chat', '--query-file', str(file), '--format', 'stream-json']
-                return self._execute(command, None, event_callback)
-        return self._execute(command, prompt, event_callback)
+                return self._execute(command, None, event_callback, task_id)
+        return self._execute(command, prompt, event_callback, task_id)
 
-    def _execute(self, command, prompt_stdin, event_callback):
+    def _execute(self, command, prompt_stdin, event_callback, task_id=None):
         proc = subprocess.Popen(command, stdin=subprocess.PIPE if prompt_stdin is not None else subprocess.DEVNULL,
                                 stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                                 text=True, bufsize=1, start_new_session=True)
+        pgid = proc.pid
+        # Register running process for cancellation
+        if task_id:
+            with self._running_lock:
+                self._running[task_id] = (pgid, proc)
         stderr_tail = deque(maxlen=16)
         def drain_stderr():
             for line in proc.stderr:
@@ -191,4 +200,29 @@ class HermesAdapter:
             proc.wait()
             raise
         finally:
+            # Deregister running process
+            if task_id:
+                with self._running_lock:
+                    self._running.pop(task_id, None)
             reader.join(timeout=1)
+
+    def cancel(self, task_id):
+        """Cancel a running task by sending SIGTERM then SIGKILL to its process group."""
+        with self._running_lock:
+            entry = self._running.pop(task_id, None)
+        if entry is None:
+            return False
+        pgid, proc = entry
+        try:
+            # Try graceful termination first
+            os.killpg(pgid, signal.SIGTERM)
+            proc.wait(timeout=5)
+        except (ProcessLookupError, subprocess.TimeoutExpired):
+            # Escalate to SIGKILL
+            try:
+                if proc.poll() is None:
+                    os.killpg(pgid, signal.SIGKILL)
+                proc.wait(timeout=2)
+            except (ProcessLookupError, subprocess.TimeoutExpired):
+                pass
+        return True

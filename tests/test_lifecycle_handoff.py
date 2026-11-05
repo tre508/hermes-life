@@ -50,12 +50,14 @@ class LifecycleAdapter:
     def available(self):
         return True
 
-    def run(self, prompt, callback):
+    def run(self, prompt, callback, task_id=None):
         if 'No implementation is authorized' in prompt:  # planning stage only
             return {'result': json.dumps(PLAN_DOC), 'session_id': 'plan'}
         if self.fail_investigation:
             raise RuntimeError('investigation failed')
         return {'result': 'read-only finding: no tests present', 'session_id': 'invest'}
+    def cancel(self, task_id):
+        return True
 
 
 @contextmanager

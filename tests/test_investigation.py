@@ -5,7 +5,7 @@ from hermes_life.app import create_app
 class PlanAdapter:
     transport='ssh'
     def available(self): return True
-    def run(self, prompt, callback):
+    def run(self, prompt, callback, task_id=None):
         assert 'No implementation is authorized' in prompt
         return {'result': json.dumps({
             'summary':'The module lacks a reliable automated regression check.',
@@ -29,6 +29,8 @@ class PlanAdapter:
                 'started':None,'last_event':None,'completed':None,'reviewed':None
             }
         }), 'session_id':'plan-test'}
+    def cancel(self, task_id):
+        return True
 
 def seed(store, status='completed'):
     with store.lock:
