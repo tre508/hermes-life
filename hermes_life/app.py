@@ -8,7 +8,7 @@ from .schema import migrate, recover_interrupted
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel, Field
 from typing import List
-from .store import Store
+from .store import Store, now
 from .hermes_adapter import HermesAdapter, PROFILES
 from .world import sync_world
 from .autonomy import Autonomy
@@ -642,6 +642,56 @@ def create_app(database=None, adapter=None):
                 payload.get('conversation_id'), payload.get('turn_id'), payload.get('supersedes'))
         except (TypeError, ValueError) as exc:
             raise HTTPException(422,str(exc))
+
+    # Personality / Learned Behavioral Profile endpoints (HL-PERS-001)
+    @app.get('/api/personality/profile')
+    def personality_profile():
+        """Get the current learned behavioral profile (preferences, corrections, decisions, workflows)."""
+        return {'profile': runtime.personality.learned_profile()}
+
+    @app.get('/api/personality/profile/relevant')
+    def personality_profile_relevant(prompt: str, conversation_id: str | None = None, limit: int = 5):
+        """Get relevant learned memories for a specific task prompt."""
+        context = runtime.personality.relevant_learned_context(prompt, conversation_id, limit)
+        return {'context': context}
+
+    class ProfileCorrectionInput(BaseModel):
+        memory_id: str
+        action: str = Field(pattern='^(supersede|delete)$')  # supersede=replace with new content, delete=supersede to inactive
+        new_content: str | None = Field(default=None, max_length=1600)
+        new_kind: str | None = Field(default=None, pattern='^(preference|correction|decision|workflow|project)$')
+
+    @app.post('/api/personality/profile/{memory_id}/correct')
+    def correct_profile_memory(memory_id: str, payload: ProfileCorrectionInput):
+        """Correct or invalidate a learned behavioral memory.
+        
+        - supersede: replaces the memory with new_content (and optional new_kind), marking old as superseded
+        - delete: marks the memory as superseded (inactive) without replacement
+        """
+        with runtime.store.lock:
+            db = runtime.store.connection
+            existing = db.execute('SELECT * FROM hl_memories WHERE id=?', (memory_id,)).fetchone()
+            if not existing:
+                raise HTTPException(404, 'Memory not found')
+            if existing['status'] != 'active':
+                raise HTTPException(409, 'Memory is not active')
+        
+        if payload.action == 'supersede':
+            if not payload.new_content or len(payload.new_content.strip()) < 4:
+                raise HTTPException(422, 'New content must be at least 4 characters')
+            kind = payload.new_kind or existing['kind']
+            result = runtime.recall.remember(payload.new_content.strip(), kind,
+                existing['source_conversation_id'], existing['source_turn_id'], supersedes=memory_id)
+            return {'action': 'superseded', 'old_id': memory_id, 'new': result}
+        elif payload.action == 'delete':
+            # Mark as superseded with no replacement
+            with runtime.store.lock:
+                db = runtime.store.connection
+                db.execute('UPDATE hl_memories SET status="superseded", superseded_by=NULL, updated_at=? WHERE id=?',
+                    (now(), memory_id))
+                db.commit()
+            runtime.store.emit('personality.profile_corrected', {'memory_id': memory_id, 'action': 'deleted'}, memory_id)
+            return {'action': 'deleted', 'memory_id': memory_id}
 
     @app.get('/api/tasks')
     def tasks():
