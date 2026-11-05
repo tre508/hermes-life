@@ -25,6 +25,7 @@ function status(run?:Rec,decision?:Rec){
 const busyStates=new Set(['preparing','testing_baseline','implementing','evaluating']);
 let plans:Rec[]=[],runs:Rec[]=[],decisionMap=new Map<string,Rec>(),revisionMap=new Map<string,Rec>(),last='',error='',loading=false;
 let reviewRun:Rec|null=null,reviewData:Rec|null=null,revisionData:Rec|null=null,reviewError='',decisionMessage='',requestBusy=false;
+let editingPlanId:string|null=null; // track which plan's input is being edited
 function track(plan:Rec){return runs.find(r=>s(r.plan_id)===s(plan.id))}
 function stateMessage(plan:Rec){const r=track(plan);const d=r?decisionMap.get(s(r.id)):undefined;
  if(s(plan.state)==='proposed')return 'Awaiting your plan approval. No coding has started.';
@@ -50,11 +51,30 @@ function renderPlanning(){const root=$('hl415-planning');if(!root)return;root.re
   const actions=node('div','','hl415-actions');
   if(p.task_id)actions.append(btn('Investigation answer',()=>showTask(s(p.task_id))));
   if(s(p.state)==='proposed')actions.append(btn('Approve plan',()=>{details.open=true;if(!confirm('Approve this plan? Approval authorizes isolated implementation only; it does not modify host source.'))return;void action(`/investigation-plans/${encodeURIComponent(s(p.id))}/approve`,'POST')}));
-  if(s(p.state)==='approved'&&!r){const wrap=node('div','','hl415-actions');const input=node('input') as HTMLInputElement;input.type='text';input.placeholder='VM project name (e.g. hermes-life-test)';input.setAttribute('aria-label','VM project name');const b=btn('Start isolated implementation',()=>{
-    if(!input.value.trim())return alert('Enter a VM project name.');
-    if(!confirm(`Start approved implementation in VM project ${input.value.trim()}?`))return;
-    b.disabled=true;void api(`/implementations/from-plan/${encodeURIComponent(s(p.id))}`,'POST',{project:input.value.trim()}).then(()=>void refresh()).catch(e=>{error=s(e);renderAll()}).finally(()=>{b.disabled=false});
-   });wrap.append(input,b);card.append(wrap)}
+  if(s(p.state)==='approved'&&!r){
+    const wrap=node('div','','hl415-actions');
+    const input=node('input') as HTMLInputElement;
+    input.type='text';
+    input.placeholder='VM project name (e.g. hermes-life-test)';
+    input.setAttribute('aria-label','VM project name');
+    const planId=s(p.id);
+    // If this plan was being edited, restore its value
+    if(editingPlanId===planId && input.dataset.savedValue){
+      input.value=input.dataset.savedValue;
+    }
+    input.addEventListener('focus',()=>{editingPlanId=planId});
+    input.addEventListener('blur',()=>{
+      input.dataset.savedValue=input.value;
+      if(editingPlanId===planId) editingPlanId=null;
+    });
+    const b=btn('Start isolated implementation',()=>{
+      if(!input.value.trim())return alert('Enter a VM project name.');
+      if(!confirm(`Start approved implementation in VM project ${input.value.trim()}?`))return;
+      b.disabled=true;void api(`/implementations/from-plan/${encodeURIComponent(planId)}`,'POST',{project:input.value.trim()}).then(()=>void refresh()).catch(e=>{error=s(e);renderAll()}).finally(()=>{b.disabled=false});
+    });
+    wrap.append(input,b);
+    card.append(wrap)
+  }
   if(r)actions.append(btn('View in Build',()=>{document.querySelector<HTMLButtonElement>('[data-tab="build"]')?.click();document.getElementById('hl415-run-'+s(r.id))?.scrollIntoView({block:'nearest'});if(!document.getElementById('hl415-run-'+s(r.id)))openReview(r)}));
   card.append(actions);root.append(card);
  }
