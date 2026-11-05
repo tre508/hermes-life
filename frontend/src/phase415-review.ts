@@ -63,6 +63,9 @@ function renderPlanning(){const root=$('hl415-planning');if(!root)return;root.re
       input.value=input.dataset.savedValue;
     }
     input.addEventListener('focus',()=>{editingPlanId=planId});
+    input.addEventListener('input',()=>{
+      input.dataset.savedValue=input.value;
+    });
     input.addEventListener('blur',()=>{
       input.dataset.savedValue=input.value;
       if(editingPlanId===planId) editingPlanId=null;
