@@ -20,6 +20,8 @@ from .investigation import InvestigationPlanner
 from .implementation import ImplementationEngine
 from .implementation_review import ImplementationReview
 from .implementation_revision import ImplementationRevision
+from .verification import VerificationEngine  # HL-VERIFY-001
+from .workflow_status import WorkflowStatus  # HL-UI-STATE-001
 from .personality import Personality, PersonalityAdapter
 from .conversation_memory import ConversationMemory
 from .conversation_recall import Recall
@@ -151,6 +153,14 @@ def create_app(database=None, adapter=None):
     implementer = ImplementationEngine(runtime, planner)
     reviewer = ImplementationReview(runtime, implementer)
     revisions = ImplementationRevision(runtime, implementer, reviewer)
+    verifier = VerificationEngine(runtime, implementer, reviewer)  # HL-VERIFY-001
+    workflow = WorkflowStatus(runtime)  # HL-UI-STATE-001: one read-only status authority
+    # Independent verification is wired into the three places that can change a candidate,
+    # and can request a targeted revision through the existing FLOW-006 engine.
+    planner.verifier = verifier
+    implementer.verifier = verifier
+    reviewer.verifier = verifier
+    verifier.revisions = revisions
     autonomy.planner = planner  # lifecycle handoff at goal completion needs the planner
     autonomy.study = runtime.study  # HL-STUDY-004: scheduler hook for study units
     @asynccontextmanager
@@ -186,6 +196,8 @@ def create_app(database=None, adapter=None):
     app.state.formulation = formulation
     app.state.investigation_planner = planner
     app.state.implementer = implementer
+    app.state.verifier = verifier
+    app.state.workflow = workflow
 
     @app.get('/api/personality')
     def get_personality():
@@ -252,7 +264,8 @@ def create_app(database=None, adapter=None):
 
     @app.get('/api/discoveries')
     def list_discoveries():
-        return discovery.list()
+        # HL-UI-STATE-001: the displayed status comes from the chain, not from `state`.
+        return workflow.annotate('discoveries', discovery.list())
 
     @app.post('/api/discoveries/scan')
     def scan_discoveries():
@@ -285,9 +298,9 @@ def create_app(database=None, adapter=None):
 
     @app.get('/api/curiosity')
     def curiosity_queue():
-        return decision.curiosity()
+        return workflow.annotate('curiosity', decision.curiosity())
 
-    register_curiosity_workflow_routes(app, runtime, discovery)  # HL_FLOW_003
+    register_curiosity_workflow_routes(app, runtime, discovery, workflow)  # HL_FLOW_003 + HL-UI-STATE-001
 
     @app.post('/api/curiosity/{ident}/{state}')
     def curiosity_change(ident: str,state: str):
@@ -316,7 +329,7 @@ def create_app(database=None, adapter=None):
 
     @app.get('/api/investigation-plans')
     def investigation_plans():
-        return planner.list()
+        return workflow.annotate('plans', planner.list())
 
     @app.post('/api/investigation-plans/{plan_id}/approve')
     def approve_investigation_plan(plan_id: str):
@@ -332,6 +345,9 @@ def create_app(database=None, adapter=None):
         except (ValueError,RuntimeError) as exc: raise HTTPException(409,str(exc))
         except Exception as exc: raise HTTPException(422,'Invalid plan: '+str(exc)[:240])
 
+    class VerificationSettingsInput(BaseModel):
+        auto_revision: bool
+
     class ImplementationInput(BaseModel):
         # HL-FLOW-005: optional. When omitted the engine derives the project from the
         # plan's lineage (plan -> formulation -> discovery.project).
@@ -339,7 +355,7 @@ def create_app(database=None, adapter=None):
 
     @app.get('/api/implementations')
     def implementations():
-        return implementer.list()
+        return workflow.annotate('runs', implementer.list())
 
     @app.post('/api/implementations/{ident}/reevaluate')
     def reevaluate_implementation(ident: str):
@@ -468,9 +484,49 @@ def create_app(database=None, adapter=None):
         except KeyError as exc: raise HTTPException(404,str(exc))
         except (ValueError,RuntimeError) as exc: raise HTTPException(409,str(exc))
 
+    # ---------------------------------------------------------------- HL-VERIFY-001
+    @app.get('/api/investigation-plans/{plan_id}/criteria')
+    def plan_criteria(plan_id: str):
+        """Compiled checks for each acceptance criterion (what will be verified)."""
+        if not planner.get(plan_id):
+            raise HTTPException(404, 'Plan not found')
+        return verifier.criteria(plan_id)
+
+    @app.post('/api/investigation-plans/{plan_id}/compile-criteria', status_code=201)
+    def compile_plan_criteria(plan_id: str):
+        try: return verifier.compile_criteria(plan_id)
+        except KeyError as exc: raise HTTPException(404, str(exc))
+        except (ValueError, RuntimeError) as exc: raise HTTPException(409, str(exc))
+
+    @app.get('/api/verification/settings')
+    def verification_settings():
+        return verifier.settings()
+
+    @app.put('/api/verification/settings')
+    def set_verification_settings(payload: VerificationSettingsInput):
+        return verifier.set_auto_revision(payload.auto_revision)
+
+    @app.get('/api/implementations/{ident}/verification')
+    def implementation_verification(ident: str):
+        """Latest verification report with per-criterion verdicts and raw evidence."""
+        try: return verifier.report(ident) or {}
+        except KeyError as exc: raise HTTPException(404, str(exc))
+
+    @app.post('/api/implementations/{ident}/verify', status_code=201)
+    def verify_implementation(ident: str):
+        """Re-verify an existing candidate. Never invokes the coding agent."""
+        try: return verifier.run(ident, trigger='manual')
+        except KeyError as exc: raise HTTPException(404, str(exc))
+        except (ValueError, RuntimeError) as exc: raise HTTPException(409, str(exc))
+
     @app.get("/api/goals")
     def list_goals():
-        return autonomy.list()
+        return workflow.annotate('goals', autonomy.list())
+
+    @app.get('/api/workflow/status')
+    def workflow_status():
+        """One snapshot every tab can agree on (HL-UI-STATE-001 criterion 8)."""
+        return workflow.snapshot()
 
     @app.post("/api/goals", status_code=201)
     def add_goal(payload:GoalInput):
@@ -776,18 +832,22 @@ def create_app(database=None, adapter=None):
             raise HTTPException(500, f'Maintenance error: {exc}')
 
     @app.get('/api/events')
-    def events(after: int=0, limit: int=200,
+    def events(after: int=0, limit: int=200, tail: int | None = None,
                goal_id: str | None = None, run_id: str | None = None,
                plan_id: str | None = None, project_id: str | None = None,
                correlation_id: str | None = None):
-        """Get events with optional filtering by linking fields (HL-EVENT-002)."""
+        """Get events with optional filtering by linking fields (HL-EVENT-002).
+
+        `tail=N` (UI-VIS-002) returns the newest N events so a client can show recent activity
+        and then stream live, instead of replaying the whole log from sequence 0.
+        """
         filters = {}
         if goal_id: filters['goal_id'] = goal_id
         if run_id: filters['run_id'] = run_id
         if plan_id: filters['plan_id'] = plan_id
         if project_id: filters['project_id'] = project_id
         if correlation_id: filters['correlation_id'] = correlation_id
-        return runtime.store.events(after, limit, **filters)
+        return runtime.store.events(after, limit, tail=tail, **filters)
 
     @app.get('/api/events/{sequence}')
     def event_by_sequence(sequence: int):

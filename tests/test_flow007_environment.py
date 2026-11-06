@@ -202,7 +202,8 @@ class Store:
           INSERT INTO investigation_plans VALUES ('plan','{{"acceptance_criteria":["sample behavior"]}}');
           CREATE TABLE implementation_reviews(run_id TEXT PRIMARY KEY,decision TEXT,
             evidence_sha256 TEXT,criteria_json TEXT,feedback TEXT,decided_at TEXT);
-          INSERT INTO implementation_reviews VALUES ('run','revision_requested','abc','[false]','Fix it','yesterday');
+          INSERT INTO implementation_reviews(run_id,decision,evidence_sha256,criteria_json,feedback,decided_at)
+              VALUES ('run','revision_requested','abc','[false]','Fix it','yesterday');
         ''')
 
     def emit(self, *args):

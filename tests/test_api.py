@@ -47,11 +47,12 @@ def test_api_only_calls_engine_methods_that_exist():
     from hermes_life.implementation import ImplementationEngine
     from hermes_life.implementation_revision import ImplementationRevision
     from hermes_life.implementation_review import ImplementationReview
+    from hermes_life.verification import VerificationEngine
 
     source = Path(__file__).resolve().parent.parent / 'hermes_life' / 'app.py'
     text = source.read_text(encoding='utf-8')
     engines = {'revisions': ImplementationRevision, 'implementer': ImplementationEngine,
-               'reviewer': ImplementationReview}
+               'reviewer': ImplementationReview, 'verifier': VerificationEngine}
     missing = sorted(
         f'{name}.{attribute}'
         for name, engine in engines.items()

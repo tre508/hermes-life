@@ -8,7 +8,11 @@ import shlex
 import subprocess
 import threading
 from pathlib import Path
+from typing import TYPE_CHECKING
 from uuid import uuid4
+
+if TYPE_CHECKING:
+    from .verification import VerificationEngine
 
 from .guest_env import ENV_PROVISION, ENV_RESOLVER
 from .store import now
@@ -84,10 +88,27 @@ else:raise ValueError('Invalid operation')
 
 
 class ImplementationEngine:
+    #: HL-VERIFY-001: injected by create_app once the verification engine exists.
+    verifier: 'VerificationEngine | None' = None
+
     def __init__(self, runtime, planner):
         self.runtime, self.planner = runtime, planner
         self.store = runtime.store
         self.lock = threading.Lock()
+
+    def _auto_verify(self, ident):
+        """Best-effort independent verification after an evaluation.
+
+        Verification must never change the run's own state: a failure here is recorded as
+        a verification error, not as a candidate failure.
+        """
+        if self.verifier is None:
+            return None
+        try:
+            return self.verifier.run(ident, trigger='auto')
+        except Exception as exc:
+            self.store.emit('verification.failed', {'run_id': ident, 'error': str(exc)[:300]})
+            return None
 
     def list(self):
         with self.store.lock:
@@ -349,7 +370,10 @@ class ImplementationEngine:
                                       'acceptance_criteria': criteria}))
             result = self.runtime.adapter.run(prompt, lambda k, v: self.store.emit(k, v))
             self._update(ident, 'evaluating', response=result.get('result', ''))
-            return self._evaluate(ident, 'evaluating', baseline)
+            evaluated = self._evaluate(ident, 'evaluating', baseline)
+            # HL-VERIFY-001: verify the candidate against the approved plan's criteria.
+            self._auto_verify(ident)
+            return evaluated
         except Exception as exc:
             if self.get(ident):
                 self._update(ident, 'failed', error=str(exc)[:2000])
@@ -397,12 +421,15 @@ class ImplementationEngine:
             self._update(ident, 'evaluating')
             self.store.emit('implementation.reevaluation_started', {'run_id': ident})
             try:
-                return self._evaluate(ident, before)
+                evaluated = self._evaluate(ident, before)
             except Exception as exc:
                 self._update(ident, before, error='Reevaluation failed: ' + str(exc)[:1800])
                 self.store.emit('implementation.reevaluation_failed',
                                 {'run_id': ident, 'error': str(exc)[:300]})
                 raise
+            # HL-VERIFY-001: a changed evaluation invalidates the previous verification.
+            self._auto_verify(ident)
+            return evaluated
         finally:
             self.runtime.active.release()
             self.lock.release()

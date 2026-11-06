@@ -84,11 +84,15 @@ class Store:
             evt['sequence'] = cur.lastrowid
         return evt
 
-    def events(self, after=0, limit=200, **filters):
+    def events(self, after=0, limit=200, tail=None, **filters):
         """Get events after a sequence number, optionally filtered by linking fields.
 
         HL-EVENT-002: Supports filtering by project_id, goal_id, run_id, plan_id,
         correlation_id, etc. for single-query timelines.
+
+        UI-VIS-002: `tail=N` returns the newest N events instead of the oldest ones after
+        `after`. A client that wants "recent activity, then live" would otherwise have to read
+        the entire log from sequence 0 and then replay it as if it were live.
         """
         allowed_filters = {
             'project_id', 'goal_id', 'discovery_id', 'formulation_id',
@@ -102,13 +106,18 @@ class Store:
                 where_clauses.append(f'{key} = ?')
                 params.append(value)
 
-        params.append(min(limit, 500))
+        where = ' AND '.join(where_clauses)
+        if tail:
+            params.append(min(int(tail), 500))
+            query = (f'SELECT * FROM events WHERE {where} ORDER BY sequence DESC LIMIT ?')
+        else:
+            params.append(min(limit, 500))
+            query = (f'SELECT * FROM events WHERE {where} ORDER BY sequence LIMIT ?')
 
         with self.lock:
-            rows = self.connection.execute(
-                f'SELECT * FROM events WHERE {" AND ".join(where_clauses)} ORDER BY sequence LIMIT ?',
-                params
-            ).fetchall()
+            rows = self.connection.execute(query, params).fetchall()
+            if tail:
+                rows = list(reversed(rows))
             return [{**dict(r), 'payload': json.loads(r['payload'])} for r in rows]
 
     def world(self):

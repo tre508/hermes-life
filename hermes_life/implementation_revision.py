@@ -44,6 +44,7 @@ elif op=='test':
  if not ok:
   print(json.dumps({'status':'evaluation_error','exit_code':None,'output':'Platform environment unavailable: '+reason,'python':None,'command':None,'env_source':'platform'}))
   sys.exit(0)
+ env_source='platform'
  cmd=[python,'-m','pytest','-q']
  try:
   r=subprocess.run(cmd,cwd=staging,text=True,capture_output=True,timeout=120,env=runtime_env())
@@ -113,6 +114,12 @@ class ImplementationRevision:
             cols={r[1] for r in self.store.connection.execute('PRAGMA table_info(implementation_revisions)')}
             if 'original_run_json' not in cols:
                 self.store.connection.execute('ALTER TABLE implementation_revisions ADD COLUMN original_run_json TEXT')
+            # HL-VERIFY-001 part D: who requested a revision (NULL means a human). This module
+            # owns both tables, so the column is guaranteed here as well as in the migration.
+            for table in ('implementation_reviews', 'implementation_review_history'):
+                columns = {r[1] for r in self.store.connection.execute('PRAGMA table_info(' + table + ')')}
+                if columns and 'decided_by' not in columns:
+                    self.store.connection.execute('ALTER TABLE ' + table + ' ADD COLUMN decided_by TEXT')
             self.store.connection.commit()
 
     def list(self, run_id):
@@ -131,10 +138,11 @@ class ImplementationRevision:
                 "SELECT * FROM implementation_reviews WHERE run_id=? AND decision='revision_requested'",(run_id,)).fetchone()
             if not row or (expected_decided_at and row['decided_at']!=expected_decided_at):
                 return False
+            decided_by = row['decided_by'] if 'decided_by' in row.keys() else None
             self.store.connection.execute('''INSERT INTO implementation_review_history
-                (run_id,decision,evidence_sha256,criteria_json,feedback,decided_at,archived_at)
-                VALUES (?,?,?,?,?,?,?)''',(row['run_id'],row['decision'],row['evidence_sha256'],
-                   row['criteria_json'],row['feedback'],row['decided_at'],now()))
+                (run_id,decision,evidence_sha256,criteria_json,feedback,decided_at,archived_at,decided_by)
+                VALUES (?,?,?,?,?,?,?,?)''',(row['run_id'],row['decision'],row['evidence_sha256'],
+                   row['criteria_json'],row['feedback'],row['decided_at'],now(),decided_by))
             self.store.connection.execute('DELETE FROM implementation_reviews WHERE run_id=?',(run_id,))
             self.store.connection.commit()
         self.store.emit('implementation.revision_review_reopened',{'run_id':run_id,'reason':'attempts_exhausted'})
@@ -336,11 +344,12 @@ class ImplementationRevision:
                 record=self.store.connection.execute(
                     "SELECT * FROM implementation_reviews WHERE run_id=? AND decision='revision_requested'",(run_id,)).fetchone()
                 if not record:raise ValueError('Review decision disappeared after promotion')
+                decided_by = record['decided_by'] if 'decided_by' in record.keys() else None
                 try:
                     self.store.connection.execute('''INSERT INTO implementation_review_history
-                      (run_id,decision,evidence_sha256,criteria_json,feedback,decided_at,archived_at)
-                      VALUES (?,?,?,?,?,?,?)''',(record['run_id'],record['decision'],record['evidence_sha256'],
-                         record['criteria_json'],record['feedback'],record['decided_at'],now()))
+                      (run_id,decision,evidence_sha256,criteria_json,feedback,decided_at,archived_at,decided_by)
+                      VALUES (?,?,?,?,?,?,?,?)''',(record['run_id'],record['decision'],record['evidence_sha256'],
+                         record['criteria_json'],record['feedback'],record['decided_at'],now(),decided_by))
                     self.store.connection.execute('DELETE FROM implementation_reviews WHERE run_id=?',(run_id,))
                     self.store.connection.execute('UPDATE implementation_revisions SET state=?,updated_at=? WHERE id=?',
                         ('passed',now(),ident))
@@ -349,6 +358,8 @@ class ImplementationRevision:
                     self.store.connection.rollback()
                     raise
             self.store.emit('implementation.revision_completed',{'run_id':run_id,'attempt_id':ident,'state':new_state})
+            # HL-VERIFY-001: a promoted revision is a new candidate; verify it again.
+            self.implementer._auto_verify(run_id)
         except Exception as exc:
             with self.store.lock:
                 current=self.store.connection.execute('SELECT * FROM implementation_revisions WHERE id=?',(ident,)).fetchone()

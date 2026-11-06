@@ -44,7 +44,8 @@ class Store:
             "INSERT INTO implementation_runs(id,plan_id,project,state,candidate_path,baseline_path)"
             " VALUES ('run','plan','scratch','candidate_passed','/vm/candidate','/vm/baseline')")
         self.connection.execute(
-            "INSERT INTO implementation_reviews VALUES ('run','accepted','abc','[true]','ok','now')")
+            "INSERT INTO implementation_reviews(run_id,decision,evidence_sha256,criteria_json,feedback,decided_at)"
+            " VALUES ('run','accepted','abc','[true]','ok','now')")
         self.connection.commit()
 
     def emit(self, *args):

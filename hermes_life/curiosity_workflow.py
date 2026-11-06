@@ -131,12 +131,17 @@ def investigate(runtime, discovery, ident):
             'message': 'Linked investigation goal is queued or already exists'}
 
 
-def register_routes(app, runtime, discovery):
+def register_routes(app, runtime, discovery, workflow=None):
     from fastapi import HTTPException
 
     @app.get('/api/curiosity/workflow')
     def curiosity_workflow_list():
-        return {'questions': list_workflow(runtime)}
+        # HL-UI-STATE-001: the Discover tab renders this route, so the chain-derived verdict
+        # (not the curiosity record's own stale state) has to travel with every question.
+        questions = list_workflow(runtime)
+        if workflow is not None:
+            questions = workflow.annotate('curiosity', questions)
+        return {'questions': questions}
 
     @app.post('/api/curiosity/{ident}/investigate')
     def curiosity_investigate(ident: str):

@@ -20,7 +20,8 @@ class Store:
               evidence_sha256 TEXT,criteria_json TEXT,feedback TEXT,decided_at TEXT);
           INSERT INTO implementation_runs (id,plan_id,project,state) VALUES ('run','plan','demo','candidate_failed');
           INSERT INTO investigation_plans VALUES ('plan','{"acceptance_criteria":["sample behavior"]}');
-          INSERT INTO implementation_reviews VALUES ('run','revision_requested','abc','[false]','Fix broken test','2020-01-01T00:00:00+00:00');
+          INSERT INTO implementation_reviews(run_id,decision,evidence_sha256,criteria_json,feedback,decided_at)
+              VALUES ('run','revision_requested','abc','[false]','Fix broken test','2020-01-01T00:00:00+00:00');
         ''')
     def emit(self,*args):self.events.append(args)
 
@@ -108,7 +109,7 @@ def test_three_failures_reopen_review_for_new_decision(env):
     assert store.connection.execute('SELECT * FROM implementation_reviews WHERE run_id="run"').fetchone() is None
     assert len(worker.list('run')['review_history'])==1
     # The reviewer may now reject the candidate or explicitly request a NEW three-attempt cycle.
-    store.connection.execute("INSERT INTO implementation_reviews VALUES ('run','rejected','abc','[false]','No further work','2030-01-01T00:00:00+00:00')")
+    store.connection.execute("INSERT INTO implementation_reviews(run_id,decision,evidence_sha256,criteria_json,feedback,decided_at) VALUES ('run','rejected','abc','[false]','No further work','2030-01-01T00:00:00+00:00')")
     store.connection.commit()
     assert store.connection.execute('SELECT decision FROM implementation_reviews').fetchone()['decision']=='rejected'
 

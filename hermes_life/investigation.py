@@ -2,11 +2,18 @@
 import json
 import re
 import threading
+from typing import TYPE_CHECKING
 from uuid import uuid4
 from .store import now
 
+if TYPE_CHECKING:
+    from .verification import VerificationEngine
+
 
 class InvestigationPlanner:
+    #: HL-VERIFY-001: injected by create_app once the verification engine exists.
+    verifier: 'VerificationEngine | None' = None
+
     def __init__(self, runtime, autonomy, formulation):
         self.runtime, self.autonomy, self.formulation = runtime, autonomy, formulation
         self.store = runtime.store
@@ -27,6 +34,9 @@ class InvestigationPlanner:
             # one-click start instead of asking the user to retype it. NULL here means
             # the lineage is missing, not that the plan needs manual entry.
             plan['project'] = plan.pop('lineage_project', None)
+            # HL-VERIFY-001: which criteria will be checked, and how many automatically.
+            if self.verifier is not None:
+                plan.update(self.verifier.summary(plan['id']))
             plans.append(plan)
         return plans
 
@@ -180,6 +190,14 @@ class InvestigationPlanner:
                     (ident,formulation_id,task_id,json.dumps(value,ensure_ascii=False),'proposed',stamp))
                 self.store.connection.commit()
             self.store.emit('investigation.plan_completed',{'plan_id':ident,'formulation_id':formulation_id,'task_id':task_id})
+            # HL-VERIFY-001: compile the criteria into checks now, so the Planning tab can show
+            # what will be verified before a build starts. Compilation never blocks approval.
+            if self.verifier is not None:
+                try:
+                    self.verifier.compile_criteria(ident, value)
+                except Exception as exc:
+                    self.store.emit('verification.criteria_failed',
+                                    {'plan_id': ident, 'error': str(exc)[:300]})
             return self.get(ident)
         except Exception as exc:
             self.store.emit('investigation.plan_failed',{'formulation_id':formulation_id,'error':str(exc)[:400]})

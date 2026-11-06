@@ -1,7 +1,7 @@
 """Explicit, versioned schema setup and single-owner restart recovery."""
 from .store import now
 
-SCHEMA_VERSION = 27
+SCHEMA_VERSION = 29
 DDL = r'''
 
             CREATE TABLE IF NOT EXISTS tasks (
@@ -134,13 +134,17 @@ def migrate(connection):
         _upgrade_to_v26(connection)
     if version < 27:
         _upgrade_to_v27(connection)
+    if version < 28:
+        _upgrade_to_v28(connection)
+    if version < 29:
+        _upgrade_to_v29(connection)
     # Repair partially-applied v4 installations without touching earlier data.
     has_personality = connection.execute(
         "SELECT 1 FROM sqlite_master WHERE type='table' AND name='agent_personality'"
     ).fetchone()
     if not has_personality:
         _upgrade_to_v4(connection)
-        connection.execute('PRAGMA user_version=27')
+        connection.execute('PRAGMA user_version=29')
         connection.commit()
     else:
         connection.execute("""INSERT OR IGNORE INTO agent_personality
@@ -624,4 +628,47 @@ def _upgrade_to_v27(connection):
         FOREIGN KEY(run_id) REFERENCES implementation_runs(id)
     )""")
     connection.execute('PRAGMA user_version=27')
+    connection.commit()
+
+
+def _upgrade_to_v28(connection):
+    # HL-VERIFY-001: independent acceptance verification. verification_plans carries the
+    # plan-level deliverable class; verification_criteria holds each criterion verbatim plus
+    # its compiled checks; verification_runs/verification_checks record what was executed.
+    connection.execute("""CREATE TABLE IF NOT EXISTS verification_plans (
+        plan_id TEXT PRIMARY KEY, deliverable_class TEXT NOT NULL, compiled_at TEXT NOT NULL,
+        compiler_note TEXT)""")
+    connection.execute("""CREATE TABLE IF NOT EXISTS verification_criteria (
+        plan_id TEXT NOT NULL, ordinal INTEGER NOT NULL, criterion_text TEXT NOT NULL,
+        method TEXT, expected TEXT, evidence_required TEXT, auto_verifiable INTEGER NOT NULL,
+        check_json TEXT, created_at TEXT NOT NULL, PRIMARY KEY(plan_id, ordinal))""")
+    connection.execute("""CREATE TABLE IF NOT EXISTS verification_runs (
+        id TEXT PRIMARY KEY, run_id TEXT NOT NULL, attempt INTEGER NOT NULL, state TEXT NOT NULL,
+        disposition TEXT, deliverable_class TEXT, blocker TEXT, criteria_json TEXT,
+        evidence_json TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
+        UNIQUE(run_id, attempt))""")
+    connection.execute("""CREATE TABLE IF NOT EXISTS verification_checks (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, verification_id TEXT NOT NULL, ordinal INTEGER NOT NULL,
+        kind TEXT NOT NULL, status TEXT NOT NULL, command TEXT, cwd TEXT, exit_code INTEGER,
+        output TEXT, output_sha256 TEXT, detail TEXT, duration_ms INTEGER, created_at TEXT NOT NULL)""")
+    connection.execute('PRAGMA user_version=28')
+    connection.commit()
+
+
+def _upgrade_to_v29(connection):
+    # HL-VERIFY-001 part D: who requested a revision, and whether verification may request
+    # one unattended. NULL decided_by means a human (every row written before this version).
+    reviews = {r[1] for r in connection.execute('PRAGMA table_info(implementation_reviews)')}
+    if 'decided_by' not in reviews:
+        connection.execute('ALTER TABLE implementation_reviews ADD COLUMN decided_by TEXT')
+    history = {r[1] for r in connection.execute('PRAGMA table_info(implementation_review_history)')}
+    if 'decided_by' not in history:
+        connection.execute('ALTER TABLE implementation_review_history ADD COLUMN decided_by TEXT')
+    runs = {r[1] for r in connection.execute('PRAGMA table_info(verification_runs)')}
+    if runs and 'auto_revision_json' not in runs:
+        connection.execute('ALTER TABLE verification_runs ADD COLUMN auto_revision_json TEXT')
+    connection.execute('''CREATE TABLE IF NOT EXISTS verification_settings (
+        id INTEGER PRIMARY KEY CHECK(id=1), auto_revision INTEGER NOT NULL DEFAULT 1)''')
+    connection.execute('INSERT OR IGNORE INTO verification_settings(id,auto_revision) VALUES(1,1)')
+    connection.execute('PRAGMA user_version=29')
     connection.commit()

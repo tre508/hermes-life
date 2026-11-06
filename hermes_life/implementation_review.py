@@ -9,8 +9,12 @@ import shlex
 import subprocess
 import threading
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from .store import now
+
+if TYPE_CHECKING:
+    from .verification import VerificationEngine
 
 # Guest computes a bounded, stable snapshot of the *existing* experiment copies.
 # Excluding .venv prevents the candidate's Python environment from polluting the diff.
@@ -62,6 +66,10 @@ print(json.dumps({'snapshot_sha256':h.hexdigest(),'files':entries[:300],
 '''
 
 class ImplementationReview:
+    #: HL-VERIFY-001: injected by create_app. When present, an 'accepted' decision
+    #: requires an independently verified candidate.
+    verifier: 'VerificationEngine | None' = None
+
     def __init__(self, runtime, implementer):
         self.runtime = runtime
         self.implementer = implementer
@@ -131,6 +139,12 @@ class ImplementationReview:
             expected = view['plan']['acceptance_criteria']
             if len(criteria)!=len(expected): raise ValueError('Review all acceptance criteria')
             if decision=='accepted' and not expected: raise ValueError('Cannot accept a plan with no acceptance criteria')
+            if decision=='accepted' and self.verifier is not None:
+                # HL-VERIFY-001: the human authorizes; the verifier establishes. Acceptance
+                # cannot outlive the verification it rests on.
+                blockers = self.verifier.acceptance_gate(ident)
+                if blockers:
+                    raise ValueError('Cannot accept: ' + '; '.join(blockers))
             if decision=='accepted':
                 if view['run']['state']!='candidate_passed':
                     raise ValueError('Candidate must pass independent evaluation before acceptance')

@@ -23,3 +23,8 @@
 .hl415-review-grid{display:grid;grid-template-columns:minmax(0,1fr);gap:8px}
 .hl415-check{display:flex;gap:8px;align-items:flex-start;font-size:13px}
 .hl415-check input{width:auto;flex:0 0 auto;margin-top:3px}
+.hl415-verdict{border-left:3px solid #71999c;padding-left:9px;margin:4px 0}
+.hl415-verdict>summary{cursor:pointer;display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.hl415-verdict-passed{border-left-color:#3fbf7f;border-color:#3fbf7f}
+.hl415-verdict-failed{border-left-color:#e06c6c;border-color:#e06c6c}
+.hl415-verdict-unverified{border-left-color:#d8b04a;border-color:#d8b04a}

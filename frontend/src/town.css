@@ -1,0 +1,95 @@
+/* UI-VIS-002: town overlays. Bounded HUD elements only — the existing layout is untouched. */
+#game.town { position: relative; }
+/* The container box must carry the game's aspect ratio. Layout rules elsewhere clamp the canvas
+   with both max-width and max-height; when the box ratio matches the game ratio those clamps give
+   one uniform size instead of a stretched one (which would distort the art and break Phaser's
+   pointer mapping, since it maps through the canvas' CSS box). */
+#shell > main > .world-wrap #game.town {
+  /* Width is limited by the column AND by the height actually available for the town, so the map
+     can never be clipped: the panel's inherited overflow:hidden used to cut the town off. */
+  width: min(100%, calc(max(240px, 100vh - 330px) * 1.8824));
+  aspect-ratio: 800 / 425; height: auto; min-height: 0; max-height: none; margin: 0 auto;
+  /* flex-grow from the inherited layout stretched the container to a non-game ratio */
+  flex: 0 0 auto;
+}
+/* Inherited `!important` rules (layout phases 4.4/4.5) forced a different CSS size than Phaser's
+   own fit calculation, so the canvas rendered 812x437 while Phaser mapped pointers as if it were
+   845x449 — every click landed ~15px off and hit nothing. town-view therefore pins the canvas to
+   Phaser's computed display size with inline-important styles; these rules stop the clamps. */
+#shell > main > .world-wrap #game.town canvas {
+  /* A uniform box at the game's own ratio. The inherited rules clamped width and height
+     independently, which stretched the canvas and desynchronised Phaser's pointer transform. */
+  width: 100% !important; height: auto !important; aspect-ratio: 800 / 425;
+  max-width: none !important; max-height: none !important;
+  image-rendering: pixelated;
+}
+
+/* The HUD sits below the canvas, not over it: overlapping the art hid the Workshop and its
+   resident in the lower-left of the town. */
+.town-hud {
+  display: flex; align-items: flex-start; justify-content: space-between; gap: 10px;
+  width: 100%; margin-top: 8px;
+}
+.town-hud-left { display: flex; flex-direction: column; gap: 6px; flex: 1 1 auto; min-width: 0; max-width: min(78%, 640px); }
+/* Relocated from inside #game: static, so it cannot cover the town. */
+.town-hud-left .hermes-live-status {
+  position: static !important; transform: none !important; margin: 0 !important;
+  max-width: 100% !important; min-width: 0 !important; box-shadow: none !important;
+  font-size: 11px !important; padding: 6px 9px !important; justify-content: flex-start !important;
+}
+.town-hud-right { display: flex; align-items: flex-start; flex: 0 0 auto; }
+
+.town-line { display: flex; flex-wrap: wrap; gap: 8px; margin: 0; font-size: 11px; color: #cfe4dc; }
+.town-conn { font-weight: 700; letter-spacing: .04em; color: #f1ba79; }
+.town-conn[data-state="live"] { color: #87e7ba; }
+.town-conn[data-state="reconnecting"] { color: #f1ba79; }
+.town-conn[data-state="disconnected"] { color: #f7a19b; }
+.town-counts { color: #a9c6c0; }
+
+.town-summary {
+  margin: 0; font-size: 11px; line-height: 1.45; color: #eaf6f0;
+  background: rgba(9, 26, 34, .86); border: 1px solid #3d5f6b; border-radius: 6px;
+  padding: 6px 9px; overflow-wrap: anywhere;
+}
+.town-board { font-size: 11px; background: rgba(9, 26, 34, .86); border: 1px solid #3d5f6b; border-radius: 6px; padding: 5px 9px; color: #d7e8e2; }
+.town-board > summary { cursor: pointer; color: #9fd8c8; }
+.town-rows { display: flex; flex-direction: column; gap: 3px; margin-top: 6px; }
+.town-row { display: flex; gap: 8px; margin: 0; font-size: 10.5px; color: #cfe0da; }
+.town-row strong { color: #a8e7d5; min-width: 132px; }
+.town-row[data-state="working"] strong { color: #ffd98a; }
+.town-row[data-state="waiting_approval"] strong { color: #ffc98a; }
+.town-row[data-state="failed"] strong, .town-row[data-state="blocked"] strong { color: #f7a19b; }
+.town-row-unknown { color: #f1ba79; }
+
+#town-motion {
+  margin: 0; font-size: 10.5px; padding: 5px 9px; background: #22424b; color: #d6ece5;
+  border: 1px solid #436672;
+}
+#town-motion:hover { background: #2d5560; }
+
+/* Resident popover: read-only facts plus links into the existing dashboard views. */
+.town-selection {
+  position: absolute; z-index: 31; top: 12px; right: 12px; width: min(330px, 90%);
+  border: 1px solid #4d7480; border-radius: 8px; background: rgba(8, 24, 32, .96);
+  box-shadow: 0 10px 26px #04101588; padding: 10px 12px; color: #e6f3ef;
+}
+.town-selection[hidden] { display: none; }
+.town-card strong { display: block; font-size: 12px; color: #a8e7d5; }
+.town-card > p { margin: 4px 0 8px; font-size: 11px; color: #dbece7; }
+.town-card ul { margin: 0 0 9px; padding-left: 15px; display: grid; gap: 2px; font-size: 10.5px; color: #b9d2cc; }
+.town-card-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+.town-card-actions button { margin: 0; font-size: 10.5px; padding: 5px 9px; }
+.town-card[data-state="failed"] strong { color: #f7a19b; }
+.town-card[data-state="working"] strong { color: #ffd98a; }
+
+/* Reduced motion: the town stands still, the text board carries the state. */
+.town-still .town-board { border-color: #6f8f7c; }
+@media (max-height: 700px) {
+  .town-hud-left { max-width: 100%; }
+}
+
+@media (max-width: 700px) {
+  .town-hud { flex-direction: column; align-items: stretch; }
+  .town-hud-left { max-width: 100%; }
+  .town-selection { position: static; width: 100%; margin-top: 8px; }
+}
