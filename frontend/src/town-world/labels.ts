@@ -153,7 +153,9 @@ export function floorDecal(track: Track, text: string, accent: string, width = 2
 
 /** The resident's name, kept small and close to the figure so it reads as a nametag, not a sign. */
 export function residentName(track: Track, role: Role): THREE.Sprite {
-  return textSprite(track, ROSTER[role].name, { width: 0.92, colour: '#eef6f9' });
+  return textSprite(track, ROSTER[role].name.toUpperCase(), {
+    width: 1.78, colour: ROSTER[role].accent, signage: true, large: true,
+  });
 }
 
 /** A one-line environmental caption (equipment, wall panels). */

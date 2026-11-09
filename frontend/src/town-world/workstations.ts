@@ -32,8 +32,8 @@ function zonePad({ b, plan }: StationOptions): THREE.Group {
   const node = group();
   const { width, depth, height } = SCALE.pad;
   const kit = KIT[plan.role];
-  put(node, b.g.box(width, height, depth), b.m.zonePad, 0, height / 2, 0);
-  put(node, b.g.box(width - 0.24, 0.02, depth - 0.24), b.m.floorTone(kit.floor), 0, height + 0.005, 0);
+  put(node, b.g.box(width, height, depth), b.m.slate, 0, height / 2, 0);
+  put(node, b.g.box(width - 0.18, 0.025, depth - 0.18), b.m.floorTone(kit.floor), 0, height + 0.006, 0);
   for (const dz of [-1, 1]) {
     put(node, b.g.box(width, 0.035, 0.06), b.m.glow(plan.role), 0, height + 0.01, dz * (depth / 2 - 0.05));
   }
@@ -42,6 +42,7 @@ function zonePad({ b, plan }: StationOptions): THREE.Group {
   }
   // A low acoustic screen in the department's tone: the print of its identity (§6, §8).
   put(node, b.g.bevel(width - 0.5, 1.15, 0.07), b.m.panelTone(kit.panel), 0, 0.65, -depth / 2 + 0.07);
+  put(node, b.g.box(width - 0.56, 0.055, 0.082), b.m.accent(plan.role), 0, 1.22, -depth / 2 + 0.07);
   return node;
 }
 

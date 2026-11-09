@@ -22,7 +22,7 @@ import { DAIS, DECK, ROOM, SCALE, SHELL, type StationPlan } from './layout';
 import { floorDecal } from './labels';
 import type { Track } from './palette';
 import {
-  bench, cabinet, consoleUnit, contactPatch, crate, equipmentRack, group, holoPanel, lightBar,
+  bench, cabinet, consoleUnit, contactPatch, crate, equipmentRack, group, lightBar,
   planter, put, wallSconce, wallScreen, type Builders,
 } from './props';
 
@@ -83,6 +83,8 @@ function wallShell(b: Builders, plan: StationPlan[]): THREE.Group {
     put(wall, b.g.box(thickness, height, along), b.m.wall, 0, height / 2, 0);
     // Base trim, a mid band and an upper band: three horizontals give the wall a storey line.
     put(wall, b.g.box(thickness + 0.07, 0.24, along), b.m.wallDetail, 0, 0.12, 0);
+    // A slate wainscot grounds the warm wall and avoids an uninterrupted beige field.
+    put(wall, b.g.box(thickness + 0.025, 0.88, along), b.m.slate, 0, 0.63, 0);
     for (const bandY of [2.42, height - 1.1]) {
       put(wall, b.g.box(thickness + 0.05, 0.07, along), b.m.wallTrim, 0, bandY, 0);
     }
@@ -199,6 +201,23 @@ export function buildCommandCentre(b: Builders, plan: StationPlan, track: Track)
     node.add(console_);
   }
 
+  // The coordinator's own work surface. Every other resident sits at a desk, but the dais only has
+  // consoles on its rim and nothing in front of the person standing at its centre — so a working
+  // Hermes had no surface to put his hands on. A standing console closes that gap, at the height his
+  // forearms actually fall to (a waist-high desk, not a thigh-high box).
+  // The coordinator stands 0.3 forward along `plan.yaw` and the dais itself is built unrotated, so the
+  // console has to be placed and turned along that same facing — otherwise it sits a half-metre to his
+  // side and only one hand lands on it.
+  const lectern = group(0.8 * Math.sin(plan.yaw), 0, 0.8 * Math.cos(plan.yaw));
+  lectern.rotation.y = plan.yaw;
+  put(lectern, b.g.bevel(1.24, 1.0, 0.5), b.m.housing, 0, DAIS.topHeight + 0.5, 0);
+  put(lectern, b.g.bevel(1.3, 0.05, 0.54), b.m.alu, 0, DAIS.topHeight + 1.02, 0);
+  put(lectern, b.g.box(0.86, 0.035, 0.2), b.m.wallTrim, 0, DAIS.topHeight + 1.05, -0.12);
+  for (let index = 0; index < 5; index += 1) {
+    put(lectern, b.g.box(0.72, 0.012, 0.014), b.m.glow(plan.role), 0, DAIS.topHeight + 1.07, -0.18 + index * 0.03);
+  }
+  node.add(lectern);
+
   // The primary status display, standing behind the centre on its own frame.
   const frame = group(0, 0, -1.05);
   put(frame, b.g.box(2.6, 0.09, 0.5), b.m.deskFrame, 0, 1.1, 0);
@@ -208,15 +227,9 @@ export function buildCommandCentre(b: Builders, plan: StationPlan, track: Track)
   node.add(status);
   node.add(frame);
 
-  // A holographic ring and a ring of status lights: the futuristic accent, nothing more.
-  const holo = new THREE.Mesh(b.g.torus(0.95, 0.018, Math.PI * 2), b.m.glow(plan.role));
-  holo.rotation.x = Math.PI / 2;
-  holo.position.y = DAIS.topHeight + 1.32;
-  node.add(holo);
-  const holoPanelNode = holoPanel(b, plan.role, { width: 1.3, height: 0.7 });
-  holoPanelNode.position.set(0, DAIS.topHeight + 0.72, 0.9);
-  holoPanelNode.rotation.y = Math.PI * 0.25;
-  node.add(holoPanelNode);
+  // A holographic ring used to hover here as the futuristic accent, but every height it could take
+  // collided with the name plate or the task readout above the coordinator's head, so it is gone; the
+  // console's glowing key strips and the dais rim carry that accent instead.
   for (let index = 0; index < 12; index += 1) {
     const radians = (index / 12) * Math.PI * 2;
     put(node, b.g.cylinder(0.035, 0.035, 0.03, 8), b.m.led,

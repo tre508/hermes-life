@@ -2,7 +2,7 @@
 
 **Document ID:** HERMES-LIFE-UI-VIS-MASTER  
 **Version:** 1.0 (consolidated, 2026-11-08)  
-**Status:** Implementation in progress — milestones 0–4 complete; art pass (audit v1), composition pass (audit v2 Phase A), material/lighting pass (audit v3 Phases A–E) and character redesign (VIS-006 Phases A–E) applied; milestone 5, audit-v3 Phase F and VIS-006 Phase F outstanding  
+**Status:** Implementation in progress — milestones 0–4 complete; art pass (audit v1), composition pass (audit v2 Phase A), material/lighting pass (audit v3 Phases A–E), character redesign (VIS-006 Phases A–E) and work-surface pass (poses checked against the furniture at runtime) applied; milestone 5, audit-v3 Phase F and VIS-006 Phase F outstanding  
 **Scope:** Frontend visualization within the existing Hermes Life world panel  
 **Authority:** Single source of truth for the *visualization redesign*. `HERMES_LIFE_MASTER_DEV_SPEC.md` remains authoritative for broader application architecture, workflows, security and backend semantics.  
 **Consolidates:** `redesignidea.md`, `UI-VIS-002_Hermes_Town_Multi_Avatar_Visualization.md`, `UI-VIS-003_Hermes_Life_3D_World.md`.
@@ -363,6 +363,57 @@ Animation was verified through the state contract and by reading the pose code, 
 runtime, so §9's walking, turning and transition review is unfinished. §17's ten visual acceptance tests
 were partly performed (lineup via driven states, state accuracy, interaction, performance) and the rest
 are outstanding.
+
+### Work-surface pass (poses verified against the furniture at runtime)
+
+This pass came from a live report, not from an audit document: while a task executed, only the
+coordinator animated, he appeared to turn away from his desk and mime typing at nothing, and the
+per-resident task readout was no longer visible. Each symptom traced to a specific defect.
+
+| Reported symptom | Root cause found in code | Fix |
+|---|---|---|
+| Hermes "typing" while facing away from his computer | The seat rule was `visual.seat && location === own location`, which seated him at the **command dais** — a platform with a chair-shaped offset (`seatTurnFor`) and no chair. `seatTurnFor` then turned him 90°, so he sat on nothing and typed along a desk that does not exist. | Seating now requires a desk station (`location !== coordinator location`); the dais is consoles, not a desk. The coordinator takes a standing `console` pose. |
+| Hands reaching into empty air | The dais has consoles only on its rim (radius 1.62) with a deliberate front gap, so nothing was within reach of a figure standing at its centre. | Added the coordinator's own standing console (waist-high, keyboard with glow key strips) where his forearms actually fall. It is placed and rotated along `plan.yaw` because the dais is built unrotated — without that it sat 0.6 units to his side and only one hand landed on it. |
+| A resident working in another department faced away from that desk | The visitor pose used the station's own yaw plus a 1.5-unit side offset, so the desk was beside him rather than in front. | Visitors take the `seatTurnFor` end-of-desk position at 92% radius, turn to face along the desk, and reach onto its surface. |
+| Task readout no longer visible | Panels were children of the station, anchored at the station origin, while residents now sit or stand offset from that origin — so the readout drifted off the person it describes and hovered over the desk. | Panels are added to the scene and repositioned each frame at `figure position + 2.9`, directly over the resident's head. Measured: accent-plate coverage above the head rises **32.9% → 56.7%** when a resident is working, with the plate's x-centroid within **2–3 px** of the resident. |
+| The six specialists appeared frozen | Correct behaviour, not a bug: only the role with a real active workflow step animates, and during a plain chat task that is the coordinator alone. The idle animation itself was under one pixel at panel scale. | Idle amplitudes raised (weight shift ±0.012 → ±0.022, larger breath and arm sway) and a slow head turn added. Measured between frames 1.3 s apart: **0.5%–6.7% of a resident's body box** changes, so idle motion is now on screen. |
+
+**Deliberately not done:** the six specialists do not fake activity while the coordinator runs a task.
+`deriveFromRecords` gives each role a state only from its own real record (autonomous goal running, plan
+drafted or awaiting approval, an implementation run, a pending memory review). Animating them otherwise
+would breach §2's rule that the world never claims work that is not happening.
+
+**Removed:** the holographic ring that used to circle the dais was deleted — every height it could take
+collided with the name plate or the task readout, and lower down it crossed the coordinator's face. The
+console's glowing key strips, the dais rim ring and the LED dots carry that accent instead.
+
+**Evidence:** `npm run build` green at `701.17 kB` / gzip `186.99 kB`; `npm test` 24 + 5 + 23 = **52
+passed, 0 failed**. Poses checked at runtime by driving each state through `applyState` and reading the
+result, not by inference from the code.
+
+### Reachability of the seven residents (found while building the test fixture)
+
+`scripts/town-visual-fixture.py` writes records in the same shapes the renderer reads, so every
+displayable state can be exercised without waiting for the real pipeline. Building it surfaced two
+things the world can and cannot show, which matter for testing and for honest documentation:
+
+1. **The planner can never be shown working.** `deriveFromRecords` has a `drafting` branch that reads
+   plans in an in-flight state, but the backend only ever writes a plan as `proposed`
+   (`investigation.py:190`) or `approved` (`investigation.py:62`) — the plan text is drafted inside the
+   coordinator's own task. That branch is dead code: the planner is only ever `waiting_approval` or
+   `idle`. Left as-is rather than removing it, because the fix belongs to the workflow (emit a real
+   drafting state) not to the renderer, and silently deleting it would hide the gap.
+2. **Builder, tester and reviewer cannot be non-idle together.** All three read the same newest
+   implementation run, so the richest honest tableau is coordinator + researcher working, planner and
+   archivist gated, builder working, and tester + reviewer idle. Verified live: 3 working, 2 waiting.
+
+Both limitations are properties of the data model, not of the 3D scene, and the fixture refuses to
+fabricate either — a test that shows a state the system cannot reach proves nothing.
+
+**Fixture safety:** ids are real UUIDs recorded in `~/.local/share/hermes-life/town-fixture.json`;
+`clear` deletes exactly those rows and restores the agent state it found. It refuses to run while a real
+task is executing. Round trip verified: applying and clearing leaves the four real tasks and an `idle`
+agent exactly as before.
 
 ## 10. Final validation plan — next required work
 

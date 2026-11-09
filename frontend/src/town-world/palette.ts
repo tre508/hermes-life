@@ -32,10 +32,10 @@ export const PALETTE = {
   floorLine: 0xe0cfa6,
   kerb: 0x5a554c,
   wall: 0x9a9283,
-  wallPanel: 0x8d8577,
+  wallPanel: 0xb1b5ad,
   wallTrim: 0xd8d0bf,
-  wallDetail: 0x5f5a51,
-  slate: 0x44515d,
+  wallDetail: 0x354956,
+  slate: 0x446374,
 
   // --- furniture: walnut, brushed aluminium, painted metal, fabric ---------------------------------
   wood: 0x8a6238,
@@ -75,13 +75,15 @@ export type Track = <T extends { dispose(): void }>(resource: T) => T;
  * facility. The differences are deliberately small in hue and large enough to see.
  */
 export const KIT: Readonly<Record<Role, { floor: number; body: number; panel: number }>> = Object.freeze({
-  coordinator: { floor: 0x8f9098, body: 0x36505b, panel: 0x2b4149 },
-  researcher: { floor: 0x978b70, body: 0x4f6353, panel: 0x3d4f42 },
-  planner: { floor: 0x8d8798, body: 0x5a5476, panel: 0x474163 },
-  builder: { floor: 0x99836c, body: 0x6d5139, panel: 0x57402c },
-  tester: { floor: 0x8c8d79, body: 0x5c6146, panel: 0x484d36 },
-  archivist: { floor: 0x908372, body: 0x6d5741, panel: 0x584533 },
-  reviewer: { floor: 0x859383, body: 0x45604e, panel: 0x354b3d },
+  // Purposeful department identities, not seven slightly different gray/beige desks.
+  // Floors are muted textiles/rubber overlays; storage and acoustic panels pick up the same family.
+  coordinator: { floor: 0x617984, body: 0x345866, panel: 0x31515c }, // teal command
+  researcher: { floor: 0x73917c, body: 0x55745d, panel: 0x486b59 }, // sage green research
+  planner: { floor: 0x8d80a5, body: 0x655a8b, panel: 0x62547b }, // lavender strategy
+  builder: { floor: 0xb68a69, body: 0x906243, panel: 0x825635 }, // copper development
+  tester: { floor: 0x9da17b, body: 0x747a4f, panel: 0x626b41 }, // olive verification
+  archivist: { floor: 0x9d8b73, body: 0x755943, panel: 0x6e5341 }, // walnut archive
+  reviewer: { floor: 0x76a293, body: 0x477765, panel: 0x3f6758 }, // jade review
 });
 
 // ---------------------------------------------------------------------------------- procedural texture
@@ -505,7 +507,7 @@ export function createMaterials(track: Track) {
       const key = `floorTone:${hex}`;
       let material = tints.get(key);
       if (!material) {
-        material = standard({ color: hex, map: surface('tile', 2, 2), roughness: 0.68, metalness: 0.07 });
+        material = standard({ color: 0xffffff, map: surface('weave', 3, 3, hex), roughness: 0.96, metalness: 0 });
         tints.set(key, material);
       }
       return material;

@@ -132,6 +132,10 @@ interface Figure {
   phase: number;
   /** True when this resident is working at *its own* station, so it takes the seated pose. */
   seated: boolean;
+  /** Working at the command dais: there is no chair or desk there, only consoles and a hologram. */
+  console: boolean;
+  /** Working in someone else's department: stand at the end of that desk, facing it. */
+  atDesk: boolean;
   /** The walk, in world units. `from`/`to` carry the base height; the bob is added per frame. */
   from: { x: number; y: number; z: number; yaw: number };
   to: { x: number; y: number; z: number; yaw: number };
@@ -242,8 +246,9 @@ export function create3DRenderer(host: HTMLElement, opts: { motion: boolean }): 
 
   const dais = buildCommandCentre(builders, centre, track);
   const centrePanel = taskPanel(track, 2.4);
-  centrePanel.sprite.position.set(0, DAIS_HEIGHT + 1.95, 0.78);
-  dais.add(centrePanel.sprite);
+  // Panels live in world space and are positioned over the resident each frame: anchoring them to the
+  // station meant the readout stayed behind over the desk once a resident sat down or stepped aside.
+  scene.add(centrePanel.sprite);
   dais.userData.location = centre.location;
   scene.add(dais);
   mergeIn(dais);
@@ -257,8 +262,7 @@ export function create3DRenderer(host: HTMLElement, opts: { motion: boolean }): 
     // the tab navigation and the deep links already use.
     station.userData.location = entry.location;
     const panel = taskPanel(track, 2.0);
-    panel.sprite.position.set(0, 2.08, 0.74);
-    station.add(panel.sprite);
+    scene.add(panel.sprite);
     scene.add(station);
     mergeIn(station);
     pickable.push(station);
@@ -288,7 +292,8 @@ export function create3DRenderer(host: HTMLElement, opts: { motion: boolean }): 
     parts.group.userData.role = entry.role;
 
     const name = residentName(track, entry.role);
-    name.position.set(0, 1.92, 0);
+    // Raised above the head so the larger nameplate does not intersect hair or headwear.
+    name.position.set(0, 2.22, 0);
     parts.group.add(name);
     // A soft contact shadow that walks with the figure: what stops a resident looking pasted onto the
     // floor (audit v3 §3). It is parented to the figure, so it never has to be updated separately.
@@ -320,6 +325,7 @@ export function create3DRenderer(host: HTMLElement, opts: { motion: boolean }): 
     pickable.push(parts.group);
     return {
       role: entry.role, parts, visual: activityVisual('unknown'), phase: index * 0.9, seated: false,
+      console: false, atDesk: false,
       from: { x: home.x, y: home.y, z: home.z, yaw: home.yaw },
       to: { x: home.x, y: home.y, z: home.z, yaw: home.yaw },
       t: 1, badges, flash, flashMaterial, flashUntil: 0,
@@ -426,6 +432,7 @@ export function create3DRenderer(host: HTMLElement, opts: { motion: boolean }): 
       let elbows = 0;
       let stride = 0;
       let headPitch = 0;
+      let headYaw = 0;
       let shift = 0;
 
       if (figure.t < 1) {
@@ -463,12 +470,27 @@ export function create3DRenderer(host: HTMLElement, opts: { motion: boolean }): 
         } else if (animate) {
           elbows += Math.sin(now * 3 + figure.phase) * 0.045;
         }
+      } else if (figure.atDesk && !walking) {
+        // Reaching onto the visited desk: he stands at its end, turned to face along it, close enough
+        // that his forearms land on the surface instead of beside it.
+        lean = 0.2;
+        arms = -0.9;
+        elbows = -0.62;
+        headPitch = 0.12;
+        if (animate) elbows += Math.sin(now * 6 + figure.phase) * 0.05;
+      } else if (figure.console && !walking) {
+        // Working the command console: upper arms hanging, forearms forward onto the keyboard, eyes on
+        // the readout panel above — the posture of someone standing at a desk rather than reaching out.
+        lean = 0.06;
+        arms = -0.55;
+        elbows = -0.75;
+        headPitch = -0.06;
+        if (animate) elbows += Math.sin(now * 7 + figure.phase) * 0.04;
       } else if (figure.visual.pose === 'working') {
-        // Working somewhere else: standing at another department's console.
-        lean = 0.17;
-        arms = -0.62;
-        elbows = -0.45;
-        if (animate) arms += Math.sin(now * 6 + figure.phase) * 0.06;
+        // A worker with no surface within reach gets a restrained gesture, never a typing motion.
+        lean = 0.06;
+        arms = -0.2;
+        elbows = -0.2;
       } else if (figure.visual.pose === 'waiting') {
         // Waiting: arms folded, no equipment touched, and deliberately still (§9).
         arms = POSE.foldShoulder;
@@ -477,10 +499,14 @@ export function create3DRenderer(host: HTMLElement, opts: { motion: boolean }): 
         lean = POSE.alertLean;
         arms = 0.06;
       } else if (figure.visual.pose === 'idle' && animate) {
-        y += 0.02 + Math.sin(now * 1.4 + figure.phase) * 0.02;
-        arms = Math.sin(now * 0.7 + figure.phase) * 0.05;
-        // A slow weight shift, so an idle resident is relaxed rather than at attention (§8).
-        shift = Math.sin(now * 0.42 + figure.phase) * 0.012;
+        // Idle has to be *visible*: a breath you can see, a slow weight shift, and a head that looks
+        // around. The old amplitudes were under a pixel at panel size, so the residents read as statues.
+        y += 0.03 + Math.sin(now * 1.4 + figure.phase) * 0.035;
+        arms = Math.sin(now * 0.7 + figure.phase) * 0.1;
+        elbows = -0.08 + Math.sin(now * 0.7 + figure.phase + 1) * 0.06;
+        shift = Math.sin(now * 0.42 + figure.phase) * 0.022;
+        headYaw = Math.sin(now * 0.33 + figure.phase) * 0.3;
+        headPitch = Math.sin(now * 0.27 + figure.phase) * 0.06;
       }
 
       const parts = figure.parts;
@@ -490,6 +516,23 @@ export function create3DRenderer(host: HTMLElement, opts: { motion: boolean }): 
         const chair = chairFor(figure.to, figure.to.yaw);
         seatTurn = chair.turn;
         parts.group.position.set(chair.x, chair.y - parts.hipHeight + CHAIR.seat, chair.z);
+      } else if (figure.atDesk && !walking) {
+        // Visiting another department: stand at the end of *that* desk and face into it, so the hands
+        // that are about to reach forward land on a work surface rather than in mid-air.
+        const place = seatTurnFor(figure.to.yaw);
+        const cos = Math.cos(figure.to.yaw);
+        const sin = Math.sin(figure.to.yaw);
+        parts.group.position.set(
+          figure.to.x + (place.x * 0.92 * cos + place.z * sin),
+          figure.to.y,
+          figure.to.z + (-place.x * 0.92 * sin + place.z * cos));
+        seatTurn = place.turn;
+      } else if (figure.console && !walking) {
+        // At the command dais: stand at his own console with his forearms on its keyboard, eyes on the
+        // holographic readout above it.
+        const cos = Math.cos(figure.to.yaw);
+        const sin = Math.sin(figure.to.yaw);
+        parts.group.position.set(figure.to.x + 0.3 * sin, figure.to.y, figure.to.z + 0.3 * cos);
       } else {
         parts.group.position.set(x + shift, y, z);
       }
@@ -499,7 +542,7 @@ export function create3DRenderer(host: HTMLElement, opts: { motion: boolean }): 
       parts.armR.rotation.set(arms + stride * 0.7, 0, -0.06);
       parts.elbowL.rotation.x = elbows;
       parts.elbowR.rotation.x = elbows;
-      parts.head.rotation.y = figure.visual.pose === 'working' || seated ? 0.12 : 0;
+      parts.head.rotation.y = headYaw + (figure.visual.pose === 'working' || seated ? 0.12 : 0);
       parts.head.rotation.x = headPitch;
       parts.face.set(figure.visual.flash && figure.flashUntil <= clock ? 'neutral' : figure.visual.face);
 
@@ -524,6 +567,19 @@ export function create3DRenderer(host: HTMLElement, opts: { motion: boolean }): 
         parts.group.rotation.y += delta * Math.min(1, dt * 9);
       } else {
         parts.group.rotation.y = figure.to.yaw + seatTurn;
+      }
+
+      // The readout belongs to the resident it describes, so it sits over their head — not over the
+      // station they happen to be sitting at, which is where it was stranded before.
+      const here = activities.get(figure.role);
+      if (here && figure.visual.screen === 'task') {
+        const owner = stations.find(candidate => candidate.location === here.location);
+        if (owner) {
+          owner.panel.sprite.position.set(
+            parts.group.position.x,
+            parts.group.position.y + 2.9,
+            parts.group.position.z);
+        }
       }
 
       for (const kind of BADGE_KINDS) {
@@ -729,9 +785,14 @@ export function create3DRenderer(host: HTMLElement, opts: { motion: boolean }): 
         if (!info) continue;
         const visual = activityVisual(info.state);
         figure.visual = visual;
-        // Sitting is a privilege of actually working at your own desk: a resident working in someone
-        // else's department stands at that console, and a waiting one never sits down to a terminal.
-        figure.seated = visual.seat && info.location === ROSTER[figure.role].location;
+        // Sitting is a privilege of working at your own desk: the six specialists have chairs, the
+        // command dais has consoles and no chair, and a resident working in someone else's department
+        // stands at that desk. Nothing here may put a resident's hands where no surface exists.
+        const own = info.location === ROSTER[figure.role].location;
+        const hasDesk = info.location !== ROSTER.coordinator.location;
+        figure.seated = visual.seat && own && hasDesk;
+        figure.console = visual.pose === 'working' && own && !hasDesk;
+        figure.atDesk = visual.pose === 'working' && !own;
 
         // Where the model says this resident is now. A change starts a walk; the pose follows the
         // state. Positioning reads only `location`, so no rule here can invent a destination.
