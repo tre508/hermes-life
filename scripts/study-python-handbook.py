@@ -159,12 +159,16 @@ def enqueue():
 def main():
     parser=argparse.ArgumentParser()
     parser.add_argument('action',choices=['prepare','enqueue-next','status'])
-    parser.add_argument('--vm',default=os.environ.get('HERMES_LIFE_VM_HOST','192.168.124.136'))
-    parser.add_argument('--user',default=os.environ.get('HERMES_LIFE_VM_USER','hermes'))
-    parser.add_argument('--key',default=os.environ.get('HERMES_LIFE_VM_KEY','~/.ssh/hermes_life_vm'))
+    # No worker default: source config/hermes-life-lenovo.env (or pass --vm/--user/--key) so this
+    # can never drive a machine that is no longer the coding worker.
+    parser.add_argument('--vm',default=os.environ.get('HERMES_LIFE_VM_HOST'))
+    parser.add_argument('--user',default=os.environ.get('HERMES_LIFE_VM_USER'))
+    parser.add_argument('--key',default=os.environ.get('HERMES_LIFE_VM_KEY'))
     parser.add_argument('--pages-per-unit',type=int,default=5)
     parser.add_argument('--replace',action='store_true')
     args=parser.parse_args()
+    if not (args.vm and args.user and args.key):
+        parser.error('coding worker not configured: source config/hermes-life-lenovo.env, or pass --vm/--user/--key')
     try:
         if args.action=='prepare':
             if not 1<=args.pages_per_unit<=15:raise RuntimeError('--pages-per-unit must be 1–15')

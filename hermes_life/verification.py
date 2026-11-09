@@ -21,7 +21,7 @@ from uuid import uuid4
 
 from typing import TYPE_CHECKING
 
-from .guest_env import ENV_RESOLVER
+from .guest_env import ENV_RESOLVER, for_worker
 from .store import now
 
 if TYPE_CHECKING:
@@ -37,7 +37,7 @@ VERDICTS = ('passed', 'failed', 'unverified', 'not_applicable')
 DISPOSITIONS = ('verified', 'failed', 'insufficient_evidence', 'blocked')
 
 #: Runs inside the VM. Read-only apart from the fixed pytest invocation.
-VERIFY_GUEST = ENV_RESOLVER + r'''
+VERIFY_GUEST = for_worker(ENV_RESOLVER + r'''
 import hashlib,json,pathlib,re,subprocess,sys,time
 
 EXPERIMENTS=pathlib.Path('/home/hermes/experiments').resolve()
@@ -233,7 +233,7 @@ for spec in specs:
  outcome['output_sha256']=hashlib.sha256((outcome.get('output') or '').encode()).hexdigest()
  results.append(outcome)
 _finish({'status':'ok','checks':results})
-'''
+''')
 
 CRITERIA_PROMPT = (
     'Planning-only task: convert acceptance criteria into checks. Do not use tools, run '
@@ -399,8 +399,7 @@ class VerificationEngine:
             raise KeyError('Plan not found')
         report = report if report is not None else json.loads(plan['report'])
         criteria = [c for c in (report.get('acceptance_criteria') or []) if isinstance(c, str) and c.strip()]
-        adapter = self.runtime.adapters.get('read_only') if hasattr(self.runtime, 'adapters') else None
-        adapter = adapter or getattr(self.runtime, 'adapter', None)
+        adapter = self._analysis_adapter()
         checks, deliverable, note = [], 'code_change', ''
         if not criteria:
             note = 'plan declares no acceptance criteria'
@@ -632,11 +631,23 @@ class VerificationEngine:
                 'command': check.get('command'), 'exit_code': check.get('exit_code'),
                 'output_sha256': check.get('output_sha256'), 'detail': check.get('detail')}
 
+    def _analysis_adapter(self):
+        """The persona-free read-only chain used where the answer is judged or parsed as data.
+
+        HL-PERS-001 §5A/§5C/§6: the persona, the learned profile, recalled lessons and the
+        learning-report protocol must not reach a verifier or an extractor.
+        """
+        runtime = self.runtime
+        adapter = (runtime.analysis_adapters.get('read_only')
+                   if hasattr(runtime, 'analysis_adapters') else None)
+        adapter = adapter or (runtime.adapters.get('read_only')
+                              if hasattr(runtime, 'adapters') else None)
+        return adapter or getattr(runtime, 'adapter', None)
+
     def _apply_model_verdicts(self, run, rows, verdicts, checks):
         """Interpretive criteria only. A model verdict can never override a deterministic one,
         and a 'passed' verdict without a cited evidence reference is downgraded."""
-        adapter = self.runtime.adapters.get('read_only') if hasattr(self.runtime, 'adapters') else None
-        adapter = adapter or getattr(self.runtime, 'adapter', None)
+        adapter = self._analysis_adapter()
         if adapter is None or getattr(adapter, 'transport', None) != 'ssh':
             return
         prompt = ('Adjudication task. Decide only the criteria listed below, using the recorded '

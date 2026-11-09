@@ -37,7 +37,7 @@ let editingPlanId:string|null=null; // tracks the fallback project input (only u
 function track(plan:Rec){return runs.find(r=>s(r.plan_id)===s(plan.id))}
 function stateMessage(plan:Rec){const r=track(plan);const d=r?decisionMap.get(s(r.id)):undefined;
  if(s(plan.state)==='proposed')return 'Awaiting your plan approval. No coding has started.';
- if(!r)return s(plan.project)?`Approved. Ready to start the isolated implementation in VM project ${s(plan.project)}.`:'Approved, but this plan has no resolvable project. Enter the VM project name to start.';
+ if(!r)return s(plan.project)?`Approved. Ready to start the isolated implementation in worker project ${s(plan.project)}.`:'Approved, but this plan has no resolvable project. Enter the worker project name to start.';
  if(busyStates.has(s(r.state)))return 'Hermes is currently working. This status is refreshed automatically.';
  if(d)return 'Review decision recorded. Original project and host were not modified.';
  if(s(r.state)==='candidate_passed')return 'Independent candidate tests passed; review the code diff and each acceptance criterion.';
@@ -90,8 +90,8 @@ function renderPlanning(){const root=$('hl415-planning');if(!root)return;root.re
     if(!derived){
       const input=node('input') as HTMLInputElement;
       input.type='text';
-      input.placeholder='VM project name (e.g. hermes-life-test)';
-      input.setAttribute('aria-label','VM project name');
+      input.placeholder='Worker project name (e.g. hermes-life-test)';
+      input.setAttribute('aria-label','Worker project name');
       // The 5s refresh re-renders this view; keep what is being typed.
       if(editingPlanId===planId && input.dataset.savedValue){
         input.value=input.dataset.savedValue;
@@ -171,7 +171,7 @@ function renderReview(){let root=$('hl415-review');if(!root){root=node('section'
  }
  if(previous){root.append(node('p',`Decision recorded: ${s(previous.decision)} · ${stamp(previous.decided_at)}`,'hl415-good'));
    if(s(previous.decision)==='revision_requested'&&attempts.length&&['tests_failed','evaluation_error','error'].includes(s(attempts[0].state))){root.append(btn('Retry isolated revision',()=>{if(!confirm('Retry the stored revision request in another isolated staging workspace?'))return;void api(`/implementations/${encodeURIComponent(s(run.id))}/revisions/retry`,'POST').then(()=>void openReview(run)).catch(e=>{reviewError=s(e);renderReview()})}))}
-   root.append(node('p','Revision requests run automatically in the VM. Original projects and host remain unchanged.','hl415-caption'));return}
+   root.append(node('p','Revision requests run automatically on the coding worker. Original projects and host remain unchanged.','hl415-caption'));return}
  if(!snapshot){root.append(node('p','No candidate workspace available for review.','hl415-error'));return}
  const details=document.createElement('details');details.open=true;details.append(node('summary',`Changed files (${s(snapshot.changed_files)}) & diff`));
  const fileNames=Array.isArray(snapshot.files)?snapshot.files as Rec[]:[];const files=node('ul');fileNames.forEach(f=>files.append(node('li',`${s(f.change)}: ${s(f.path)}`)));details.append(files,node('pre',s(snapshot.diff)||'No readable diff'));root.append(details);
@@ -228,7 +228,7 @@ function renderReview(){let root=$('hl415-review');if(!root){root=node('section'
    reviewError=verdicts.length?'Accept requires a verified candidate; current disposition is '+(disposition||'not run')+'.':'Accept requires passing tests and explicit confirmation of every criterion.';
    renderReview();return}
   if(decision!=='accepted'&&!feedback.value.trim()){reviewError='Provide feedback for rejection or revision.';root.append(node('p',reviewError,'hl415-error'));return}
-  if(!confirm(`${title}? Request revision starts an isolated VM attempt automatically. It does not apply changes to the host.`))return;
+  if(!confirm(`${title}? Request revision starts an isolated worker attempt automatically. It does not apply changes to the host.`))return;
   requestBusy=true;b.disabled=true;void api(`/implementations/${encodeURIComponent(s(run.id))}/review`,'POST',{
     decision,snapshot_sha256:s(snapshot.snapshot_sha256),criteria:verdicts.length?verdicts.map(v=>s(v.verdict)==='passed'):marks.map(x=>x.checked),feedback:feedback.value
   }).then(async()=>{decisionMessage=`${title} recorded`;await refresh();await openReview(run)}).catch(e=>{reviewError=s(e);root.append(node('p',reviewError,'hl415-error'))}).finally(()=>{requestBusy=false;b.disabled=false});
@@ -240,7 +240,7 @@ const refreshCtl=makeRefresh({
  load:async()=>{
   const [planRows,runRows,settings]=await Promise.all([api('/investigation-plans'),api('/implementations'),api('/verification/settings')]);
   const runList=list(runRows);
-  // Fetch review decisions, do not fetch expensive VM diffs until requested.
+  // Fetch review decisions, do not fetch expensive worker diffs until requested.
   const details=await Promise.all(runList.map(async r=>{const id=encodeURIComponent(s(r.id));
    try{const [decision,revisions,verification]=await Promise.all([api(`/implementations/${id}/review-state`),api(`/implementations/${id}/revisions`),api(`/implementations/${id}/verification`)]);
     return {id:s(r.id),decision,revisions,verification}}catch{return {id:s(r.id),decision:null,revisions:null,verification:null}}}));
@@ -262,6 +262,14 @@ function mount(){if($('hl415-planning'))return true;
  const build=node('section','','hl415');build.id='hl415-build';buildLegacy.insertAdjacentElement('beforebegin',build);
  // Keep old nodes alive for legacy handlers but hide their obsolete presentation.
  (plansLegacy as HTMLElement).style.display='none';buildLegacy.style.display='none';
+ // UI-01: these legacy controls stayed visible while carrying no handler. This tab renders its own
+ // refresh control, so the duplicates are hidden rather than wired twice. The Goal-formulation
+ // block has no replacement surface yet (see HY-06 in personalityaudit.md) and is hidden so the UI
+ // stops offering a button that cannot act.
+ for(const id of ['plans-refresh','implementations-refresh','formulation-section']){
+  const legacyNode=document.getElementById(id);if(legacyNode)legacyNode.style.display='none';
+ }
+ (document.getElementById('formulation-feedback') as HTMLElement|null)?.setAttribute('hidden','');
  void refresh();window.setInterval(()=>{if(document.contains(planning))void refresh()},5000);return true;
 }
 let attempts=0;const timer=window.setInterval(()=>{if(mount()||++attempts>60)window.clearInterval(timer)},250);mount();

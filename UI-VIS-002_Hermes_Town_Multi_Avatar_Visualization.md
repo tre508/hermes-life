@@ -2,9 +2,11 @@
 
 **Type:** Development specification / implementation milestone  
 **Priority:** UI enhancement (after visualization-event correctness)  
-**Status:** Proposed — not implemented  
+**Status:** Implemented — the town shipped and is pinned by tests (`frontend/tests/town-model.test.ts`, `control-wiring.test.ts`). §3 (visual structure and scene) and §8 (art, animation and performance) are superseded by UI-VIS-003; the rest remains in force.  
 **Scope:** Frontend visualization only  
 **Depends on:** UI-VIS-001 (Hermes Town-style map or equivalent town scene), existing Hermes Life task/event APIs
+
+> **Partially superseded by `UI-VIS-003_Hermes_Life_3D_World.md`.** §3 and §8 describe the retired pixel-art renderer; UI-VIS-003 replaces them with a Three.js 3D world. Everything else here is still the contract the 3D world must satisfy: the boundaries (§2), the model and architecture (§4), the activity mapping (§5), the interactions (§6), and event handling and recovery (§7).
 
 ## 1. Purpose
 

@@ -184,3 +184,11 @@ aside {
 .world-wrap{background:radial-gradient(ellipse at 48% 30%,#314452 0%,#1b2b38 65%,#12222e 100%)}
 .world-wrap .hint{color:#a9c6c3}
 #world-room-open:focus-visible,#world-room-close:focus-visible{outline:2px solid #e4d1a4;outline-offset:3px}
+
+/* UI-VIS-003 · audit v2 §14 — the 3D world reads as part of the panel rather than a framed picture
+   inside it. The scene's own background now meets the panel edge: no metal border, no lighter mat,
+   no drop shadow, and no pixel-art scaling filter left over from the previous renderer. */
+.world-wrap{background:#0e161c;padding:0;border-color:#2b3d47}
+#game{width:100%}
+#game canvas{border:0!important;border-radius:0!important;box-shadow:none!important;filter:none!important;image-rendering:auto}
+.world-wrap .hint{padding:9px 12px 10px;margin:0;background:#0e161c}

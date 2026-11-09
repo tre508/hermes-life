@@ -1,0 +1,25 @@
+/* HL-PERS-001 §5F — the learned-profile surface.
+   Rows keep evidence visually distinct from the statement it supports: the claim and its support are
+   never the same weight, so a memory with no evidence is visibly weaker. */
+#memory-section .memory-row{border-top:1px solid rgba(255,255,255,.08);padding:.55rem 0;display:grid;gap:.3rem}
+#memory-section .memory-row:first-child{border-top:0}
+#memory-section .memory-meta{font-size:.72rem;letter-spacing:.04em;text-transform:uppercase;color:#8ea2b8;margin:0}
+#memory-section .memory-kind{color:#87e7ba;margin-right:.4rem}
+#memory-section .memory-content{margin:0;color:#e8eef6}
+#memory-section .memory-provenance{margin:0;font-size:.78rem;color:#9fb0c4}
+#memory-section .memory-line{margin:.2rem 0;color:#c6d2e0}
+#memory-section .memory-label{color:#8ea2b8;margin-right:.4rem;text-transform:uppercase;font-size:.72rem;letter-spacing:.04em}
+#memory-section .memory-actions{display:flex;flex-wrap:wrap;gap:.4rem;margin-top:.15rem}
+#memory-section .memory-action{background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.16);color:#e8eef6;border-radius:.35rem;padding:.25rem .6rem;font:inherit;cursor:pointer}
+#memory-section .memory-action:hover{background:rgba(255,255,255,.12)}
+#memory-section .memory-action.danger{border-color:rgba(241,186,121,.5);color:#f1ba79}
+#memory-section .memory-reason{width:100%;background:rgba(0,0,0,.25);border:1px solid rgba(255,255,255,.16);border-radius:.35rem;color:#e8eef6;font:inherit;padding:.3rem .5rem}
+#memory-section form#memory-correct-form{display:grid;gap:.45rem;margin:.5rem 0;padding:.6rem;border:1px solid rgba(135,231,186,.35);border-radius:.4rem;background:rgba(135,231,186,.06)}
+#memory-section form#memory-correct-form[hidden]{display:none}
+#memory-section form#memory-correct-form label{display:grid;gap:.2rem;font-size:.78rem;color:#9fb0c4}
+#memory-section form#memory-correct-form input,#memory-section form#memory-correct-form textarea,#memory-section form#memory-correct-form select{background:rgba(0,0,0,.25);border:1px solid rgba(255,255,255,.16);border-radius:.35rem;color:#e8eef6;font:inherit;padding:.3rem .5rem}
+#memory-section form#memory-correct-form label[hidden]{display:none}
+#memory-section .memory-form-actions{display:flex;gap:.4rem}
+#memory-section .memory-target{margin:0;font-size:.78rem;color:#e8eef6}
+#memory-section #memory-feedback[data-phase=error]{color:#f1ba79}
+#memory-section #memory-feedback[data-phase=ok]{color:#87e7ba}

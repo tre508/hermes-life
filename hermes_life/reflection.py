@@ -83,3 +83,10 @@ class Reflection:
         with self.store.lock:
             rows=self.store.connection.execute('SELECT status, count(*) AS n FROM reflective_runs GROUP BY status').fetchall()
         return {r['status']:r['n'] for r in rows}
+
+    def recent(self, limit=10):
+        """Recent reflective runs — internal diagnostics (HL-PERS-001 §3), not the experience layer."""
+        with self.store.lock:
+            return self.store.connection.execute(
+                'SELECT id,created_at,category,status,lesson FROM reflective_runs ORDER BY id DESC LIMIT ?',
+                (min(max(int(limit),0),50),)).fetchall()

@@ -30,10 +30,34 @@ matches the baseline and its interpreter can import pytest. A dead interpreter i
 a changed or unrecorded dependency set is refused and reported instead.
 """
 
-EXPERIMENTS_ROOT = '/home/hermes/experiments'
+import os
+
+#: The coding worker's home. Guest scripts are AUTHORED against CANONICAL_GUEST_HOME and immediately
+#: rewritten to GUEST_HOME by for_worker(), so the configured worker's own paths are what execute.
+#: CANONICAL_GUEST_HOME is only the default for a worker that still carries the historical /home/hermes
+#: layout; the Lenovo sets HERMES_LIFE_GUEST_HOME=/home/glenn and needs no compatibility symlink.
+CANONICAL_GUEST_HOME = '/home/hermes'
+GUEST_HOME = (os.environ.get('HERMES_LIFE_GUEST_HOME') or CANONICAL_GUEST_HOME).rstrip('/') or CANONICAL_GUEST_HOME
+PROJECTS_ROOT = GUEST_HOME + '/projects'
+EXPERIMENTS_ROOT = GUEST_HOME + '/experiments'
+WORKSPACES_ROOT = GUEST_HOME + '/workspaces'
+#: The agent CLI on the worker: <worker home>/.local/bin/hermes (the Lenovo's own path).
+HERMES_BIN = os.environ.get('HERMES_LIFE_GUEST_HERMES') or GUEST_HOME + '/.local/bin/hermes'
+
+def for_worker(script):
+    """Rewrite an authored guest script to the worker home that is actually configured.
+
+    One rewrite point, applied to every embedded script and to every host-side path or prompt that
+    names a worker path, so no part of Hermes Life can execute against a stale directory: a worker
+    that moved its home is fixed by configuration alone (HERMES_LIFE_GUEST_HOME).
+    """
+    if GUEST_HOME == CANONICAL_GUEST_HOME:
+        return script
+    return script.replace(CANONICAL_GUEST_HOME, GUEST_HOME)
+
 
 #: Interpreter validation and resolution. Embedded in both guest scripts.
-ENV_RESOLVER = r'''import json,os,pathlib,re,subprocess,sys
+ENV_RESOLVER = for_worker(r'''import json,os,pathlib,re,subprocess,sys
 EXPERIMENTS_ROOT='/home/hermes/experiments'
 def runtime_env():
  """Ambient interpreter state must not leak into an evaluation."""
@@ -78,7 +102,7 @@ def resolve_interpreter(preferred,legacy):
   ok,reason,interpreter=validate_environment(directory)
   if ok:return interpreter,source
  return sys.executable,'system'
-'''
+''')
 
 #: Environment provisioning. Embedded in the implementation guest script only.
 ENV_PROVISION = r'''import hashlib,json,pathlib,re,shutil,subprocess,sys

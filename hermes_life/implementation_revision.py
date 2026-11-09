@@ -12,13 +12,13 @@ import threading
 import time
 from uuid import uuid4
 
-from .guest_env import ENV_RESOLVER
+from .guest_env import ENV_RESOLVER, for_worker
 from .store import now
 
 # Fixed operations executed by the VM's Python; model text never becomes shell source.
 # FLOW-007A: interpreter resolution comes from guest_env, so a revision tests with the
 # run's platform environment and never with a workspace the agent just created.
-REVISION_GUEST = ENV_RESOLVER + r'''
+REVISION_GUEST = for_worker(ENV_RESOLVER + r'''
 import json,pathlib,re,shutil,subprocess,sys
 x=json.load(sys.stdin)
 root=pathlib.Path('/home/hermes/experiments').resolve(strict=True)
@@ -86,7 +86,7 @@ elif op=='rollback':
    raise
   print(json.dumps({'rolled_back':True,'restored':str(candidate),'failed_revision':str(failed) if failed.exists() else None}))
 else:raise ValueError('Invalid revision operation')
-'''
+''')
 
 class ImplementationRevision:
     MAX_ATTEMPTS=3

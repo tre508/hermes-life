@@ -140,16 +140,3 @@ class KnowledgeLibrary:
         lines.append('[/Reference library excerpts]\n')
         return '\n'.join(lines) if len(lines)>2 else ''
 
-class KnowledgeAdapter:
-    """Wrap existing adapter; retrieval is optional. Transport is forwarded
-    unchanged so VM-transport checks see the real adapter's value."""
-    def __init__(self, delegate, library):self.delegate=delegate;self.library=library
-    def available(self):return self.delegate.available()
-    @property
-    def transport(self):return getattr(self.delegate,'transport',None)
-    def _ssh_base(self):return self.delegate._ssh_base()
-    def run(self,prompt,event_callback,task_id=None):
-        excerpts=self.library.context(prompt)
-        return self.delegate.run(excerpts+'\n'+prompt if excerpts else prompt,event_callback,task_id)
-    def cancel(self, task_id):
-        return self.delegate.cancel(task_id)

@@ -4,11 +4,12 @@ import subprocess
 import shlex
 from uuid import uuid4
 from .store import now
+from .guest_env import PROJECTS_ROOT, for_worker
 from .formulation import read_only_investigation_prompt
 from .curiosity_workflow import _COMMENT
 
 # Fixed script: no paths, commands, or prompts from user input. The scanning scope is the guest's ~/projects.
-REMOTE_SCAN = r'''
+REMOTE_SCAN = for_worker(r'''
 import io
 import json
 import os
@@ -96,7 +97,7 @@ print(json.dumps({'findings': found, 'metrics': {
     'elapsed_ms': elapsed_ms,
     'truncated': truncated
 }}))
-'''
+''')
 
 class Discovery:
  def __init__(self, runtime, autonomy):
@@ -164,7 +165,7 @@ class Discovery:
    fp=Discovery.fingerprint(item['project'],item['file'],item['note'])
    ident=str(uuid4())
    title=f"Investigate TODO in {item['project']}/{item['file']}:{item['line']}"
-   prompt=(f"Inside the VM, inspect /home/hermes/projects/{item['project']}/{item['file']} "
+   prompt=(f"Inspecting the coding worker, read {PROJECTS_ROOT}/{item['project']}/{item['file']} "
      f"near line {item['line']}. Investigate the noted TODO/FIXME: {item['note']}. "
      "Provide a concrete problem analysis and a reproducible acceptance criterion. "
      "Do not modify files until a separate implementation goal is approved.")

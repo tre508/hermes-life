@@ -13,6 +13,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional, List
 
+from .guest_env import GUEST_HOME
 from .store import Store, now
 
 
@@ -273,13 +274,14 @@ class StudyService:
 
     def _build_unit_prompt(self, unit: StudyUnit, source: StudySource) -> str:
         """Build the study prompt for a unit (similar to scripts/study-python-handbook.py)."""
+        guest_home = GUEST_HOME
         return f'''STUDY WORKFLOW — {source.title or 'Registered Study Source'}
 This is unit {unit.ordinal} of the study: {unit.title} (PDF pages {unit.start_page}–{unit.end_page}).
-Run ONLY inside the isolated Hermes Life VM.
+Run ONLY inside the isolated Hermes Life coding worker ({guest_home}).
 
 1. Read ALL PDF pages {unit.start_page}–{unit.end_page} using Python/pypdf. Identify actual section/chapter headings and the relevant concepts; note extraction gaps.
-2. Write a study report at /home/hermes/learning/python-handbook/study/unit-{unit.ordinal:02d}.md: sections and PDF page citations; concepts paraphrased in your own words; examples; limits and version-sensitive assertions; questions requiring verification.
-3. Create a separate executable verification script at /home/hermes/learning/python-handbook/study/unit-{unit.ordinal:02d}-checks.py. Choose representative safe examples from THIS unit, with explicit expected outcomes. Run the script in the VM and capture the actual stdout/stderr and exit status in a test log beside the report. Do not claim code has passed unless it ran.
+2. Write a study report at {guest_home}/learning/python-handbook/study/unit-{unit.ordinal:02d}.md: sections and PDF page citations; concepts paraphrased in your own words; examples; limits and version-sensitive assertions; questions requiring verification.
+3. Create a separate executable verification script at {guest_home}/learning/python-handbook/study/unit-{unit.ordinal:02d}-checks.py. Choose representative safe examples from THIS unit, with explicit expected outcomes. Run the script on the worker and capture the actual stdout/stderr and exit status in a test log beside the report. Do not claim code has passed unless it ran.
 4. For each finding, distinguish DOCUMENT-SOURCED information from EXECUTION-VERIFIED evidence. Cite the PDF page(s). Where relevant, compare with Python's current actual behavior, and clearly label differences instead of falsifying test results.
 5. Emit 0–5 concrete reusable technical lessons through the existing [HERMES_LEARNING_JSON] report ONLY if they are supported by exact tool_result excerpts FROM THIS run. Avoid generic lessons, do not copy entire pages, do not write directly to the host DB, and do not mark the entire book verified.
 6. In your final answer report pages processed, actual sections read, tests executed/passed/failed, evidence locations, and any extraction gaps. Preserve all earlier study files and lessons.

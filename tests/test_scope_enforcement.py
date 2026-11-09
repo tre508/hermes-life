@@ -127,7 +127,7 @@ def test_runtime_holds_one_chain_per_capability_scope(tmp_path):
     assert set(runtime.adapters) == set(PROFILES)
     assert runtime.adapter is runtime.adapters['interactive']
     # The scope reaches the real adapter that builds the guest script.
-    assert runtime.adapters['read_only'].delegate.delegate.profile == 'read_only'
+    assert runtime.adapters['read_only'].delegate.profile == 'read_only'
 
 
 def test_scope_follows_the_approval_not_the_prompt_text(tmp_path):

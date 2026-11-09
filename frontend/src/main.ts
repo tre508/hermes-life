@@ -3,12 +3,12 @@ import './style.css';
 
 // Display version is frontend-only; no backend protocol change.
 const versionPill=document.querySelector<HTMLElement>('header .pill');
-if(versionPill) versionPill.textContent='TOWN / 0.4.0';
+if(versionPill) versionPill.textContent='AI OPERATIONS LAB / 0.4.0';
 
 type EventRecord = {sequence:number; id:string; task_id:string|null; type:string;timestamp:string;payload:Record<string,unknown>};
-// UI-VIS-002: the pixel town replaces the starship bridge. The presentation mapping lives in
-// town-model (pure), town-scene (pixel art) and town-view (backend reads + DOM overlays); the
-// backend stays the source of truth and this file keeps owning the event stream.
+// UI-VIS-003: the 3D facility replaces the pixel town. The presentation mapping lives in
+// town-model (pure), town-renderer* (the 3D world and its static fallback) and town-view (backend
+// reads + DOM overlays); the backend stays the source of truth and this file owns the event stream.
 const $ = (id:string) => document.getElementById(id)!;
 let hcVisibleOutput='';
 // Phase 4.6: public execution activity, NOT private chain-of-thought.
@@ -76,7 +76,7 @@ async function loadPersona(){
   if(!response.ok)throw Error(`HTTP ${response.status}`);
   persona=await response.json();
   $('persona-display').textContent=persona.name;
-  $('persona-experience').textContent=`${persona.experience_count} recorded runs`;
+  $('persona-experience').textContent=`${persona.experience_count} recorded outcomes`;
   $('persona-feedback').textContent='Core identity loaded from host.';
  } catch(e){ $('persona-feedback').textContent='Persona unavailable: '+String(e); }
 }
@@ -352,3 +352,6 @@ installTown();
 void hydrate();
 
 import './phase415-review';
+
+// HL-PERS-001 §5F: inspect, correct and invalidate the learned profile from the product.
+import './phase41303-memory';

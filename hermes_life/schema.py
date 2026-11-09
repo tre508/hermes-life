@@ -1,13 +1,14 @@
 """Explicit, versioned schema setup and single-owner restart recovery."""
 from .store import now
 
-SCHEMA_VERSION = 29
+SCHEMA_VERSION = 33
 DDL = r'''
 
             CREATE TABLE IF NOT EXISTS tasks (
                 id TEXT PRIMARY KEY, prompt TEXT NOT NULL, state TEXT NOT NULL,
                 created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
-                result TEXT, error TEXT, session_id TEXT
+                result TEXT, error TEXT, session_id TEXT,
+                applied_persona_sha256 TEXT, applied_memory_ids TEXT, applied_lesson_ids TEXT
             );
             CREATE TABLE IF NOT EXISTS events (
                 sequence INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -138,13 +139,23 @@ def migrate(connection):
         _upgrade_to_v28(connection)
     if version < 29:
         _upgrade_to_v29(connection)
+    if version < 30:
+        _upgrade_to_v30(connection)
+    if version < 31:
+        _upgrade_to_v31(connection)
+    if version < 32:
+        _upgrade_to_v32(connection)
+    if version < 33:
+        _upgrade_to_v33(connection)
     # Repair partially-applied v4 installations without touching earlier data.
     has_personality = connection.execute(
         "SELECT 1 FROM sqlite_master WHERE type='table' AND name='agent_personality'"
     ).fetchone()
     if not has_personality:
         _upgrade_to_v4(connection)
-        connection.execute('PRAGMA user_version=29')
+        # A repair must record the CURRENT version: a stale literal here silently downgrades a
+        # database that has already been upgraded past it (found while adding v30).
+        connection.execute(f'PRAGMA user_version={SCHEMA_VERSION}')
         connection.commit()
     else:
         connection.execute("""INSERT OR IGNORE INTO agent_personality
@@ -184,9 +195,11 @@ def _upgrade_to_v4(connection):
 
 def _upgrade_to_v5(connection):
     connection.execute("""CREATE TABLE IF NOT EXISTS persona_experiences (
-        id INTEGER PRIMARY KEY AUTOINCREMENT, state TEXT NOT NULL,
-        note TEXT NOT NULL, created_at TEXT NOT NULL
+        id INTEGER PRIMARY KEY AUTOINCREMENT, task_id TEXT, goal_id TEXT,
+        state TEXT NOT NULL, note TEXT NOT NULL, created_at TEXT NOT NULL
     )""")
+    connection.execute('CREATE UNIQUE INDEX IF NOT EXISTS idx_persona_experiences_task'
+                       ' ON persona_experiences(task_id)')
     connection.execute('PRAGMA user_version=5')
     connection.commit()
 
@@ -554,7 +567,9 @@ def _upgrade_to_v24(connection):
         id TEXT PRIMARY KEY, content TEXT NOT NULL, kind TEXT NOT NULL,
         source_conversation_id TEXT, source_turn_id INTEGER,
         status TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('active','superseded')),
-        superseded_by TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+        superseded_by TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
+        evidence_excerpt TEXT, origin TEXT, confidence REAL, expires_at TEXT,
+        rationale TEXT, decided_by TEXT
     )""")
     connection.execute('CREATE INDEX IF NOT EXISTS idx_hl_memories_status ON hl_memories(status)')
     connection.execute("""CREATE TABLE IF NOT EXISTS hl_turn_revisions (
@@ -570,7 +585,8 @@ def _upgrade_to_v24(connection):
     connection.execute("""CREATE TABLE IF NOT EXISTS hl_memory_reviews (
         id INTEGER PRIMARY KEY AUTOINCREMENT, task_id TEXT NOT NULL,
         candidate TEXT NOT NULL, existing_memory_id TEXT, reason TEXT NOT NULL,
-        status TEXT NOT NULL DEFAULT 'pending', created_at TEXT DEFAULT CURRENT_TIMESTAMP
+        status TEXT NOT NULL DEFAULT 'pending', created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+        evidence_excerpt TEXT, origin TEXT, resolution_rationale TEXT, resolved_by TEXT
     )""")
     connection.execute('PRAGMA user_version=24')
     connection.commit()
@@ -671,4 +687,69 @@ def _upgrade_to_v29(connection):
         id INTEGER PRIMARY KEY CHECK(id=1), auto_revision INTEGER NOT NULL DEFAULT 1)''')
     connection.execute('INSERT OR IGNORE INTO verification_settings(id,auto_revision) VALUES(1,1)')
     connection.execute('PRAGMA user_version=29')
+    connection.commit()
+
+
+def _upgrade_to_v30(connection):
+    # HL-PERS-001 §5B/§5D/§5E: a learned attribute must retain its supporting evidence, its origin
+    # (explicit user statement vs model inference) and its validity, and a correction must record who
+    # decided it and why. Legacy rows keep NULL origin: unknown is not the same as explicitly stated,
+    # and NULL sorts as "not explicit" in the profile ordering.
+    columns = {r[1] for r in connection.execute('PRAGMA table_info(hl_memories)')}
+    for name, ddl in (('evidence_excerpt', 'TEXT'), ('origin', 'TEXT'), ('confidence', 'REAL'),
+                      ('expires_at', 'TEXT'), ('rationale', 'TEXT'), ('decided_by', 'TEXT')):
+        if columns and name not in columns:
+            connection.execute(f'ALTER TABLE hl_memories ADD COLUMN {name} {ddl}')
+    connection.execute('PRAGMA user_version=30')
+    connection.commit()
+
+
+def _upgrade_to_v31(connection):
+    # HL-PERS-001 §5F / §3 Consolidation: a correction to a learned memory must record who made it,
+    # why, and when — otherwise "corrected" is indistinguishable from "silently dropped". A reviewed
+    # candidate must also be mergeable, because a duplicate that adds nothing needs no replacement.
+    connection.execute("""CREATE TABLE IF NOT EXISTS hl_memory_corrections (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, memory_id TEXT NOT NULL,
+        action TEXT NOT NULL CHECK(action IN ('supersede','delete','merge')),
+        actor TEXT, rationale TEXT, new_memory_id TEXT, created_at TEXT NOT NULL
+    )""")
+    connection.execute('CREATE INDEX IF NOT EXISTS idx_hl_memory_corrections_memory'
+                       ' ON hl_memory_corrections(memory_id, id)')
+    columns = {r[1] for r in connection.execute('PRAGMA table_info(hl_memory_reviews)')}
+    for name, ddl in (('evidence_excerpt', 'TEXT'), ('origin', 'TEXT'),
+                      ('resolution_rationale', 'TEXT'), ('resolved_by', 'TEXT')):
+        if columns and name not in columns:
+            connection.execute(f'ALTER TABLE hl_memory_reviews ADD COLUMN {name} {ddl}')
+    connection.execute('PRAGMA user_version=31')
+    connection.commit()
+
+
+def _upgrade_to_v32(connection):
+    # HL-PERS-001 §7 #5 / PA-04: a run must record which personality context it received, or
+    # "the profile adapted future behaviour" is unfalsifiable. Implementation evaluations already
+    # record their environment; tasks recording nothing was the inconsistency.
+    columns = {r[1] for r in connection.execute('PRAGMA table_info(tasks)')}
+    for name in ('applied_persona_sha256', 'applied_memory_ids', 'applied_lesson_ids'):
+        if columns and name not in columns:
+            connection.execute(f'ALTER TABLE tasks ADD COLUMN {name} TEXT')
+    connection.execute('PRAGMA user_version=32')
+    connection.commit()
+
+
+def _upgrade_to_v33(connection):
+    # HL-PERS-001 §2 layer 2 / §3 Experience: "experience" is a terminal, user-facing task outcome, not
+    # an internal adapter call. persona_experiences — the store the spec built for this layer — gains the
+    # task/goal it belongs to, and a unique task_id so one task contributes exactly one experience.
+    columns = {r[1] for r in connection.execute('PRAGMA table_info(persona_experiences)')}
+    if columns:
+        for name in ('task_id', 'goal_id'):
+            if name not in columns:
+                connection.execute(f'ALTER TABLE persona_experiences ADD COLUMN {name} TEXT')
+    else:
+        connection.execute("""CREATE TABLE IF NOT EXISTS persona_experiences (
+            id INTEGER PRIMARY KEY AUTOINCREMENT, task_id TEXT, goal_id TEXT,
+            state TEXT NOT NULL, note TEXT NOT NULL, created_at TEXT NOT NULL)""")
+    connection.execute('CREATE UNIQUE INDEX IF NOT EXISTS idx_persona_experiences_task'
+                       ' ON persona_experiences(task_id)')
+    connection.execute('PRAGMA user_version=33')
     connection.commit()

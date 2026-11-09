@@ -25,10 +25,14 @@ def request_json(base, method, route, payload=None):
 def main():
     parser=argparse.ArgumentParser(description='Ingest the Python Handbook from an isolated Hermes Life VM')
     parser.add_argument('--api', default='http://127.0.0.1:8766')
-    parser.add_argument('--vm', default=os.environ.get('HERMES_LIFE_VM_HOST', '192.168.124.136'))
-    parser.add_argument('--user', default=os.environ.get('HERMES_LIFE_VM_USER', 'hermes'))
-    parser.add_argument('--key', default=os.environ.get('HERMES_LIFE_VM_KEY', '~/.ssh/hermes_life_vm'))
+    # No worker default: source config/hermes-life-lenovo.env (or pass --vm/--user/--key) so this
+    # can never drive a machine that is no longer the coding worker.
+    parser.add_argument('--vm', default=os.environ.get('HERMES_LIFE_VM_HOST'))
+    parser.add_argument('--user', default=os.environ.get('HERMES_LIFE_VM_USER'))
+    parser.add_argument('--key', default=os.environ.get('HERMES_LIFE_VM_KEY'))
     args=parser.parse_args()
+    if not (args.vm and args.user and args.key):
+        parser.error('coding worker not configured: source config/hermes-life-lenovo.env, or pass --vm/--user/--key')
     base=args.api.rstrip('/')
     # Fail before remote work if library isn't installed or backend is down.
     status=request_json(base,'GET','/api/library/sources')

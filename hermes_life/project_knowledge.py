@@ -60,7 +60,7 @@ def select_sections(text: str, query: str, budget: int) -> str:
 class ProjectKnowledge:
     def __init__(self, runtime):
         self.runtime = runtime
-        self.vault = Path(os.environ.get('HERMES_LIFE_OBSIDIAN_VAULT', '/home/gayzer/black/obsidian/hermes')).expanduser()
+        self.vault = Path(os.environ.get('HERMES_LIFE_OBSIDIAN_VAULT', '/run/media/gayzer/black/obsidian/hermes')).expanduser()
 
     def _project(self, name):
         return self.runtime.project_workspaces._read(name)

@@ -26,7 +26,7 @@ from .personality import Personality, PersonalityAdapter
 from .conversation_memory import ConversationMemory
 from .conversation_recall import Recall
 from .vault_memory import VaultMemory  # PHASE49_VAULT_MEMORY
-from .knowledge_library import KnowledgeLibrary, KnowledgeAdapter
+from .knowledge_library import KnowledgeLibrary
 from .project_workspaces import ProjectWorkspaces, add_project_routes, SELECTOR  # PHASE411_PROJECT_WORKSPACES
 from .project_knowledge import ProjectKnowledge, add_knowledge_routes  # PHASE414_PROJECT_KNOWLEDGE
 from .project_approvals import add_approval_routes  # PHASE412_APPROVALS
@@ -57,22 +57,50 @@ class Runtime:
         self.knowledge_library = KnowledgeLibrary(self.store)
         timeout = int(os.getenv('HERMES_LIFE_TIMEOUT', '1800'))
 
-        def chain(profile):
-            # HL-AUTO-004: a scope is a capability, not a label. A call site holds the
-            # chain matching the approval it acts on, so an approved read-only
-            # investigation cannot reach the interactive toolset.
-            delegate = adapter if adapter is not None else HermesAdapter(
-                timeout_seconds=timeout, profile=profile)
-            return KnowledgeAdapter(PersonalityAdapter(delegate, self.personality), self.knowledge_library)
-
-        self.adapters = {profile: chain(profile) for profile in PROFILES}
+        # HL-AUTO-004: a scope is a capability, not a label. A call site holds the
+        # chain matching the approval it acts on, so an approved read-only
+        # investigation cannot reach the interactive toolset.
+        self.delegates = {profile: (adapter if adapter is not None else HermesAdapter(
+            timeout_seconds=timeout, profile=profile)) for profile in PROFILES}
+        # HL-PERS-001 §5A/§5C/#11: the user-facing chain carries persona, learned profile, recalled
+        # memory, lessons, reflections and library excerpts — all composed by PersonalityAdapter in the
+        # one documented order (personality.compose_prompt). The library is a source inside that order,
+        # not a wrapper around it.
+        self.adapters = {profile: PersonalityAdapter(
+            self.delegates[profile], self.personality, audience='chat',
+            library=self.knowledge_library) for profile in PROFILES}
         self.adapter = self.adapters['interactive']
-        self.vault_memory.adapter = self.adapter  # PHASE4101_SEMANTIC_MEMORY
+        # Persona-free, library-free chains for prompts whose answer is judged or parsed as data
+        # (verification criteria and adjudication, memory extraction). Same tool scope, no injection.
+        self.analysis_adapters = dict(self.delegates)
+        self.analysis_adapter = self.analysis_adapters['read_only']
+        self.vault_memory.adapter = self.analysis_adapter  # extraction answers in JSON, not in persona
         self.project_workspaces = ProjectWorkspaces(self)
         self.project_knowledge = ProjectKnowledge(self)
         self.maintenance = MaintenanceService(self)
         self.study = create_study_service(self.store, self)
         self.active = threading.Lock()
+
+    def worker(self):
+        """The coding worker behind the adapter chain (transport, target, agent binary)."""
+        from .guest_env import GUEST_HOME, HERMES_BIN
+        obj = self.adapter
+        seen = []
+        for _ in range(6):
+            seen.append(obj)
+            obj = getattr(obj, 'delegate', None)
+            if obj is None:
+                break
+        transport = next((getattr(o, 'transport') for o in seen if getattr(o, 'transport', None)), 'local')
+        host = next((getattr(o, 'host', None) for o in seen if getattr(o, 'host', None)), None)
+        user = next((getattr(o, 'user', None) for o in seen if getattr(o, 'user', None)), None)
+        port = next((getattr(o, 'port', None) for o in seen if getattr(o, 'port', None)), None)
+        return {
+            'transport': transport,
+            'target': f'{user}@{host}:{port}' if transport == 'ssh' and host else 'local',
+            'guest_home': GUEST_HOME,
+            'agent': HERMES_BIN if transport == 'ssh' else getattr(self.adapter, 'executable', 'hermes'),
+        }
 
     def task_scope(self, ident):
         """HL-AUTO-004: the approval that created a task decides its capability.
@@ -92,6 +120,8 @@ class Runtime:
         try:
             scope = self.task_scope(ident)
             adapter = self.adapters[scope]
+            task = self.store.task(ident)
+            prompt = task['prompt'] if task else ''
             self.store.update_task(ident, 'running')
             self.store.set_agent('executing',ident)
             self.store.emit('task.started', {'scope': scope}, ident)
@@ -100,17 +130,18 @@ class Runtime:
             conversation_id = self.conversations.conversation_for_task(ident)
             context = self.conversations.context(conversation_id, ident) if conversation_id else ''
             # Select a registered project from chat or goal prompts using @project slug.
-            selected = SELECTOR.search(self.store.task(ident)['prompt'])
+            selected = SELECTOR.search(prompt)
             if selected:
                 # A read-only scope must not be told it may modify the workspace.
                 workspace = self.project_workspaces.context(
                     selected.group(1), read_only=(scope == 'read_only'))
-                context = workspace + self.project_knowledge.context(selected.group(1), self.store.task(ident)['prompt']) + context
+                context = workspace + self.project_knowledge.context(selected.group(1), prompt) + context
 
-            recall = self.recall.retrieve(self.store.task(ident)['prompt'], conversation_id) if conversation_id else ''
-            recall += self.vault_memory.retrieve_notes(self.store.task(ident)['prompt'])
-            result = adapter.run(recall + context + self.store.task(ident)['prompt'], on_event, ident)
+            recall = self.recall.retrieve(prompt, conversation_id) if conversation_id else ''
+            recall += self.vault_memory.retrieve_notes(prompt)
+            result = adapter.run(recall + context + prompt, on_event, ident)
             self.store.update_task(ident, 'completed', **result)
+            self.record_experience(ident, 'completed', prompt)
             if conversation_id:
                 self.conversations.finish(conversation_id, ident, result)
                 try:
@@ -120,12 +151,29 @@ class Runtime:
             self.store.emit('task.completed', {'session_id':result.get('session_id')},ident)
         except Exception as exc:
             self.store.update_task(ident, 'failed', error=str(exc))
+            self.record_experience(ident, 'failed', str(exc))
             conversation_id = self.conversations.conversation_for_task(ident)
             if conversation_id: self.conversations.finish(conversation_id, ident, {'error':str(exc)})
             self.store.emit('task.failed', {'error':str(exc)},ident)
         finally:
             self.store.set_agent('idle')
             self.active.release()
+
+    def record_experience(self, task_id, state, note=''):
+        """One experience per terminal task outcome (HL-PERS-001 §2 layer 2 / §3 Experience collection).
+
+        Deliberately separate from the internal reflective-run store: only a completed/failed/cancelled
+        task counts, and it counts exactly once (keyed by task_id). Bookkeeping must never change the
+        task's own terminal state, so a failure here is reported as an event and swallowed.
+        """
+        try:
+            with self.store.lock:
+                row = self.store.connection.execute(
+                    'SELECT id FROM goals WHERE task_id=?', (task_id,)).fetchone()
+            self.personality.record_experience(task_id, state, note, row['id'] if row else None)
+        except Exception as exc:
+            self.store.emit('experience.record_failed',
+                            {'task_id': task_id, 'error': type(exc).__name__}, task_id)
 
 
 def _recover_lifecycle_handoffs(autonomy, planner):
@@ -206,7 +254,7 @@ def create_app(database=None, adapter=None):
     @app.get('/api/reflections')
     def reflections():
         return {'stats':runtime.personality.reflection.stats(),
-                'recent':[dict(r) for r in runtime.personality.experiences(10)]}
+                'recent':[dict(r) for r in runtime.personality.reflection.recent(10)]}
 
     @app.get('/api/library/sources')
     def library_sources():
@@ -251,8 +299,8 @@ def create_app(database=None, adapter=None):
 
     @app.get('/api/personality/experiences')
     def personality_experiences():
-        return [{'state':state,'note':note,'created_at':created_at}
-                for state,note,created_at in runtime.personality.experiences(10)]
+        # Terminal task outcomes (HL-PERS-001 §3 Experience), not internal reflective runs.
+        return [dict(row) for row in runtime.personality.experiences(10)]
 
     @app.get("/api/autonomy")
     def autonomy_state():
@@ -548,7 +596,13 @@ def create_app(database=None, adapter=None):
 
     @app.get('/health')
     def health():
-        return {'status':'ok','hermes_available':runtime.adapter.available()}
+        """Readiness plus the coding worker this backend is actually driving.
+
+        HL-WORKER: after the VM -> Lenovo migration an operator must be able to see *which* machine
+        autonomous coding runs on, without reading the environment.
+        """
+        worker = runtime.worker()
+        return {'status':'ok','hermes_available':runtime.adapter.available(),'worker':worker}
 
     @app.get('/api/world/state')
     def world_state():
@@ -578,9 +632,19 @@ def create_app(database=None, adapter=None):
 
     @app.post('/api/memory-reviews/{review_id}/resolve')
     def resolve_memory_review(review_id: int, payload: dict):
+        """Resolve a pending memory review.
+
+        - accept: the candidate replaces the conflicting memory (or becomes a new one)
+        - reject: the candidate is discarded
+        - merge: the candidate adds nothing the active memory does not already state, so the memory
+          is kept unchanged and the candidate is retired — HL-PERS-001 §3 Consolidation. Because a
+          merge silently drops a candidate, it is the one decision that must be justified.
+        """
         decision=payload.get('decision')
-        if decision not in ('accept','reject'):
-            raise HTTPException(422,'decision must be accept or reject')
+        if decision not in ('accept','reject','merge'):
+            raise HTTPException(422,'decision must be accept, reject or merge')
+        actor=(payload.get('actor') or 'user')
+        rationale=(payload.get('rationale') or '').strip()
         with runtime.store.lock:
             db=runtime.store.connection
             review=db.execute('SELECT * FROM hl_memory_reviews WHERE id=?',(review_id,)).fetchone()
@@ -588,22 +652,38 @@ def create_app(database=None, adapter=None):
             if review['status']!='pending':raise HTTPException(409,'Review already resolved')
             old=db.execute('SELECT * FROM hl_memories WHERE id=? AND status="active"',
                            (review['existing_memory_id'],)).fetchone() if review['existing_memory_id'] else None
-            if decision=='accept' and review['existing_memory_id'] and old is None:
+            if decision in ('accept','merge') and review['existing_memory_id'] and old is None:
                 raise HTTPException(409,'Original memory is no longer active')
+            if decision=='merge' and not review['existing_memory_id']:
+                raise HTTPException(409,'Nothing to merge into: the candidate conflicts with no memory')
+        if decision=='merge' and not rationale:
+            raise HTTPException(422,'merge requires a rationale')
         if decision=='accept':
             if old:
-                entry=runtime.recall.remember(review['candidate'],old['kind'],supersedes=old['id'])
+                entry=runtime.recall.remember(review['candidate'],old['kind'],supersedes=old['id'],
+                                              origin='explicit',rationale=rationale or None,decided_by=actor)
             else:
                 kind=payload.get('kind')
                 if kind not in ('decision','preference','project','correction','workflow'):
                     raise HTTPException(422,'New lesson requires a valid kind')
-                entry=runtime.recall.remember(review['candidate'],kind)
-            try:runtime.vault_memory._mirror(entry)
-            except (OSError,ValueError):pass
+                entry=runtime.recall.remember(review['candidate'],kind,origin='explicit',
+                                              rationale=rationale or None,decided_by=actor)
+            runtime.vault_memory.mirror_memory(entry)
+            # The memory this candidate replaced is no longer current either (§5G).
+            if old:
+                runtime.vault_memory.retire_memory(old['id'], old['kind'], 'superseded', entry['id'],
+                                                   rationale, actor)
+        if decision=='merge':
+            runtime.recall.record_correction(review['existing_memory_id'],'merge',actor,rationale)
         with runtime.store.lock:
-            runtime.store.connection.execute('UPDATE hl_memory_reviews SET status=? WHERE id=?',(decision,review_id))
+            runtime.store.connection.execute(
+                'UPDATE hl_memory_reviews SET status=?, resolution_rationale=?, resolved_by=? WHERE id=?',
+                (decision,rationale or None,actor,review_id))
             runtime.store.connection.commit()
-        return {'id':review_id,'status':decision}
+        runtime.store.emit('memory.review_resolved',
+            {'review_id':review_id,'decision':decision,'memory_id':review['existing_memory_id'],
+             'actor':actor,'rationale':rationale or None})
+        return {'id':review_id,'status':decision,'rationale':rationale or None,'actor':actor}
 
     # Study routes (HL-STUDY-001..004)
     class StudySourceInput(BaseModel):
@@ -695,11 +775,22 @@ def create_app(database=None, adapter=None):
 
     @app.post('/api/memories', status_code=201)
     def remember(payload: dict):
+        # A human saving a memory is an explicit statement unless they say otherwise; an unknown
+        # provenance is refused by Recall.remember rather than guessed (HL-PERS-001 §5D).
         try:
-            return runtime.recall.remember(payload.get('content',''), payload.get('kind','decision'),
-                payload.get('conversation_id'), payload.get('turn_id'), payload.get('supersedes'))
+            entry = runtime.recall.remember(payload.get('content',''), payload.get('kind','decision'),
+                payload.get('conversation_id'), payload.get('turn_id'), payload.get('supersedes'),
+                evidence_excerpt=payload.get('evidence_excerpt'),
+                origin=payload.get('origin','explicit'),
+                rationale=payload.get('rationale'), decided_by=payload.get('decided_by'))
         except (TypeError, ValueError) as exc:
             raise HTTPException(422,str(exc))
+        # §5G: the mirror follows the record, including a memory a human saved directly.
+        runtime.vault_memory.mirror_memory(entry)
+        if payload.get('supersedes'):
+            runtime.vault_memory.retire_memory(payload['supersedes'], payload.get('kind','decision'),
+                'superseded', entry['id'], payload.get('rationale'), payload.get('decided_by'))
+        return entry
 
     # Personality / Learned Behavioral Profile endpoints (HL-PERS-001)
     @app.get('/api/personality/profile')
@@ -714,17 +805,28 @@ def create_app(database=None, adapter=None):
         return {'context': context}
 
     class ProfileCorrectionInput(BaseModel):
-        memory_id: str
-        action: str = Field(pattern='^(supersede|delete)$')  # supersede=replace with new content, delete=supersede to inactive
+        # The memory is identified by the path; the body carried a second, unread `memory_id` that
+        # made every correction 422 when omitted, so the path is the only identity.
+        # supersede=replace with new content, delete=invalidate with no replacement,
+        # merge=this memory duplicates merge_into, so retire it in favour of that one.
+        action: str = Field(pattern='^(supersede|delete|merge)$')
         new_content: str | None = Field(default=None, max_length=1600)
         new_kind: str | None = Field(default=None, pattern='^(preference|correction|decision|workflow|project)$')
+        merge_into: str | None = Field(default=None, max_length=64)
+        # HL-PERS-001 §5F / §7 #8: a correction must say who made it and why, or the profile cannot
+        # be audited. `rationale` is therefore required, not optional.
+        rationale: str = Field(min_length=4, max_length=500)
+        actor: str | None = Field(default=None, max_length=120)
 
     @app.post('/api/personality/profile/{memory_id}/correct')
     def correct_profile_memory(memory_id: str, payload: ProfileCorrectionInput):
-        """Correct or invalidate a learned behavioral memory.
-        
-        - supersede: replaces the memory with new_content (and optional new_kind), marking old as superseded
-        - delete: marks the memory as superseded (inactive) without replacement
+        """Correct, invalidate or merge a learned behavioral memory.
+
+        - supersede: replaces the memory with new_content (and optional new_kind)
+        - delete: marks the memory superseded (inactive) without replacement
+        - merge: retires the memory in favour of merge_into, which it duplicates
+
+        Every action records actor, rationale and timestamp in hl_memory_corrections.
         """
         with runtime.store.lock:
             db = runtime.store.connection
@@ -733,23 +835,67 @@ def create_app(database=None, adapter=None):
                 raise HTTPException(404, 'Memory not found')
             if existing['status'] != 'active':
                 raise HTTPException(409, 'Memory is not active')
-        
+            if payload.action == 'merge':
+                if not payload.merge_into:
+                    raise HTTPException(422, 'merge requires merge_into')
+                if payload.merge_into == memory_id:
+                    raise HTTPException(422, 'A memory cannot be merged into itself')
+                target = db.execute('SELECT id FROM hl_memories WHERE id=? AND status="active"',
+                                    (payload.merge_into,)).fetchone()
+                if target is None:
+                    raise HTTPException(409, 'Merge target is not an active memory')
+
         if payload.action == 'supersede':
             if not payload.new_content or len(payload.new_content.strip()) < 4:
                 raise HTTPException(422, 'New content must be at least 4 characters')
             kind = payload.new_kind or existing['kind']
             result = runtime.recall.remember(payload.new_content.strip(), kind,
-                existing['source_conversation_id'], existing['source_turn_id'], supersedes=memory_id)
-            return {'action': 'superseded', 'old_id': memory_id, 'new': result}
+                existing['source_conversation_id'], existing['source_turn_id'], supersedes=memory_id,
+                origin='explicit', rationale=payload.rationale, decided_by=payload.actor)
+            correction = runtime.recall.record_correction(memory_id, 'supersede',
+                payload.actor, payload.rationale, result['id'])
+            action, new_memory, new_memory_id, merged_into = 'superseded', result, result['id'], None
         elif payload.action == 'delete':
-            # Mark as superseded with no replacement
             with runtime.store.lock:
                 db = runtime.store.connection
-                db.execute('UPDATE hl_memories SET status="superseded", superseded_by=NULL, updated_at=? WHERE id=?',
-                    (now(), memory_id))
+                db.execute('UPDATE hl_memories SET status="superseded", superseded_by=NULL, rationale=?,'
+                           ' decided_by=?, updated_at=? WHERE id=?',
+                    (payload.rationale.strip()[:500], (payload.actor or 'user')[:120], now(), memory_id))
                 db.commit()
-            runtime.store.emit('personality.profile_corrected', {'memory_id': memory_id, 'action': 'deleted'}, memory_id)
-            return {'action': 'deleted', 'memory_id': memory_id}
+            correction = runtime.recall.record_correction(memory_id, 'delete', payload.actor, payload.rationale)
+            action, new_memory, new_memory_id, merged_into = 'deleted', None, None, None
+        else:
+            with runtime.store.lock:
+                db = runtime.store.connection
+                db.execute('UPDATE hl_memories SET status="superseded", superseded_by=?, rationale=?,'
+                           ' decided_by=?, updated_at=? WHERE id=?',
+                    (payload.merge_into, payload.rationale.strip()[:500], (payload.actor or 'user')[:120],
+                     now(), memory_id))
+                db.commit()
+            correction = runtime.recall.record_correction(memory_id, 'merge', payload.actor,
+                                                          payload.rationale, payload.merge_into)
+            action, new_memory, new_memory_id, merged_into = 'merged', None, None, payload.merge_into
+        # HL-PERS-001 §5G: the vault mirrors the record, so a retired memory is marked there and a
+        # correction's replacement gets its own note. The vault is secondary — mirror_memory and
+        # retire_memory report failure instead of raising, so a bad vault never fails a correction.
+        if new_memory is not None:
+            runtime.vault_memory.mirror_memory(new_memory)
+        # The vault note records what the memory *is* now, not which button was pressed: an invalidated
+        # memory reads as invalidated, not as "deleted".
+        status = {'superseded': 'superseded', 'deleted': 'invalidated', 'merged': 'merged'}[action]
+        runtime.vault_memory.retire_memory(memory_id, existing['kind'], status,
+            new_memory_id or merged_into, payload.rationale, payload.actor)
+        runtime.store.emit('personality.profile_corrected',
+            {'memory_id': memory_id, 'action': action, 'actor': correction['actor'],
+             'rationale': correction['rationale'], 'new_memory_id': new_memory_id,
+             'merged_into': merged_into}, memory_id)
+        return {'action': action, 'memory_id': memory_id, 'correction': correction,
+                'new_memory_id': new_memory_id, 'merged_into': merged_into, 'new': new_memory}
+
+    @app.get('/api/memory-corrections')
+    def memory_corrections(memory_id: str | None = None, limit: int = 20):
+        """Why the learned profile changed: actor + rationale + timestamp per correction."""
+        return {'corrections': runtime.recall.corrections(memory_id, limit)}
 
     @app.get('/api/tasks')
     def tasks():
@@ -799,6 +945,7 @@ def create_app(database=None, adapter=None):
         adapter = runtime.adapters[scope]
         if adapter.cancel(task_id):
             runtime.store.update_task(task_id, 'cancelled', error='Cancelled by user')
+            runtime.record_experience(task_id, 'cancelled', 'Cancelled by user')
             runtime.store.emit('task.cancelled', {'task_id': task_id}, task_id)
             # Release the global lock if we hold it
             runtime.store.set_agent('idle')

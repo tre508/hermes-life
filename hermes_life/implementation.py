@@ -14,14 +14,14 @@ from uuid import uuid4
 if TYPE_CHECKING:
     from .verification import VerificationEngine
 
-from .guest_env import ENV_PROVISION, ENV_RESOLVER
+from .guest_env import ENV_PROVISION, ENV_RESOLVER, PROJECTS_ROOT, for_worker
 from .store import now
 
 # Runs inside the VM. A fixed command is selected by the evaluator, never by
 # untrusted plan/agent output. Only prepared experiment directories are tested.
 # FLOW-007A: interpreter resolution and environment provisioning are owned by
 # guest_env so the revision worker cannot drift away from this path.
-GUEST = ENV_RESOLVER + ENV_PROVISION + r'''
+GUEST = for_worker(ENV_RESOLVER + ENV_PROVISION + r'''
 import importlib.util,json,pathlib,re,shutil,subprocess,sys,time
 
 def valid_name(s):
@@ -84,7 +84,7 @@ elif op=='environment':
  baseline=experiments/('baseline-'+ident)
  print(json.dumps(provision_environment(ident,str(baseline))))
 else:raise ValueError('Invalid operation')
-'''
+''')
 
 
 class ImplementationEngine:
@@ -279,7 +279,7 @@ class ImplementationEngine:
 
         A plan knows its project through an exact join, not a guess:
         plan.formulation_id -> formulated_goals.discovery_id -> discoveries.project.
-        discoveries.project is a directory name under /home/hermes/projects, which is
+        discoveries.project is a directory name under the worker's projects root, which is
         exactly what the guest prepare step accepts, so no manual entry is needed.
 
         Returns the name, or None when the lineage is unavailable or invalid (the
@@ -363,7 +363,7 @@ class ImplementationEngine:
             self._update(ident, 'implementing', baseline_json=json.dumps(baseline))
             prompt = ('Implement this REVIEWED plan in the isolated candidate workspace ONLY: '
                 + paths['candidate'] + ' . '
-                'Never edit the original /home/hermes/projects directory, baseline workspace, host, or Hermes Life infrastructure. '
+                'Never edit the original ' + PROJECTS_ROOT + ' directory, baseline workspace, host, or Hermes Life infrastructure. '
                 'Do not change the tests merely to achieve a passing result. Work only in the candidate directory. '
                 'Plan: ' + json.dumps({'summary': report['summary'],
                                       'steps': report['steps'],

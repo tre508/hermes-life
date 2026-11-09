@@ -1,9 +1,8 @@
 /* UI-VIS-002: town overlays. Bounded HUD elements only — the existing layout is untouched. */
 #game.town { position: relative; }
-/* The container box must carry the game's aspect ratio. Layout rules elsewhere clamp the canvas
-   with both max-width and max-height; when the box ratio matches the game ratio those clamps give
-   one uniform size instead of a stretched one (which would distort the art and break Phaser's
-   pointer mapping, since it maps through the canvas' CSS box). */
+/* The container box must carry the design aspect ratio. Layout rules elsewhere clamp the canvas with
+   both max-width and max-height; when the box ratio matches the renderer's, those clamps give one
+   uniform size instead of a stretched one. */
 #shell > main > .world-wrap #game.town {
   /* Width is limited by the column AND by the height actually available for the town, so the map
      can never be clipped: the panel's inherited overflow:hidden used to cut the town off. */
@@ -12,16 +11,14 @@
   /* flex-grow from the inherited layout stretched the container to a non-game ratio */
   flex: 0 0 auto;
 }
-/* Inherited `!important` rules (layout phases 4.4/4.5) forced a different CSS size than Phaser's
-   own fit calculation, so the canvas rendered 812x437 while Phaser mapped pointers as if it were
-   845x449 — every click landed ~15px off and hit nothing. town-view therefore pins the canvas to
-   Phaser's computed display size with inline-important styles; these rules stop the clamps. */
+/* Inherited `!important` rules (layout phases 4.4/4.5) clashed with the renderer's own sizing, so the
+   canvas and the viewport could disagree. UI-VIS-003: the renderer owns its drawing-buffer size;
+   these rules only stop the inherited clamps from stretching the canvas. */
 #shell > main > .world-wrap #game.town canvas {
-  /* A uniform box at the game's own ratio. The inherited rules clamped width and height
-     independently, which stretched the canvas and desynchronised Phaser's pointer transform. */
+  /* A uniform box at the design ratio (UI-VIS-003 §4, DESIGN). Picking is raycasting inside the
+     renderer, so it no longer depends on this box matching a library's internal transform. */
   width: 100% !important; height: auto !important; aspect-ratio: 800 / 425;
   max-width: none !important; max-height: none !important;
-  image-rendering: pixelated;
 }
 
 /* The HUD sits below the canvas, not over it: overlapping the art hid the Workshop and its
@@ -81,6 +78,27 @@
 .town-card-actions button { margin: 0; font-size: 10.5px; padding: 5px 9px; }
 .town-card[data-state="failed"] strong { color: #f7a19b; }
 .town-card[data-state="working"] strong { color: #ffd98a; }
+
+/* UI-VIS-003 §9: the hover surface, and the keyboard route into the same two events. */
+.town-tooltip {
+  position: absolute; z-index: 32; transform: translate(-50%, calc(-100% - 10px));
+  pointer-events: none; max-width: min(300px, 92%); padding: 5px 8px; border-radius: 6px;
+  background: rgba(8, 24, 32, .96); border: 1px solid #4d7480; color: #e6f3ef;
+  font-size: 10.5px; line-height: 1.35; text-align: center;
+}
+.town-tooltip[hidden] { display: none; }
+/* A canvas cannot be tabbed through, so the stations and residents are real buttons here. The group
+   stays in the accessibility tree at all times and is laid out only while it holds focus, so it
+   never covers the facility while the pointer is in use. */
+.town-access {
+  position: absolute; z-index: 33; left: 8px; bottom: 8px; width: max-content;
+  max-width: calc(100% - 16px); display: flex; flex-direction: column; gap: 6px; padding: 8px;
+  border-radius: 8px; background: rgba(8, 24, 32, .96); border: 1px solid #4d7480;
+}
+.town-access:not(:focus-within) { clip-path: inset(50%); width: 1px; height: 1px; overflow: hidden; padding: 0; border: 0; }
+.town-access-row { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
+.town-access-row button { margin: 0; font-size: 10.5px; padding: 4px 8px; }
+.town-access button:focus-visible { outline: 2px solid #9fd6e8; outline-offset: 1px; }
 
 /* Reduced motion: the town stands still, the text board carries the state. */
 .town-still .town-board { border-color: #6f8f7c; }

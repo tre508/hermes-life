@@ -2,7 +2,7 @@
 
 The previous version of this file asserted a mutable profile (get_profile /
 update_profile / instructions / narrate) that no longer exists: personality is
-now the fixed PERSONA plus reflective_runs-derived experience, and the event ->
+now the fixed PERSONA plus terminal-task-outcome experience (HL-PERS-001 §2 layer 2), and the event ->
 room mapping moved to world.reduce_event.
 """
 import sqlite3
@@ -22,13 +22,14 @@ def test_identity_is_fixed_and_reports_experience_count(tmp_path):
     profile = Personality(seeded(tmp_path / 'life.db')).get()
     assert profile['name'] == 'Hermes'
     assert profile['persona'] == PERSONA
-    assert profile['mode'] == 'fixed-with-reflection'
+    assert profile['mode'] == 'fixed-with-experience'
     assert profile['experience_count'] == 0
 
 
-def test_experience_comes_from_reflective_runs(tmp_path):
+def test_experience_comes_from_terminal_task_outcomes_not_internal_runs(tmp_path):
     store = seeded(tmp_path / 'life.db')
     with store.lock:
+        # An internal reflective run is diagnostics and must NOT count as experience.
         store.connection.execute(
             'INSERT INTO reflective_runs (created_at,category,status,terms_json,evidence_json,lesson)'
             ' VALUES (?,?,?,?,?,?)',
@@ -36,9 +37,17 @@ def test_experience_comes_from_reflective_runs(tmp_path):
              'Verify the outcome before claiming success.'))
         store.connection.commit()
     personality = Personality(store)
-    assert personality.get()['experience_count'] == 1
+    assert personality.get()['experience_count'] == 0
+    personality.record_experience('t1', 'completed', 'did the thing', goal_id='g1')
+    profile = personality.get()
+    assert profile['experience_count'] == 1
     rows = personality.experiences(5)
-    assert len(rows) == 1 and rows[0]['status'] == 'completed'
+    assert len(rows) == 1
+    assert rows[0]['state'] == 'completed' and rows[0]['task_id'] == 't1' and rows[0]['goal_id'] == 'g1'
+    # One task is one experience, and a non-terminal state is refused rather than counted.
+    personality.record_experience('t1', 'completed', 'did the thing again')
+    assert personality.record_experience('t2', 'running', 'still going') is None
+    assert personality.get()['experience_count'] == 1
     # The limit is clamped, never "give me everything".
     assert personality.experiences(0) == []
 

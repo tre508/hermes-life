@@ -54,7 +54,7 @@ def build(tmp_path, changed_files=1, baseline_status='passed'):
                      '/home/hermes/experiments/baseline-x', json.dumps({'status': baseline_status}),
                      json.dumps({'status': 'passed'}), 'agent claims success'))
         con.commit()
-    app.state.runtime.adapters['read_only'] = Compiler(COMPILED)
+    app.state.runtime.analysis_adapters['read_only'] = Compiler(COMPILED)
     verifier = app.state.verifier
     verifier.compile_criteria('plan')
     verifier.reviewer._snapshot = lambda ident: {'snapshot_sha256': 'sha', 'changed_files': changed_files,

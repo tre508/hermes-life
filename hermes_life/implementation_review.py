@@ -11,6 +11,7 @@ import threading
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from .guest_env import for_worker
 from .store import now
 
 if TYPE_CHECKING:
@@ -18,7 +19,7 @@ if TYPE_CHECKING:
 
 # Guest computes a bounded, stable snapshot of the *existing* experiment copies.
 # Excluding .venv prevents the candidate's Python environment from polluting the diff.
-SNAPSHOT_GUEST = r'''
+SNAPSHOT_GUEST = for_worker(r'''
 import difflib,hashlib,json,pathlib,re,sys
 x=json.load(sys.stdin)
 ident=x.get('id','')
@@ -63,7 +64,7 @@ output='\n'.join(diff)
 print(json.dumps({'snapshot_sha256':h.hexdigest(),'files':entries[:300],
                   'diff':output[:100000], 'truncated':len(output)>100000,
                   'changed_files':len(entries)}))
-'''
+''')
 
 class ImplementationReview:
     #: HL-VERIFY-001: injected by create_app. When present, an 'accepted' decision

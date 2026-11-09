@@ -76,7 +76,7 @@ COMPILED = {
 def test_criteria_compile_into_checks_and_keep_their_text(tmp_path):
     app = seeded_app(tmp_path)
     compiler = Compiler(COMPILED)
-    app.state.runtime.adapters['read_only'] = compiler
+    app.state.runtime.analysis_adapters['read_only'] = compiler
     result = app.state.verifier.compile_criteria('plan')
     assert compiler.prompts and 'convert acceptance criteria into checks' in compiler.prompts[0]
     assert result['deliverable_class'] == 'code_change'
@@ -91,7 +91,7 @@ def test_compiler_omission_leaves_the_criterion_unverified_not_weakened(tmp_path
     app = seeded_app(tmp_path)
     partial = {'deliverable_class': 'evidence_report',
                'checks': [{'ordinal': 1, 'kind': 'pytest', 'root': 'candidate'}]}
-    app.state.runtime.adapters['read_only'] = Compiler(partial)
+    app.state.runtime.analysis_adapters['read_only'] = Compiler(partial)
     result = app.state.verifier.compile_criteria('plan')
     assert result['deliverable_class'] == 'evidence_report'
     assert len(result['criteria']) == 3, 'omitted criteria must still be recorded verbatim'
@@ -102,7 +102,7 @@ def test_compiler_omission_leaves_the_criterion_unverified_not_weakened(tmp_path
 
 def test_unavailable_compiler_records_compiled_criteria_without_checks(tmp_path):
     app = seeded_app(tmp_path)
-    app.state.runtime.adapters['read_only'] = Compiler(fail=True)
+    app.state.runtime.analysis_adapters['read_only'] = Compiler(fail=True)
     result = app.state.verifier.compile_criteria('plan')
     assert len(result['criteria']) == 3
     assert all(c['auto_verifiable'] == 0 and c['checks'] == [] for c in result['criteria'])
@@ -121,7 +121,7 @@ def test_interpretive_checks_are_kept_but_never_count_as_automatic():
 
 def test_auto_verifiable_counts_only_executable_checks(tmp_path):
     app = seeded_app(tmp_path)
-    app.state.runtime.adapters['read_only'] = Compiler({
+    app.state.runtime.analysis_adapters['read_only'] = Compiler({
         'deliverable_class': 'evidence_report',
         'checks': [{'ordinal': 1, 'kind': 'pytest', 'root': 'candidate'},
                    {'ordinal': 2, 'kind': 'interpretive'},
@@ -168,7 +168,7 @@ def test_invalid_checks_are_dropped_not_executed():
 def test_criteria_routes_expose_and_recompile(tmp_path):
     app = seeded_app(tmp_path)
     compiler = Compiler(COMPILED)
-    app.state.runtime.adapters['read_only'] = compiler
+    app.state.runtime.analysis_adapters['read_only'] = compiler
     with TestClient(app) as client:
         assert client.post('/api/investigation-plans/plan/compile-criteria').status_code == 201
         listed = client.get('/api/investigation-plans/plan/criteria').json()

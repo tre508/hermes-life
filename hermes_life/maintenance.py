@@ -15,11 +15,12 @@ from pathlib import Path
 from typing import Optional
 
 from .store import now
-from .guest_env import EXPERIMENTS_ROOT
+from .guest_env import EXPERIMENTS_ROOT, for_worker
 
-#: Guest script to enumerate /home/hermes/experiments with sizes and metadata.
-#: Mirrors containment checks from guest_env.pathlib usage.
-EXPERIMENTS_INVENTORY_GUEST = r'''
+#: Guest script to enumerate the experiments root with sizes and metadata.
+#: Mirrors containment checks from guest_env.pathlib usage. The literal home is rewritten from
+#: guest_env so the worker's location is defined once.
+EXPERIMENTS_INVENTORY_GUEST = for_worker(r'''
 import json,os,pathlib,re,sys,time
 EXPERIMENTS_ROOT="/home/hermes/experiments"
 root=pathlib.Path(EXPERIMENTS_ROOT).resolve(strict=True)
@@ -53,7 +54,7 @@ for entry in root.iterdir():
     mtime=dir_mtime(entry)
     results.append({"name":name,"kind":kind,"run_id":id_part,"path":str(entry),"size_bytes":size,"mtime":mtime})
 print(json.dumps(results))
-'''
+''')
 
 # Classification per §18.1 table
 @dataclass

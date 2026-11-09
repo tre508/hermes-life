@@ -70,7 +70,7 @@ def build(tmp_path, checks, deliverable='code_change', changed_files=1,
              created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,'now','now')""",
                     (RUN, environment_status, '3.11', '/usr/bin/python3', '{}', None, '[]', None))
         con.commit()
-    app.state.runtime.adapters['read_only'] = Compiler(
+    app.state.runtime.analysis_adapters['read_only'] = Compiler(
         {'deliverable_class': deliverable, 'checks': checks})
     verifier = app.state.verifier
     verifier.compile_criteria('plan')
@@ -129,7 +129,7 @@ def test_a_failed_deterministic_check_cannot_be_overridden_by_the_model(tmp_path
     app, verifier = build(tmp_path, [{'ordinal': 1, 'kind': 'pytest', 'root': 'candidate'},
                                      {'ordinal': 2, 'kind': 'interpretive', 'root': 'candidate'}])
     verifier._guest = guest([], [dict(PASS_PYTEST, status='fail', exit_code=1, detail='1 failed')])
-    app.state.runtime.adapters['read_only'] = Adjudicator([
+    app.state.runtime.analysis_adapters['read_only'] = Adjudicator([
         {'ordinal': 1, 'verdict': 'passed', 'reason': 'looks fine', 'evidence_refs': ['agent said so']},
         {'ordinal': 2, 'verdict': 'passed', 'reason': 'report explains it', 'evidence_refs': ['claim']}])
     report = verifier.run(RUN)
@@ -196,7 +196,7 @@ def test_model_verdict_without_evidence_is_downgraded(tmp_path):
     app, verifier = build(tmp_path, [{'ordinal': 1, 'kind': 'pytest', 'root': 'candidate'},
                                      {'ordinal': 2, 'kind': 'interpretive', 'root': 'candidate'}])
     verifier._guest = guest([], [PASS_PYTEST])
-    app.state.runtime.adapters['read_only'] = Adjudicator([
+    app.state.runtime.analysis_adapters['read_only'] = Adjudicator([
         {'ordinal': 2, 'verdict': 'passed', 'reason': 'trust me', 'evidence_refs': []}])
     report = verifier.run(RUN)
     assert report['criteria'][1]['verdict'] == 'unverified'
@@ -208,7 +208,7 @@ def test_model_verdict_with_cited_evidence_is_accepted(tmp_path):
     app, verifier = build(tmp_path, [{'ordinal': 1, 'kind': 'pytest', 'root': 'candidate'},
                                      {'ordinal': 2, 'kind': 'interpretive', 'root': 'candidate'}])
     verifier._guest = guest([], [PASS_PYTEST])
-    app.state.runtime.adapters['read_only'] = Adjudicator([
+    app.state.runtime.analysis_adapters['read_only'] = Adjudicator([
         {'ordinal': 2, 'verdict': 'passed', 'reason': 'the report cites the search count',
          'evidence_refs': ['output_sha256=p1']}])
     report = verifier.run(RUN)

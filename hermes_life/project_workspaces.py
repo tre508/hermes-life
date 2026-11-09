@@ -27,6 +27,12 @@ class ProjectInput(BaseModel):
 
 class WorkspaceError(ValueError): pass
 
+
+def workspace_dest(name, commit):
+    """Absolute worker path for a project snapshot; the worker home comes from guest_env."""
+    from .guest_env import WORKSPACES_ROOT
+    return f'{WORKSPACES_ROOT}/{name}/{commit[:16]}'
+
 class ProjectWorkspaces:
     def __init__(self, runtime):
         self.runtime = runtime
@@ -99,7 +105,7 @@ class ProjectWorkspaces:
             if self._git(['status','--porcelain','--untracked-files=all'],root).strip():
                 raise WorkspaceError('Host repository has uncommitted or untracked files; commit or clean before sync')
             commit=self._git(['rev-parse','HEAD'],root).strip()
-            dest=f'/home/hermes/workspaces/{name}/{commit[:16]}'
+            dest=workspace_dest(name, commit)
             if project.get('vm_path')==dest:
                 return project
             # Use Git bundle for a snapshot including history, without mounting host files.
@@ -114,7 +120,7 @@ class ProjectWorkspaces:
                 scp=['scp','-o','BatchMode=yes','-o','ConnectTimeout=12','-P',str(adapter.port or 22),'-i',str(adapter.identity_file),str(bundle),f'{host}:{remote_bundle}']
                 up=subprocess.run(scp,text=True,capture_output=True,timeout=120)
                 if up.returncode:raise WorkspaceError('Upload: '+up.stderr[-450:])
-                command=(f'set -eu; mkdir -p /home/hermes/workspaces/{name}; '
+                command=(f'set -eu; mkdir -p {workspace_dest(name, commit).rsplit("/", 1)[0]}; '
                          f'if [ ! -d {shlex.quote(dest)}/.git ]; then '
                          f'git clone --quiet {shlex.quote(remote_bundle)} {shlex.quote(dest)}; fi; '
                          f'test "$(git -C {shlex.quote(dest)} rev-parse HEAD)" = {shlex.quote(commit)}; '

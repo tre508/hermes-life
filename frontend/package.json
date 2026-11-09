@@ -1,6 +1,25 @@
 {
-  "name": "hermes-life-world", "private": true, "version": "0.3.0", "type": "module",
-  "scripts": {"dev":"vite --host 127.0.0.1", "build":"tsc --noEmit && vite build", "preview":"vite preview --host 127.0.0.1", "test:town":"node --test tests/town-model.test.ts"},
-  "dependencies": {"phaser":"^3.90.0"},
-  "devDependencies": {"typescript":"^5.8.3", "vite":"^6.3.0"}
+  "name": "hermes-life-world",
+  "private": true,
+  "version": "0.3.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 127.0.0.1",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview --host 127.0.0.1",
+    "test:town": "node --import tsx --test tests/town-model.test.ts",
+    "test:ui": "node --import tsx --test tests/control-wiring.test.ts",
+    "test:renderer": "node --import tsx --test tests/town-renderer.test.ts",
+    "test": "npm run test:town && npm run test:ui && npm run test:renderer"
+  },
+  "dependencies": {
+    "three": "^0.187.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.5",
+    "@types/three": "^0.187.0",
+    "tsx": "^4.23.15",
+    "typescript": "^5.8.3",
+    "vite": "^6.3.0"
+  }
 }

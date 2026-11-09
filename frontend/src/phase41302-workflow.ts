@@ -17,8 +17,9 @@ const records=(v:unknown,keys:string[]):Obj[]=>{
 const txt=(tag:string,text:string,cls='')=>{const n=document.createElement(tag);n.textContent=text;if(cls)n.className=cls;return n};
 const button=(label:string,cb:()=>void)=>{const n=txt('button',label) as HTMLButtonElement;n.type='button';n.addEventListener('click',cb);return n};
 const date=(value:unknown)=>{if(!value)return 'Date unavailable';const d=new Date(str(value));return Number.isFinite(d.valueOf())?d.toLocaleString():'Date unavailable'};
-async function api(path:string,method='GET'){
- const r=await fetch('/api'+path,{method});const raw=await r.text();let value:unknown;
+async function api(path:string,method='GET',body?:unknown){
+ const init:RequestInit=body===undefined?{method}:{method,headers:{'Content-Type':'application/json'},body:JSON.stringify(body)};
+ const r=await fetch('/api'+path,init);const raw=await r.text();let value:unknown;
  try{value=raw?JSON.parse(raw):null}catch{value=raw}
  if(!r.ok)throw new Error(`${r.status}: ${typeof value==='object'&&value&&'detail' in value?str((value as Obj).detail):str(value).slice(0,220)}`);
  return value;
@@ -65,6 +66,48 @@ function setupGoals(){
  const refresh=makeRefresh({
   load:()=>api('/goals'), apply:(d)=>{data=records(d,['goals','items'])},
   count:(d)=>records(d,['goals','items']).length, noun:'goals', onChange:()=>render()});
+ // UI-01: the controls this tab keeps visible must actually act. The previous main.ts wired
+ // #goals-refresh, #autonomy-toggle and #goal-form; the per-tab refactor kept the markup and lost
+ // the handlers, so a goal could not be created and the scheduler could not be operated. Nothing
+ // here may display a state it has not read.
+ // The pane renders its own Refresh (with a visible lifecycle), so the legacy duplicate is hidden
+ // rather than wired twice — the same treatment Planning/Build give their legacy refresh buttons.
+ const legacyRefresh=el('goals-refresh');
+ if(legacyRefresh){legacyRefresh.style.display='none';legacyRefresh.setAttribute('aria-hidden','true');}
+ const schedulerNodes=['autonomy-status','overview-autonomy-status'].map(el).filter(Boolean) as HTMLElement[];
+ const toggle=el('autonomy-toggle') as HTMLButtonElement|null;
+ let schedulerEnabled:boolean|null=null;
+ function paintScheduler(error=''){
+  const toggleLabel=schedulerEnabled===null?null:(schedulerEnabled?'Pause autonomy':'Enable autonomy');
+  schedulerNodes.forEach(n=>{n.textContent=error?('Scheduler unavailable: '+error):(schedulerEnabled===null?'Scheduler state unknown':(schedulerEnabled?'Scheduler enabled':'Scheduler paused'))});
+  if(toggle){toggle.textContent=toggleLabel||'Enable autonomy';toggle.disabled=schedulerEnabled===null}
+ }
+ async function readScheduler(){
+  try{const state=await api('/autonomy') as Obj;schedulerEnabled=!!state.enabled;paintScheduler()}
+  catch(e){schedulerEnabled=null;paintScheduler(str(e).slice(0,120))}
+ }
+ toggle?.addEventListener('click',()=>{
+  if(schedulerEnabled===null)return;
+  setBusy(toggle,api('/autonomy','PUT',{enabled:!schedulerEnabled}),()=>void readScheduler(),m=>{notice=m;render()});
+ });
+ const goalForm=el('goal-form') as HTMLFormElement|null;
+ goalForm?.addEventListener('submit',(event)=>{
+  event.preventDefault();
+  const title=((el('goal-title') as HTMLInputElement|null)?.value||'').trim();
+  const prompt=((el('goal-prompt') as HTMLTextAreaElement|null)?.value||'').trim();
+  const priority=Number((el('goal-priority') as HTMLInputElement|null)?.value||50);
+  const feedback=el('goal-feedback');
+  if(!title||!prompt){if(feedback)feedback.textContent='A goal needs a title and the exact task.';return}
+  if(feedback)feedback.textContent='Adding goal…';
+  const submit=goalForm.querySelector('button[type=submit]') as HTMLButtonElement|null;
+  const added=(value:unknown)=>{const goal=records(value,['goal'])[0]||(value as Obj);goalForm.reset();
+   if(feedback)feedback.textContent='Goal added'+((goal&&goal.id)?': '+str(goal.id).slice(0,8):'');
+   void refresh.run()};
+  const failed=(message:string)=>{if(feedback)feedback.textContent='Not added: '+message};
+  if(submit)setBusy(submit,api('/goals','POST',{title,prompt,priority}),()=>added(null),failed);
+  else void api('/goals','POST',{title,prompt,priority}).then(added).catch(e=>failed(str(e)));
+ });
+ paintScheduler();void readScheduler();
  const groups:[Group,string][]=[['waiting','Waiting'],['running','Running'],['completed','Completed'],['stopped','Failed / stopped'],['all','All']];
  function render(){
   const refreshButton=button(refresh.label(),()=>void refresh.run());refreshButton.disabled=refresh.phase==='loading';
@@ -99,9 +142,10 @@ function setupGoals(){
    card.append(actions);entries.append(card);
   }
  }
- render();void refresh.run();window.setInterval(()=>{if(document.contains(pane))void refresh.run()},30000);return true;
-}
-function setupPlanning(){
+ render();void refresh.run();
+ window.setInterval(()=>{if(document.contains(pane)){void refresh.run();void readScheduler()}},30000);return true;
+ }
+ function setupPlanning(){
  const legacy=el('plans-list');if(!legacy||el('hl413-plans'))return false;
  const pane=txt('section','') as HTMLElement;pane.id='hl413-plans';pane.className='hl413-flow';legacy.insertAdjacentElement('beforebegin',pane);
  // Retain the old plan list for legacy 'Create plan' actions, but move it into disclosure.

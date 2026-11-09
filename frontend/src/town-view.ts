@@ -9,21 +9,19 @@
  * It never writes to the backend, never persists avatar positions, and never invents activity:
  * a role is drawn as working only while an authoritative record or event says so.
  */
-import Phaser from 'phaser';
-
 import './town.css';
-import { TownScene, prefersReducedMotion } from './town-scene';
+import { createTownRenderer, prefersReducedMotion, type TownRenderer } from './town-renderer';
 import {
   type Activity, type Connection, type LocationId, type Role, type Signals, type TownState,
   ACTIVITY_WORDS, ROLES, ROSTER, TOWN_LOCATIONS, applyEvent, emptyTown, expireOverlays,
   projectServerState, setConnection, summarize, withBaseline,
 } from './town-model';
+import { locationLabel, locationPurpose } from './town-vocabulary';
 
 const REFRESH_MS = 20_000;
 const MOTION_KEY = 'hermes-life-town-motion';
 
-let game: Phaser.Game | null = null;
-let scene: TownScene | null = null;
+let renderer: TownRenderer | null = null;
 let town: TownState = emptyTown();
 let motion = true;
 let lostAt: number | null = null;
@@ -41,39 +39,53 @@ interface Ui {
   rows: HTMLElement;
   motion: HTMLButtonElement;
   selection: HTMLElement;
+  /** The HUD block this module owns, and the third-party banner it borrows while mounted. */
+  wrap: HTMLElement;
+  banner: HTMLElement | null;
+  bannerHome: Element | null;
 }
+
+/**
+ * Undo for the current mount. A second `installTown()` (a remount, a hot reload, a re-mount after a
+ * container swap) runs this first, so no listener, timer, RAF handle or WebGL context is ever
+ * stacked twice (acceptance criterion 16).
+ */
+let unmount: (() => void) | null = null;
 
 // --------------------------------------------------------------------------- mounting
 
 export function installTown(): void {
   const host = document.getElementById('game');
   if (!host) return;
+  // A remount replaces the previous mount rather than layering on top of it.
+  unmount?.();
+  const undo: Array<() => void> = [];
+  const listen = (target: EventTarget, type: string, handler: EventListener) => {
+    target.addEventListener(type, handler);
+    undo.push(() => target.removeEventListener(type, handler));
+  };
+  const every = (ms: number, handler: () => void) => {
+    const id = window.setInterval(handler, ms);
+    undo.push(() => window.clearInterval(id));
+  };
+  const after = (ms: number, handler: () => void) => {
+    const id = window.setTimeout(handler, ms);
+    undo.push(() => window.clearTimeout(id));
+  };
+
   motion = storedMotion();
   ui = buildUi(host);
   host.classList.add('town');
-  const townScene = new TownScene(motion);
-  game = new Phaser.Game({
-    type: Phaser.AUTO,
-    parent: 'game',
-    width: 800,
-    height: 425,
-    backgroundColor: '#3f6b4a',
-    pixelArt: true,
-    // The container resizes without a window resize event (flex layout + scrollbars), so let
-    // Phaser poll it: a stale displayScale silently mis-maps every click.
-    scale: { mode: Phaser.Scale.FIT, autoCenter: Phaser.Scale.CENTER_HORIZONTALLY, resizeInterval: 250 },
-    scene: [townScene],
-  });
-  // The instance handed to the config is the live scene; getScene() would be null this tick.
-  scene = townScene;
-  // Honour the initial preference explicitly: the scene parks residents and idles its clock.
+  // One factory call: the 3D facility when the client can run it, the static label view otherwise.
+  renderer = createTownRenderer(host, { motion });
+  // Honour the initial preference explicitly: a frozen camera, no movement, labels intact.
   if (!motion) {
-    document.getElementById('game')?.classList.add('town-still');
-    window.requestAnimationFrame(() => townScene.setMotion(false));
+    host.classList.add('town-still');
+    renderer.setMotion(false);
   }
 
-  window.addEventListener('hermes:event', event => onEvent((event as CustomEvent).detail));
-  window.addEventListener('hermes:connection', event => {
+  listen(window, 'hermes:event', event => onEvent((event as CustomEvent).detail));
+  listen(window, 'hermes:connection', event => {
     const status = (event as CustomEvent<{ status: Connection }>).detail?.status || 'disconnected';
     if (status !== 'live' && town.connection === 'live') lostAt = Date.now();
     if (status === 'live') lostAt = null;
@@ -81,53 +93,72 @@ export function installTown(): void {
     if (status === 'live') void refresh();
     renderUi();
   });
-  window.addEventListener('town:select', event => showResident((event as CustomEvent<{ role: Role }>).detail?.role));
-  window.addEventListener('town:building', event => showBuilding((event as CustomEvent<{ location: LocationId }>).detail?.location));
+  listen(window, 'town:select', event => showResident((event as CustomEvent<{ role: Role }>).detail?.role));
+  listen(window, 'town:building', event => showBuilding((event as CustomEvent<{ location: LocationId }>).detail?.location));
 
-  ui.motion.addEventListener('click', () => {
+  listen(ui.motion, 'click', () => {
     motion = !motion;
     window.localStorage.setItem(MOTION_KEY, motion ? 'on' : 'off');
-    scene?.setMotion(motion);
+    renderer?.setMotion(motion);
     document.getElementById('game')?.classList.toggle('town-still', !motion);
     renderUi();
   });
-  document.getElementById('world-room-close')?.addEventListener('click', () => ui?.selection.replaceChildren());
+  // An element this module does not own: its listener must come off again on a remount.
+  const closeRoom = document.getElementById('world-room-close');
+  if (closeRoom) listen(closeRoom, 'click', () => ui?.selection.replaceChildren());
 
   // A visible tab polls; a hidden one keeps its last authoritative picture instead.
-  window.setInterval(() => { if (!document.hidden) void refresh(); }, REFRESH_MS);
+  every(REFRESH_MS, () => { if (!document.hidden) void refresh(); });
   // Flash expiry runs on its own short tick, so an acknowledgement cannot outlive its window.
-  window.setInterval(() => {
+  every(1000, () => {
     const expired = expireOverlays(town);
-    if (expired !== town) { town = expired; scene?.applyState(town); renderUi(); }
-  }, 1000);
-  document.addEventListener('visibilitychange', () => { if (!document.hidden) void refresh(); });
-  // Layout CSS settles after the game is constructed, and the container resizes without a window
-  // resize event: re-measure a few times so Phaser's pointer transform matches the real box.
-  const remeasure = () => game?.scale.refresh();
-  window.addEventListener('resize', remeasure);
-  window.requestAnimationFrame(remeasure);
-  window.setTimeout(remeasure, 150);
-  window.setTimeout(remeasure, 600);
+    if (expired !== town) { town = expired; renderer?.applyState(town); renderUi(); }
+  });
+  listen(document, 'visibilitychange', () => { if (!document.hidden) void refresh(); });
+  // Layout CSS settles after the renderer is constructed, and the container resizes without a window
+  // resize event: re-measure a few times so the viewport matches the real box.
+  const remeasure = () => renderer?.resize();
+  listen(window, 'resize', remeasure);
+  const raf = window.requestAnimationFrame(remeasure);
+  undo.push(() => window.cancelAnimationFrame(raf));
+  after(150, remeasure);
+  after(600, remeasure);
   (window as unknown as { __hermesTown?: unknown }).__hermesTown = {
     state: () => town,
     refresh: () => refresh(true),
-    setMotion: (value: boolean) => { scene?.setMotion(value); motion = value; renderUi(); },
+    setMotion: (value: boolean) => {
+      renderer?.setMotion(value);
+      motion = value;
+      // Same effect as the motion button, so the verification setter cannot leave a half-applied state.
+      document.getElementById('game')?.classList.toggle('town-still', !value);
+      renderUi();
+    },
     motion: () => motion,
     summarize: () => summarize(town),
-    /** Frames the scene has drawn: proves motion without reading WebGL pixels. */
-    frames: () => scene?.frames() ?? -1,
-    positions: () => scene?.positions() ?? [],
-    /** Introspection for verification only: the live Phaser objects, never used by the UI. */
-    _game: () => game,
-    _scene: () => scene,
-    /** Game coordinates → viewport coordinates: the inverse of Phaser's pointer transform
-     *  (pointer = (page - bounds) * gameSize/displaySize). */
-    toScreen: (x: number, y: number) => {
-      if (!game) return null;
-      const bounds = game.scale.canvasBounds;
-      const size = game.scale.displaySize;
-      return { x: Math.round(bounds.x + x * (size.width / 800)), y: Math.round(bounds.y + y * (size.height / 425)) };
-    },
+    /** Renders drawn: proves the world is alive without reading pixels. */
+    frames: () => renderer?.frames() ?? -1,
+    positions: () => renderer?.positions() ?? [],
+    /** Which renderer is active: '3d', or 'static' where WebGL is unavailable. */
+    renderer: () => renderer?.kind ?? null,
+    /** Introspection for verification only: the live renderer, never used by the UI. */
+    _renderer: () => renderer,
+    /** Mount bookkeeping for verification: a remount must not stack subscriptions. */
+    _listeners: () => undo.length,
+  };
+
+  unmount = () => {
+    clearTimeout(refreshQueued);
+    for (const off of undo) off();
+    undo.length = 0;
+    renderer?.destroy();
+    renderer = null;
+    // The live-status banner belongs to another phase: put it back before dropping the HUD block.
+    if (ui?.banner && ui.bannerHome) ui.bannerHome.append(ui.banner);
+    ui?.wrap.remove();
+    ui?.selection.remove();
+    ui = null;
+    document.getElementById('game')?.classList.remove('town', 'town-still');
+    delete (window as unknown as { __hermesTown?: unknown }).__hermesTown;
   };
 
   void refresh();
@@ -160,6 +191,7 @@ function buildUi(host: HTMLElement): Ui {
   // top of the town (the Archive and its neighbours). It keeps its element and behaviour but now
   // sits with the town status block, outside the art.
   const banner = document.querySelector<HTMLElement>('.hermes-live-status');
+  const bannerHome = banner?.parentElement ?? null;
   if (banner) wrap.querySelector('.town-hud-left')?.prepend(banner);
   stage.append(wrap);
   const selection = document.createElement('aside');
@@ -177,6 +209,7 @@ function buildUi(host: HTMLElement): Ui {
     rows: wrap.querySelector('#town-rows')!,
     motion: wrap.querySelector('#town-motion')!,
     selection,
+    wrap, banner, bannerHome,
   };
 }
 
@@ -248,7 +281,7 @@ export async function refresh(force = false): Promise<TownState> {
   } finally {
     refreshing = false;
   }
-  scene?.applyState(town);
+  renderer?.applyState(town);
   renderUi();
   return town;
 }
@@ -259,7 +292,7 @@ function onEvent(event: { sequence?: number; type?: string; task_id?: string | n
   if (!event || typeof event.type !== 'string') return;
   const autonomous = isAutonomousTask(event.task_id);
   town = applyEvent(town, event as never, autonomous);
-  scene?.applyState(town);
+  renderer?.applyState(town);
   renderUi();
   // Terminal events change records too: re-read soon, but not per event (bounded, debounced).
   if (/(completed|failed|decided|applied|approved|pruned|error)$/.test(event.type)) {
@@ -319,13 +352,13 @@ function renderUi(): void {
   const busy = ROLES.map(r => town.residents[r]).find(r => r.state === 'working' || r.state === 'queued');
   const room = document.getElementById('room');
   const activity = document.getElementById('activity');
-  if (room) room.textContent = busy ? TOWN_LOCATIONS[busy.location].name : 'Town Square';
+  if (room) room.textContent = busy ? locationLabel(busy.location) : locationLabel('town_square');
   if (activity) activity.textContent = busy ? ACTIVITY_WORDS[busy.state] + ': ' + busy.label : 'idle';
 
   if (busy) {
     const strip = document.getElementById('studio-status');
     const detail = document.getElementById('studio-detail');
-    if (strip) strip.textContent = `${busy.name} · ${TOWN_LOCATIONS[busy.location].name}`;
+    if (strip) strip.textContent = `${busy.name} · ${locationLabel(busy.location)}`;
     if (detail) detail.textContent = busy.label;
     const mood = document.getElementById('persona-mood');
     if (mood) mood.textContent = moodFor(busy.state);
@@ -333,7 +366,7 @@ function renderUi(): void {
     const strip = document.getElementById('studio-status');
     const detail = document.getElementById('studio-detail');
     const waiting = ROLES.map(r => town.residents[r]).filter(r => r.state === 'waiting_approval');
-    if (strip) strip.textContent = 'Town square · no role working';
+    if (strip) strip.textContent = 'Command center · no role working';
     if (detail) detail.textContent = waiting.length
       ? `Waiting for you: ${waiting.map(r => ROSTER[r.role].title).join(', ')}`
       : 'Nothing waiting';
@@ -343,7 +376,7 @@ function renderUi(): void {
     const name = document.getElementById('persona-display')?.textContent || 'Hermes';
     narrative.textContent = busy
       ? `${name} is coordinating: ${busy.name} is ${busy.label.toLowerCase()}.`
-      : `${name} is watching the town: no role is working right now.`;
+      : `${name} is monitoring the lab: no role is working right now.`;
   }
 }
 
@@ -372,11 +405,11 @@ function showBuilding(location: LocationId): void {
   const info = document.getElementById('room-info');
   const open = document.getElementById('world-room-open') as HTMLButtonElement | null;
   const panel = document.getElementById('world-room-panel');
-  if (title) title.textContent = place.name;
+  if (title) title.textContent = locationLabel(location);
   if (description) {
-    description.textContent = place.purpose + (resident ? ` Now: ${resident.label} (${ACTIVITY_WORDS[resident.state]}).` : '');
+    description.textContent = locationPurpose(location) + (resident ? ` Now: ${resident.label} (${ACTIVITY_WORDS[resident.state]}).` : '');
   }
-  if (info) info.textContent = `${place.name}: ${place.purpose}`;
+  if (info) info.textContent = `${locationLabel(location)}: ${locationPurpose(location)}`;
   if (open) {
     open.textContent = 'Open ' + place.view + ' workspace';
     open.onclick = () => openView(place.view);

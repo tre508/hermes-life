@@ -36,12 +36,16 @@ import time
 from collections import deque
 from pathlib import Path
 
+from .guest_env import GUEST_HOME, HERMES_BIN
+
 
 class HermesError(RuntimeError):
     pass
 
 
-GUEST_HERMES = '/home/hermes/.local/bin/hermes'
+#: Kept as a module constant (tests and guest-script assertions import it); the value comes from
+#: guest_env so the worker's home is configured in one place.
+GUEST_HERMES = HERMES_BIN
 
 #: Toolset for a scope that must not acquire shell or code-execution capability.
 #: Every shipped toolset containing ``read_file`` also ships ``write_file`` and
@@ -88,12 +92,29 @@ class HermesAdapter:
         self.executable = executable
         self.timeout_seconds = timeout_seconds
         self.transport = transport or os.getenv('HERMES_LIFE_TRANSPORT', 'local')
-        self.host = host or os.getenv('HERMES_LIFE_VM_HOST', '192.168.124.136')
-        self.user = user or os.getenv('HERMES_LIFE_VM_USER', 'hermes')
-        self.identity_file = Path(identity_file or os.getenv('HERMES_LIFE_VM_KEY', '~/.ssh/hermes_life_vm')).expanduser()
+        # HL-WORKER: the worker address is configuration, never a default. The literal that used to
+        # live here pointed at the retired VM, so a missing env file meant silently driving the wrong
+        # machine; ssh now refuses to start with an incomplete worker configuration.
+        self._configured_host = host or os.getenv('HERMES_LIFE_VM_HOST') or ''
+        self._configured_user = user or os.getenv('HERMES_LIFE_VM_USER') or ''
+        configured_key = identity_file or os.getenv('HERMES_LIFE_VM_KEY') or ''
+        self.host = self._configured_host
+        self.user = self._configured_user
+        self.identity_file = Path(configured_key).expanduser() if configured_key else None
         self.port = int(port or os.getenv('HERMES_LIFE_VM_PORT', '22'))
         if self.transport not in ('local', 'ssh'):
             raise ValueError('HERMES_LIFE_TRANSPORT must be local or ssh')
+        if self.transport == 'ssh':
+            missing = [name for name, value in (
+                ('HERMES_LIFE_VM_HOST', self._configured_host),
+                ('HERMES_LIFE_VM_USER', self._configured_user),
+                ('HERMES_LIFE_VM_KEY', str(self.identity_file) if self.identity_file else ''),
+            ) if not value]
+            if missing:
+                raise ValueError(
+                    'ssh transport is configured without a worker address; set '
+                    + ', '.join(missing)
+                    + ' (source config/hermes-life-lenovo.env) or use HERMES_LIFE_TRANSPORT=local')
         # Registry of running processes: task_id -> (pgid, proc)
         self._running = {}
         self._running_lock = threading.Lock()
@@ -104,13 +125,21 @@ class HermesAdapter:
                 '-o', 'ConnectTimeout=8', '-o', 'ServerAliveInterval=15',
                 '-o', 'ServerAliveCountMax=2', f'{self.user}@{self.host}']
 
+    @property
+    def worker(self):
+        """Which coding worker this adapter drives — reported by /health and the startup log."""
+        if self.transport == 'ssh':
+            return {'transport': 'ssh', 'target': f'{self.user}@{self.host}:{self.port}',
+                    'guest_home': GUEST_HOME, 'agent': HERMES_BIN}
+        return {'transport': 'local', 'target': 'local', 'guest_home': GUEST_HOME, 'agent': self.executable}
+
     def available(self):
         if self.transport == 'local':
             return shutil.which(self.executable) is not None
-        if shutil.which('ssh') is None or not self.identity_file.is_file():
+        if shutil.which('ssh') is None or self.identity_file is None or not self.identity_file.is_file():
             return False
         try:
-            probe = subprocess.run(self._ssh_base() + ['test -x /home/hermes/.local/bin/hermes'],
+            probe = subprocess.run(self._ssh_base() + [f'test -x {shlex.quote(HERMES_BIN)}'],
                                    stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
                                    stderr=subprocess.DEVNULL, timeout=12)
             return probe.returncode == 0

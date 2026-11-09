@@ -16,6 +16,8 @@ const records=(data:unknown,fields:string[]):R[]=>{if(Array.isArray(data))return
 const node=(tag:string,cls='',t?:string)=>{const n=document.createElement(tag);if(cls)n.className=cls;if(t!==undefined)n.textContent=t;return n};
 const btn=(name:string,fn:()=>void)=>{const b=node('button','',name) as HTMLButtonElement;b.type='button';b.addEventListener('click',fn);return b};
 const endpoint=async(path:string,method='GET')=>{const res=await fetch('/api'+path,{method});const raw=await res.text();if(!res.ok)throw Error(`${method} ${path}: ${res.status} ${raw.slice(0,250)}`);return raw?JSON.parse(raw):{}};
+/** Which machine the backend actually drives; /health is outside /api, so it needs a plain fetch. */
+const workerInfo=async():Promise<{target?:string;guest_home?:string;transport?:string}|null>=>{try{const res=await fetch('/health');return res.ok?await res.json().then((h:{worker?:{target?:string;guest_home?:string;transport?:string}})=>h?.worker??null):null}catch{return null}};
 const stamp=(r:R)=>text(r.updated_at)||text(r.created_at);
 const order=(a:R,b:R)=>Date.parse(stamp(b)) - Date.parse(stamp(a))||0;
 // ---- workflow status (HL-UI-STATE-001) -------------------------------------
@@ -65,7 +67,10 @@ function install(){
    :filter==='history'?(stage(r)==='history'||!qualityCheck(r))
    :(stage(r)===filter&&qualityCheck(r));
 const toolbar=node('div','hl413r-toolbar');
-const top=node('div','hl413r-top');const heading=node('div');heading.append(node('h2','', 'Discover'),node('p','hl413r-muted','Independent discovery · Findings, decisions and history'));
+const top=node('div','hl413r-top');const heading=node('div');const workerLine=node('p','hl413r-muted','');
+heading.append(node('h2','', 'Discover'),node('p','hl413r-muted','Independent discovery · Findings, decisions and history'),workerLine);
+// Say which worker executes this, from the backend itself: an empty line beats a wrong claim.
+void workerInfo().then(w=>{if(!w)return;workerLine.textContent=w.transport==='ssh'&&w.target?`Executed on the coding worker ${w.target} · ${w.guest_home??''}`:'Executed locally on this machine';});
 const status=node('span','hl413r-status','Loading');top.append(heading,status);
 const metrics=node('div','hl413r-metrics');const meta=node('p','hl413r-muted');
 const actions=node('div','hl413r-actions');const sections=node('div','hl413r-sections');const message=node('div','hl413r-message');

@@ -7,7 +7,7 @@ import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
-DEFAULT_VAULT = '/home/gayzer/black/obsidian/hermes/'
+DEFAULT_VAULT = '/run/media/gayzer/black/obsidian/hermes'
 
 def utcnow():
     return datetime.now(timezone.utc).isoformat()
