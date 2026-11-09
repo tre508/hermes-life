@@ -397,18 +397,29 @@ result, not by inference from the code.
 displayable state can be exercised without waiting for the real pipeline. Building it surfaced two
 things the world can and cannot show, which matter for testing and for honest documentation:
 
-1. **The planner can never be shown working.** `deriveFromRecords` has a `drafting` branch that reads
-   plans in an in-flight state, but the backend only ever writes a plan as `proposed`
-   (`investigation.py:190`) or `approved` (`investigation.py:62`) — the plan text is drafted inside the
-   coordinator's own task. That branch is dead code: the planner is only ever `waiting_approval` or
-   `idle`. Left as-is rather than removing it, because the fix belongs to the workflow (emit a real
-   drafting state) not to the renderer, and silently deleting it would hide the gap.
+1. **The planner can now be shown working.** It previously could not: `deriveFromRecords` had a
+   `drafting` branch, but the backend only ever wrote a plan as `proposed` or `approved`, so that
+   branch was dead code. The drafting phase is real work — a 30-90 s model call — and it now has a
+   record: `InvestigationPlanner.plan()` inserts the plan row in state `drafting` *before* the call and
+   flips the same row to `proposed` in place afterwards. The planner therefore reads `working` for the
+   whole draft, survives a reload, and is corroborated by a row the database can show you.
+   Consequences handled at the same time: `IN_FLIGHT` in `town-model.ts` gained `drafting`; the status
+   resolver reports `Drafting the plan` / `next_action: await` so the Planning tab does not offer to
+   approve a plan that has no body yet; `stateMessage` explains it in the tab.
 2. **Builder, tester and reviewer cannot be non-idle together.** All three read the same newest
    implementation run, so the richest honest tableau is coordinator + researcher working, planner and
    archivist gated, builder working, and tester + reviewer idle. Verified live: 3 working, 2 waiting.
 
 Both limitations are properties of the data model, not of the 3D scene, and the fixture refuses to
-fabricate either — a test that shows a state the system cannot reach proves nothing.
+fabricate either — a test that shows a state the system cannot reach proves nothing. (Point 1 is now a
+real reachable state; the fixture gained a `planner-drafting` step for it.)
+
+**Draft rows cannot be left behind.** `investigation_plans.formulation_id` is UNIQUE and `plan()`
+refuses while any row exists for the formulation, so an abandoned draft would block that formulation
+permanently, invisible to the UI. Two guards, both tested: a failed or rejected draft deletes its own
+row so the formulation stays retryable, and a drafting row older than
+`InvestigationPlanner.DRAFT_STALE_AFTER` (15 min) is swept as crash debris by `plan()` and by restart
+recovery. A fresh draft still blocks a duplicate, so genuine work in progress is not clobbered.
 
 **Fixture safety:** ids are real UUIDs recorded in `~/.local/share/hermes-life/town-fixture.json`;
 `clear` deletes exactly those rows and restores the agent state it found. It refuses to run while a real

@@ -36,6 +36,7 @@ let verificationSettings:Rec|null=null; // HL-VERIFY-001: unattended revision po
 let editingPlanId:string|null=null; // tracks the fallback project input (only used when a plan has no resolvable project)
 function track(plan:Rec){return runs.find(r=>s(r.plan_id)===s(plan.id))}
 function stateMessage(plan:Rec){const r=track(plan);const d=r?decisionMap.get(s(r.id)):undefined;
+ if(s(plan.state)==='drafting')return 'Hermes is drafting this plan now. There is nothing to approve until it is finished.';
  if(s(plan.state)==='proposed')return 'Awaiting your plan approval. No coding has started.';
  if(!r)return s(plan.project)?`Approved. Ready to start the isolated implementation in worker project ${s(plan.project)}.`:'Approved, but this plan has no resolvable project. Enter the worker project name to start.';
  if(busyStates.has(s(r.state)))return 'Hermes is currently working. This status is refreshed automatically.';

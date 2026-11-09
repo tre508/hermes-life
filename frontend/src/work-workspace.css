@@ -1,0 +1,20 @@
+/* Styles for the unified work workspace */
+
+#task-list-container {
+    padding: 1rem;
+}
+
+.task-entry {
+    border: 1px solid #444;
+    padding: 1rem;
+    margin-bottom: 1rem;
+    cursor: pointer;
+}
+
+.task-entry:hover {
+    background-color: #333;
+}
+
+#task-detail-container {
+    padding: 1rem;
+}

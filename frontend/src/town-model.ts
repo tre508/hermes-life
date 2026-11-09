@@ -276,7 +276,7 @@ function byNewest(rows: Row[]): Row[] {
   return [...rows].sort((a, b) => String(b.created_at || b.started_at || '').localeCompare(String(a.created_at || a.started_at || '')));
 }
 
-const IN_FLIGHT = ['queued', 'running', 'pending', 'retry', 'preparing', 'testing_baseline', 'implementing', 'evaluating'];
+const IN_FLIGHT = ['queued', 'running', 'pending', 'retry', 'preparing', 'testing_baseline', 'implementing', 'evaluating', 'drafting'];
 
 /**
  * Baseline from persisted records only. Every in-flight state here is backed by a row that says

@@ -4,13 +4,14 @@
   "version": "0.3.0",
   "type": "module",
   "scripts": {
-    "dev": "vite --host 127.0.0.1",
+    "dev": "vite --host 0.0.0.0",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview --host 127.0.0.1",
     "test:town": "node --import tsx --test tests/town-model.test.ts",
     "test:ui": "node --import tsx --test tests/control-wiring.test.ts",
     "test:renderer": "node --import tsx --test tests/town-renderer.test.ts",
-    "test": "npm run test:town && npm run test:ui && npm run test:renderer"
+    "test:lifecycle": "node --import tsx --test tests/task-lifecycle.test.ts",
+    "test": "npm run test:town && npm run test:ui && npm run test:renderer && npm run test:lifecycle"
   },
   "dependencies": {
     "three": "^0.187.0"

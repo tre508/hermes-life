@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<!--
+  Lifecycle fixture — a deterministic, runnable harness for the unified Work task
+  lifecycle. It loads the SAME pure module the app uses (frontend/src/task-lifecycle.ts)
+  and renders every reachable state against sample data, so you can verify the
+  6-stage chained path and the 3-stage manual path without needing live backend chains.
+
+  Load it in the running app:  npm run dev  ->  http://127.0.0.1:5173/fixtures/lifecycle-fixture.html
+  (Vite served from the frontend/ directory.)
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Hermes Life — Task Lifecycle Fixture</title>
+<style>
+  body { background:#0b1720; color:#dceae7; font:13px/1.5 Inter,system-ui,sans-serif; max-width:760px; margin:24px auto; padding:0 16px; }
+  h1 { color:#e1d6bc; font-size:16px; } h2 { color:#90d7c8; font-size:13px; margin:26px 0 6px; text-transform:uppercase; letter-spacing:1px; }
+  .scenario { border:1px solid #2b4856; border-radius:8px; background:#101a23; padding:10px 12px; margin-bottom:12px; }
+  .title { color:#eef6f0; font-weight:600; font-size:12px; }
+  .states { color:#7f9aa0; font-size:11px; margin:2px 0 8px; }
+  ol.lifecycle { display:flex; gap:4px; list-style:none; margin:0; padding:0; }
+  ol.lifecycle li { flex:1; text-align:center; font-size:10px; font-weight:600; color:#7f9aa0; padding:6px 4px; border:1px solid #223a46; border-radius:6px; background:#0f1a22; }
+  ol.lifecycle li.complete{ border-color:#2f6f57; color:#a8e6c9; background:#12301f; }
+  ol.lifecycle li.current { border-color:#3d6b9e; color:#cfe6f7; background:#14293c; }
+  ol.lifecycle li.blocked { border-color:#7a3a38; color:#f2b7b1; background:#2c1f20; }
+  ol.lifecycle li.failed  { border-color:#7a3a38; color:#f2b7b1; background:#2c1f20; }
+  pre { white-space:pre-wrap; color:#6f8993; font-size:11px; }
+</style>
+</head>
+<body>
+<h1>Unified Work — Task Lifecycle Fixture</h1>
+<p>Renders <code>deriveLifecycle()</code> (the exact function the Work workspace uses) for the
+manual path and every workflow-chain stage. States: <em>pending</em>, <em>current</em>,
+<em>complete</em>, <em>blocked</em>, <em>failed</em>.</p>
+<div id="out"></div>
+<script type="module">
+import { deriveLifecycle } from '/src/task-lifecycle.ts';
+const task = (p) => ({ id:'fixture', prompt:'fixture task', result:'ok', error:null, created_at:new Date().toISOString(), ...p });
+const chain = (p) => ({ next_action:'none', ...p });
+const scenarios = [
+  ['Manual · queued',          task({state:'queued'}),                       null],
+  ['Manual · running',         task({state:'running'}),                      null],
+  ['Manual · completed',       task({state:'completed',result:'done'}),      null],
+  ['Manual · failed',          task({state:'failed',error:'boom'} ),         null],
+  ['Chained · investigation produced a plan', task({state:'running'}),       chain({plan_id:'pl',step:'approve_plan',stage:'planning'})],
+  ['Chained · candidate awaiting review',     task({state:'running'}),       chain({plan_id:'pl',run_id:'r1',next_action:'open_review',stage:'build',status:'Awaiting review'})],
+  ['Chained · verification verified',         task({state:'running'}),       chain({plan_id:'pl',run_id:'r1',next_action:'open_review',stage:'build',verification:{disposition:'verified'}})],
+  ['Chained · review accepted → complete',    task({state:'completed',result:'accepted'}), chain({plan_id:'pl',run_id:'r1',next_action:'none',stage:'history',status:'Completed'})],
+  ['Chained · investigation interrupted',     task({state:'interrupted'}),   chain({stage:'in_progress',status:'Investigation interrupted',next_action:'review_investigation'})],
+];
+const out = document.getElementById('out');
+out.replaceChildren();
+for (const [name, t, c] of scenarios) {
+  const stages = deriveLifecycle(t, c);
+  const box = document.createElement('div'); box.className='scenario';
+  const title = document.createElement('div'); title.className='title'; title.textContent=name;
+  const states = document.createElement('div'); states.className='states';
+  states.textContent = 'task.state=' + String(t.state) + (c ? ' · chain.status=' + String(c.status||'-') + ' · next=' + String(c.next_action||'-') : '');
+  const ol = document.createElement('ol'); ol.className='lifecycle';
+  for (const s of stages) { const li=document.createElement('li'); li.textContent=s.label; li.className=s.state; li.title=s.note||''; ol.append(li); }
+  box.append(title, states, ol); out.append(box);
+}
+</script>
+</body>
+</html>

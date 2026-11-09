@@ -22,9 +22,7 @@ agent state it found. Nothing here can start or advance a real agent run.
 The world panel polls /api every 20 seconds, so each cycle step is held longer than that. To skip the
 wait, paste `__hermesTown.refresh(true)` into the browser console after applying a step.
 
-Two states are deliberately absent because the system cannot produce them:
-  * the planner working — the backend writes a plan only as `proposed` or `approved`; the plan text is
-    drafted inside the coordinator's own task, so `deriveFromRecords`' drafting branch never fires.
+One state is deliberately absent because the system cannot produce it:
   * builder, tester and reviewer working at the same time — all three read the same newest
     implementation run, so at most one of them is ever non-idle.
 """
@@ -230,10 +228,9 @@ def step_planner_waiting(connection, ledger):
     return 'planner waiting for your approval (badge, arms folded)'
 
 
-# There is deliberately no "planner drafting" step. The backend only ever writes a plan as `proposed`
-# (investigation.py:190) or `approved` (investigation.py:62); the plan text is drafted inside the
-# coordinator's own task. `deriveFromRecords`' `drafting` branch therefore cannot fire, and inventing a
-# `drafting` row here would demonstrate a state the system can never actually be in.
+def step_planner_drafting(connection, ledger):
+    add_plan(connection, ledger, 'drafting')
+    return 'planner working on the plan (the drafting record is real; the plan has no body yet)'
 
 
 def step_builder(connection, ledger):
@@ -307,6 +304,7 @@ STEPS = [
     ('researcher', step_researcher),
     ('researcher-queued', step_researcher_queued),
     ('planner-waiting', step_planner_waiting),
+    ('planner-drafting', step_planner_drafting),
     ('builder', step_builder),
     ('builder-revision', step_builder_revision),
     ('tester', step_tester),

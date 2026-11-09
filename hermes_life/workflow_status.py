@@ -171,6 +171,10 @@ class WorkflowStatus:
                               + ((' · ' + str(run.get('error'))[:200]) if run.get('error') else ''),
                     'next_action': action, 'verification': chain['verification']}
         if plan:
+            if (plan.get('state') or '') == 'drafting':
+                return {**chain, 'stage': 'planning', 'status': 'Drafting the plan',
+                        'reason': 'the plan is being drafted; there is nothing to approve yet',
+                        'next_action': 'await', 'verification': None}
             if (plan.get('state') or '') == 'approved':
                 return {**chain, 'stage': 'planning', 'status': 'Awaiting build',
                         'reason': 'the plan is approved; no implementation run has started',
@@ -342,6 +346,11 @@ class WorkflowStatus:
                     'run_id': best.get('run_id'), 'verification': best.get('verification'),
                     'duplicate_of': best.get('duplicate_of'), 'group_size': best.get('group_size', 1)}
         approved = (plan.get('state') or '') == 'approved'
+        if (plan.get('state') or '') == 'drafting':
+            return {'stage': 'planning', 'status': 'Drafting the plan',
+                    'reason': 'plan is drafting', 'next_action': 'await',
+                    'discovery_id': None, 'run_id': None, 'verification': None,
+                    'duplicate_of': None, 'group_size': 1}
         return {'stage': 'planning', 'status': 'Awaiting build' if approved else 'Plan ready',
                 'reason': 'plan is ' + str(plan.get('state')), 'next_action':
                     'start_build' if approved else 'approve_plan', 'discovery_id': None,

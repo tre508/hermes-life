@@ -2,6 +2,7 @@
 import json
 import re
 import threading
+from datetime import datetime, timedelta, timezone
 from typing import TYPE_CHECKING
 from uuid import uuid4
 from .store import now
@@ -13,6 +14,11 @@ if TYPE_CHECKING:
 class InvestigationPlanner:
     #: HL-VERIFY-001: injected by create_app once the verification engine exists.
     verifier: 'VerificationEngine | None' = None
+
+    #: A drafting row older than this is debris from a crash, not work in progress. It cannot be left
+    #: in place: `investigation_plans.formulation_id` is UNIQUE and plan() refuses to draft again while
+    #: any row exists for that formulation, so a single abandoned draft would block it permanently.
+    DRAFT_STALE_AFTER = timedelta(minutes=15)
 
     def __init__(self, runtime, autonomy, formulation):
         self.runtime, self.autonomy, self.formulation = runtime, autonomy, formulation
@@ -74,6 +80,9 @@ class InvestigationPlanner:
         (goal/task must be 'completed').
         """
         with self.store.lock:
+            # Clear debris before the eligibility query: an abandoned draft would otherwise hide this
+            # formulation from recovery forever (the NOT EXISTS below would never match).
+            self._discard_stale_drafts(self.store.connection)
             rows = self.store.connection.execute(
                 """SELECT f.id AS fid
                    FROM formulated_goals f
@@ -94,17 +103,59 @@ class InvestigationPlanner:
                 pass  # environment (adapter/transport) — do not crash startup
         return recovered
 
+    def _discard_stale_drafts(self, connection, formulation_id=None):
+        """Delete drafting rows abandoned by a crash so the formulation can be drafted again.
+
+        Must be called with the store lock held. A drafting row is only trusted for
+        `DRAFT_STALE_AFTER`; past that it is debris, and leaving it in place would block the
+        formulation for good because of the UNIQUE(formulation_id) constraint.
+        """
+        cutoff = datetime.now(timezone.utc) - self.DRAFT_STALE_AFTER
+        rows = connection.execute(
+            "SELECT id,formulation_id,created_at FROM investigation_plans WHERE state='drafting'").fetchall()
+        stale = []
+        for row in rows:
+            if formulation_id is not None and row['formulation_id'] != formulation_id:
+                continue
+            try:
+                created = datetime.fromisoformat(row['created_at'])
+                if created.tzinfo is None:
+                    created = created.replace(tzinfo=timezone.utc)
+            except (TypeError, ValueError):
+                created = None                       # unreadable timestamp: treat as abandoned
+            if created is None or created < cutoff:
+                stale.append(row['id'])
+        if stale:
+            marks = ','.join('?' * len(stale))
+            connection.execute(f"DELETE FROM investigation_plans WHERE id IN ({marks}) AND state='drafting'",
+                               stale)
+            connection.commit()
+        return stale
+
+    def _discard_draft(self, ident):
+        """Drop the draft record after a failed attempt, so nothing is left half-written."""
+        if not ident:
+            return
+        with self.store.lock:
+            self.store.connection.execute(
+                "DELETE FROM investigation_plans WHERE id=? AND state='drafting'", (ident,))
+            self.store.connection.commit()
+
     def plan(self, formulation_id):
         if not self.lock.acquire(blocking=False): raise ValueError('Another plan is being generated')
         if not self.runtime.active.acquire(blocking=False):
             self.lock.release()
             raise ValueError('Hermes is busy')
+        draft_id=None
         try:
             with self.store.lock:
                 f = self.store.connection.execute('SELECT * FROM formulated_goals WHERE id=?',(formulation_id,)).fetchone()
                 if not f: raise KeyError('Formulation not found')
                 f=dict(f)
                 if f['state'] != 'approved' or not f['goal_id']: raise ValueError('Formulation is not approved')
+                # An abandoned draft from a crashed run must not masquerade as a finished plan and
+                # block this formulation forever (formulation_id is UNIQUE).
+                self._discard_stale_drafts(self.store.connection, formulation_id)
                 previous=self.store.connection.execute('SELECT id FROM investigation_plans WHERE formulation_id=?',(formulation_id,)).fetchone()
                 if previous: raise ValueError('Plan already exists')
                 goal=self.store.connection.execute('SELECT * FROM goals WHERE id=?',(f['goal_id'],)).fetchone()
@@ -115,6 +166,16 @@ class InvestigationPlanner:
                     raise ValueError('Investigation evidence unavailable')
                 evidence=task['result'][:18000]
                 task_id=goal['task_id']
+
+                # The drafting phase is real work that takes the model a minute or more, so it gets a
+                # record of its own rather than appearing only once it is finished. Without this row the
+                # world has no way to show the planner working: the plan state is the only signal it
+                # reads, and that state used to jump straight from nothing to 'proposed'.
+                draft_id=str(uuid4())
+                self.store.connection.execute(
+                    'INSERT INTO investigation_plans (id,formulation_id,task_id,report,state,created_at) VALUES (?,?,?,?,?,?)',
+                    (draft_id,formulation_id,task_id,'','drafting',now()))
+                self.store.connection.commit()
 
                 # Get project info for project_scope (HL-PLAN-001 element 2)
                 project_name = f.get('project') or (dict(task).get('project') if task else None)
@@ -183,11 +244,20 @@ class InvestigationPlanner:
             value['status_dates']['created'] = stamp
             value['status_dates']['approved'] = stamp
 
-            ident=str(uuid4())
+            ident=draft_id
+            payload=json.dumps(value,ensure_ascii=False)
             with self.store.lock:
-                # Plans are created awaiting approval; implementation requires state='approved'.
-                self.store.connection.execute('INSERT INTO investigation_plans (id,formulation_id,task_id,report,state,created_at) VALUES (?,?,?,?,?,?)',
-                    (ident,formulation_id,task_id,json.dumps(value,ensure_ascii=False),'proposed',stamp))
+                # The draft becomes the plan in place — same id, same created_at — so the record the
+                # world is already rendering does not blink out and reappear as a different one.
+                updated=self.store.connection.execute(
+                    "UPDATE investigation_plans SET report=?,state='proposed' WHERE id=? AND state='drafting'",
+                    (payload,ident)).rowcount
+                if not updated:
+                    # Swept as stale while the model was writing, or the row never landed: recreate it
+                    # rather than throw away a plan that passed validation.
+                    self.store.connection.execute(
+                        'INSERT INTO investigation_plans (id,formulation_id,task_id,report,state,created_at) VALUES (?,?,?,?,?,?)',
+                        (ident,formulation_id,task_id,payload,'proposed',stamp))
                 self.store.connection.commit()
             self.store.emit('investigation.plan_completed',{'plan_id':ident,'formulation_id':formulation_id,'task_id':task_id})
             # HL-VERIFY-001: compile the criteria into checks now, so the Planning tab can show
@@ -200,6 +270,9 @@ class InvestigationPlanner:
                                     {'plan_id': ident, 'error': str(exc)[:300]})
             return self.get(ident)
         except Exception as exc:
+            # A rejected or crashed draft leaves nothing behind: the Planning tab must not list a plan
+            # that can never be reviewed, and the formulation has to stay retryable.
+            self._discard_draft(draft_id)
             self.store.emit('investigation.plan_failed',{'formulation_id':formulation_id,'error':str(exc)[:400]})
             raise
         finally:

@@ -1,4 +1,338 @@
 <!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Hermes Life — Unified AI Development Workspace</title>
+    <link rel="stylesheet" href="/src/style.css" />
+    <link rel="stylesheet" href="/src/unified-layout.css" />
+</head>
+<body>
+<div id="app" class="layout-home">
 
-<html lang="en"><head><meta charset="utf-8"/><meta content="width=device-width, initial-scale=1.0" name="viewport"/><title>Hermes Life — World</title></head>
-<body><div id="shell"><header><div><h1>HERMES LIFE <span class="pill">AI OPS LAB / 0.4.0</span></h1><p>Autonomous studio · Lenovo coding worker · live execution</p></div><div id="connection">Connecting…</div></header><main><div class="status-strip"><div><span class="dot"></span><strong id="studio-status">Standing by</strong><span id="studio-detail">Waiting for a Hermes event</span></div><button id="studio-open-activity" type="button">View activity</button></div><div class="world-wrap"><div id="game"></div><section id="world-room-panel" class="world-room-panel" hidden aria-live="polite"><div class="world-room-heading"><strong id="world-room-title">Room</strong><button id="world-room-close" type="button" aria-label="Close room details">×</button></div><p id="world-room-description"></p><button id="world-room-open" type="button">Open room workspace</button></section><p class="hint">Click a resident or a workstation for details · Movement follows real backend records and events</p></div><aside><nav aria-label="Operations views" id="ops-nav"><button data-ops-tab="overview" type="button">Overview</button><button data-ops-tab="goals" type="button">Goals</button><button data-ops-tab="discovery" type="button">Discover</button><button data-ops-tab="planning" type="button">Planning</button><button data-ops-tab="build" type="button">Build</button><button data-ops-tab="activity" type="button">Activity</button></nav><div id="ops-views"><div class="ops-view" data-view="overview" id="ops-overview"><section class="persona-card" id="persona-card"><div class="persona-head"><div class="avatar-mark">H</div><div><h2 id="persona-display">Hermes</h2><p id="persona-subtitle">Resident software researcher</p></div><span class="mood" id="persona-mood">Observant</span></div><div class="persona-profile"><strong>Core identity · Fixed persona</strong><p>Sharp, direct, dependable, curious, and unfiltered. A capable friend who gets things done, investigates root causes, and follows through.</p><p>Style: natural, casual, precise. No corporate filler or forced slang.</p><div class="kv">Experience <strong id="persona-experience">—</strong></div><small>Hermes builds on verified task outcomes. Its foundational character is not controlled by sliders.</small><p id="persona-feedback" role="status"></p></div><p class="persona-narrative" id="persona-narrative">Watching the studio for new work.</p><small class="persona-note">Fixed persona is applied on the host to future Hermes tasks; recent execution outcomes provide bounded continuity.</small></section><details class="fold" open=""><summary>Learned profile &amp; memory review</summary><section id="memory-section"><h2>Learned profile</h2><p class="hint">What Hermes has learned from past work, with the evidence it was drawn from. A correction here changes what future tasks are told, so every correction records who decided it and why. Retired memories stay in the record; they are never silently rewritten.</p><div class="memory-actions"><button id="memory-refresh" type="button">Refresh</button></div><p id="memory-feedback" role="status"></p><form id="memory-correct-form" hidden=""><p class="memory-target" id="memory-correct-target"></p><label>Action <select id="memory-correct-action"><option value="supersede">Replace with new wording</option><option value="delete">Invalidate — remove with no replacement</option><option value="merge">Merge into another memory</option></select></label><label id="memory-merge-label" hidden="">Merge into <select id="memory-correct-merge"></select></label><label id="memory-content-label">New wording <textarea id="memory-correct-content" maxlength="1600"></textarea></label><label>Reason (required) <input id="memory-correct-rationale" maxlength="500" placeholder="Why this change is correct…"/></label><label>Decided by <input id="memory-correct-actor" maxlength="120" placeholder="user"/></label><div class="memory-form-actions"><button id="memory-correct-submit" type="submit">Apply correction</button><button id="memory-correct-cancel" type="button">Cancel</button></div></form><h3>Memories</h3><div id="memory-profile-list"></div><h3>Pending reviews</h3><div id="memory-review-list"></div><h3>Technical lessons</h3><div id="memory-lesson-list"></div><h3>Recent corrections</h3><div id="memory-history-list"></div></section></details><section><h2>Agent</h2><div class="kv">Room <strong id="room">—</strong></div><div class="kv">Activity <strong id="activity">—</strong></div><div class="kv">Task <strong id="task">—</strong></div></section><section class="overview-quick"><h2>Work at a glance</h2><p class="hint">Review and manage the full queue in the Goals tab.</p><div class="kv">Scheduler <strong id="overview-autonomy-status">—</strong></div><button id="overview-open-goals" type="button">Open goals</button></section><section><h2>Submit a task</h2><form id="task-form"><textarea id="prompt" minlength="1" placeholder="Give Hermes a task…" required=""></textarea><button type="submit">Send to Hermes</button><p id="task-feedback"></p></form></section></div><div class="ops-view" data-view="goals" id="ops-goals"><details class="fold" open=""><summary>Autonomous goals</summary><section id="autonomy-section"><h2>Autonomous goals</h2><div class="kv">Scheduler <strong id="autonomy-status">—</strong></div><div class="autonomy-actions"><button id="autonomy-toggle" type="button">Enable autonomy</button><button id="goals-refresh" type="button">Refresh</button></div><p class="hint">Disabled by default. Only executes goals added here; one at a time.</p><form id="goal-form"><input id="goal-title" maxlength="160" placeholder="Goal title" required=""/><textarea id="goal-prompt" placeholder="Exact task Hermes should complete…" required=""></textarea><label>Priority (0–100) <input id="goal-priority" max="100" min="0" type="number" value="50"/></label><button type="submit">Add goal</button></form><p id="goal-feedback" role="status"></p><div id="goal-list"></div></section></details></div><div class="ops-view" data-view="discovery" id="ops-discovery"><details class="fold" open=""><summary>Independent decisions</summary><section id="decision-section"><h2>Independent decisions</h2><div class="kv">Discovery loop <strong id="decision-state">—</strong></div><label>Scan interval (seconds) <input id="decision-interval" max="86400" min="60" type="number" value="3600"/></label><button id="decision-toggle" type="button">Enable scheduled discovery</button><button id="decision-scan" type="button">Run decision now</button><p id="decision-feedback" role="status"></p><h3>Curiosity queue</h3><div id="curiosity-list"></div></section></details><details class="fold" open=""><summary>Independent discovery</summary><section id="discovery-section"><h2>Independent discovery</h2><button id="discovery-scan" type="button">Scan worker projects</button><button id="discovery-refresh" type="button">Refresh</button><p class="hint">Read-only TODO/FIXME scan of the coding worker's project checkouts. Review proposals before they enter the autonomous queue.</p><p id="discovery-status" role="status"></p><div id="discovery-list"></div></section></details></div><div class="ops-view" data-view="planning" id="ops-planning"><details class="fold" open=""><summary>Goal formulation</summary><section id="formulation-section"><h2>Goal formulation</h2><p class="hint">Select a discovery and ask Hermes to formulate an evidence-backed proposal. No automatic coding. Approval creates a read-only investigation goal.</p><button id="formulations-refresh" type="button">Refresh proposals</button><p id="formulation-feedback" role="status"></p><div id="formulation-list"></div></section></details><details class="fold" open=""><summary>Investigation plans</summary><section><h2>Investigation plans</h2><p class="hint">Completed approved investigations can be converted into evidence-backed plans. Plans are review-only; no coding starts automatically.</p><button id="plans-refresh" type="button">Refresh plans</button><p id="plans-feedback" role="status"></p><div id="plans-list"></div></section></details></div><div class="ops-view" data-view="build" id="ops-build"><details class="fold" open=""><summary>Evaluated implementation</summary><section><h2>Evaluated implementation</h2><p class="hint">Approved, isolated candidate work only. No automatic merges.</p><button id="implementations-refresh" type="button">Refresh evaluations</button><p id="implementations-feedback" role="status"></p><div id="implementations-list"></div></section></details></div><div class="ops-view" data-view="activity" id="ops-activity"><details class="fold" open=""><summary>Activity log</summary><section><h2>Activity log</h2><div id="events"></div></section></details><details class="fold" open=""><summary>Selected room</summary><section><h2>Selected room</h2><p id="room-info">Click a room to inspect its function.</p></section></details></div></div></aside></main><section aria-label="Agent response workspace" id="response-workspace"><div class="response-top"><div><h2>Response &amp; Evidence</h2><div class="response-meta"><span id="response-source">Latest agent activity</span><span>Status <strong id="response-status">No task selected</strong></span><span>Task <strong id="response-id">—</strong></span></div></div><div class="response-actions"><button aria-pressed="true" id="response-follow" type="button">Following live</button><button id="response-expand" title="Expand response workspace" type="button">Expand</button><button id="response-copy" type="button">Copy answer</button></div></div><div aria-label="Response content" class="response-tabs" role="tablist"><button aria-selected="true" class="response-tab active" data-response-tab="answer" role="tab" type="button">Answer</button><button aria-selected="false" class="response-tab" data-response-tab="tools" role="tab" type="button">Tool activity (<span id="tool-count">0</span>)</button><button aria-selected="false" class="response-tab" data-response-tab="history" role="tab" type="button">History</button></div><div hidden="" id="response-error" role="alert"></div><div class="response-pane" id="response-answer-panel" role="tabpanel"><div class="format-switch"><label><input id="response-raw-toggle" type="checkbox"/> Show raw text</label></div><article aria-live="polite" class="response-rich" id="response-rich"><p>Submit a task or select a previous task to view its answer.</p></article><pre class="response-raw" hidden="" id="response-text"></pre></div><div class="response-pane" hidden="" id="response-tools-panel" role="tabpanel"><div id="tool-events"></div></div><div class="response-pane" hidden="" id="response-history-panel" role="tabpanel"><button id="refresh-history" type="button">Refresh history</button><div id="task-history"></div></div></section></div><script src="/src/main.ts" type="module"></script></body></html>
+    <!-- ===================== Region A: persistent header ===================== -->
+    <header class="topbar">
+        <div class="brand">
+            <h1>HERMES LIFE <span class="pill">AI OPERATIONS LAB / 0.4.0</span></h1>
+            <p>Unified AI Development Workspace</p>
+        </div>
+        <div id="global-status" role="status" aria-live="polite">
+            <span id="connection-status" data-state="connecting">Connection: Connecting</span>
+            <span id="execution-status" data-state="idle">Execution: idle</span>
+            <span id="data-freshness-status"></span>
+            <button id="header-chat-open" type="button" class="header-chat-btn" title="Open Hermes conversation">Chat ✦</button>
+        </div>
+    </header>
+
+    <!-- ===================== Region B: primary navigation rail ===================== -->
+    <nav id="primary-nav" aria-label="Workspaces">
+        <button data-workspace="home" class="active" type="button" aria-pressed="true">Home</button>
+        <button data-workspace="work" type="button" aria-pressed="false">Work</button>
+        <button data-workspace="activity" type="button" aria-pressed="false">Activity</button>
+        <button data-workspace="results" type="button" aria-pressed="false">Results</button>
+        <span class="nav-sep" aria-hidden="true"></span>
+        <button data-workspace="system" type="button" aria-pressed="false" class="nav-secondary">System</button>
+    </nav>
+
+    <!-- Deep-link shims: the phase modules call openTab('Planning'|'Build') and
+         use [data-tab="build"] to jump into a view; without the old tab bar these
+         would silently no-op, so the clicks land here and route into the Work
+         workspace. Hidden from sight and from the accessibility tree. -->
+    <div id="nav-shims" aria-hidden="true" style="display:none">
+        <button type="button" data-shim="build"></button>
+    </div>
+
+    <!-- ===================== Region C: main workspace ===================== -->
+    <main id="main-workspace">
+
+        <!-- ---------- HOME · the AI Operations Lab as the centerpiece ---------- -->
+        <section id="workspace-home" class="workspace-view" data-layout="world">
+            <header class="workspace-heading">
+                <div>
+                    <h2>Home <small>AI Operations Lab</small></h2>
+                    <p>Hermes, the seven operational roles, and the work in flight.</p>
+                </div>
+                <p class="hint">Click a resident or workstation for details. The lab moves in real time from backend events.</p>
+            </header>
+            <div class="status-strip home-status-strip">
+                <div>
+                    <span class="dot"></span><strong id="studio-status">Standing by</strong>
+                    <span id="studio-detail">Waiting for a Hermes event</span>
+                </div>
+                <button id="studio-open-activity" type="button">Follow activity</button>
+            </div>
+            <div class="world-wrap home-world">
+                <div id="game"></div>
+                <section id="world-room-panel" class="world-room-panel" hidden aria-live="polite">
+                    <div class="world-room-heading">
+                        <strong id="world-room-title">Room</strong>
+                        <button id="world-room-close" type="button" aria-label="Close room details">×</button>
+                    </div>
+                    <p id="world-room-description"></p>
+                    <button id="world-room-open" type="button">Open room workspace</button>
+                </section>
+                <p class="hint">Movement follows real backend records and events.</p>
+            </div>
+            <section class="home-recent-strip" aria-label="Recent operation">
+                <div>
+                    <p class="hrs-eyebrow">Recent events</p>
+                    <div id="home-recent-events" class="hrs-events" aria-live="polite"></div>
+                </div>
+                <div class="hrs-current">
+                    <p class="hrs-eyebrow">Current operation</p>
+                    <div class="kv">Active <strong id="home-current-active">No active task</strong></div>
+                    <div class="kv">Recent task <strong id="home-current-recent">—</strong></div>
+                    <div class="kv">Last outcome <strong id="home-current-outcome">—</strong></div>
+                    <div class="kv">Needs you <strong id="home-current-attention">None</strong></div>
+                    <button id="home-recent-open" type="button" class="hrs-cta">Open in Work →</button>
+                </div>
+            </section>
+        </section>
+
+        <!-- ---------- WORK · task-centric lifecycle + management ---------- -->
+        <section id="workspace-work" class="workspace-view" data-layout="workspace" hidden>
+            <nav id="work-subnav" class="work-subnav" aria-label="Work views">
+                <button type="button" data-workview="tasks" class="active" aria-pressed="true">Tasks</button>
+                <button type="button" data-workview="discover">Discover</button>
+                <button type="button" data-workview="goals">Goals</button>
+                <button type="button" data-workview="planning">Planning</button>
+                <button type="button" data-workview="build" data-tab="build">Build</button>
+            </nav>
+
+            <div class="work-grid">
+                <!-- left column: the unified task workspace -->
+                <div class="work-list">
+                    <div id="task-list-container">
+                        <h2>Work <small id="work-task-count"></small></h2>
+                        <div id="task-list"></div>
+                    </div>
+                    <div id="task-detail-container" hidden>
+                        <!-- task detail / lifecycle injected by work-workspace.ts -->
+                    </div>
+                </div>
+
+                <!-- right column: the workflow management surfaces (conserved) -->
+                <div class="work-management">
+                    <details class="fold" open>
+                        <summary>Independent discovery &amp; decisions</summary>
+                        <section id="decision-section">
+                            <h2>Independent decisions</h2>
+                            <div class="kv">Discovery loop <strong id="decision-state">—</strong></div>
+                            <label>Scan interval (seconds) <input id="decision-scan-interval" max="86400" min="60" type="number" value="3600" /></label>
+                            <button id="decision-toggle" type="button">Enable scheduled discovery</button>
+                            <button id="decision-scan" type="button">Run decision now</button>
+                            <p id="decision-feedback" role="status"></p>
+                            <h3>Curiosity queue</h3>
+                            <div id="curiosity-list"></div>
+                        </section>
+                        <section id="discovery-section">
+                            <h2>Independent discovery</h2>
+                            <button id="discovery-scan" type="button">Scan worker projects</button>
+                            <button id="discovery-refresh" type="button">Refresh</button>
+                            <p class="hint">Read-only TODO/FIXME scan of the coding worker's project checkouts. Review proposals before they enter the autonomous queue.</p>
+                            <p id="discovery-status" role="status"></p>
+                            <div id="discovery-list"></div>
+                        </section>
+                    </details>
+
+                    <details class="fold" open>
+                        <summary>Autonomous goals</summary>
+                        <section id="autonomy-section">
+                            <h2>Autonomous goals</h2>
+                            <div class="kv">Scheduler <strong id="autonomy-status">—</strong></div>
+                            <div class="autonomy-actions">
+                                <button id="autonomy-toggle" type="button">Enable autonomy</button>
+                                <button id="goals-refresh" type="button">Refresh</button>
+                            </div>
+                            <p class="hint">Disabled by default. Only executes goals added here; one at a time.</p>
+                            <form id="goal-form">
+                                <input id="goal-title" maxlength="160" placeholder="Goal title" required />
+                                <textarea id="goal-prompt" placeholder="Exact task Hermes should complete…" required></textarea>
+                                <label>Priority (0–100) <input id="goal-priority" max="100" min="0" type="number" value="50" /></label>
+                                <button type="submit">Add goal</button>
+                            </form>
+                            <p id="goal-feedback" role="status"></p>
+                            <div id="goal-list"></div>
+                        </section>
+                    </details>
+
+                    <details class="fold" open>
+                        <summary>Goal formulation &amp; investigation plans</summary>
+                        <section id="formulation-section">
+                            <h2>Goal formulation</h2>
+                            <p class="hint">Select a discovery and ask Hermes to formulate an evidence-backed proposal. No automatic coding. Approval creates a read-only investigation goal.</p>
+                            <button id="formulations-refresh" type="button">Refresh proposals</button>
+                            <p id="formulation-feedback" role="status"></p>
+                            <div id="formulation-list"></div>
+                        </section>
+                        <section>
+                            <h2>Investigation plans</h2>
+                            <p class="hint">Completed approved investigations can be converted into evidence-backed plans. Plans are review-only; no coding starts automatically.</p>
+                            <button id="plans-refresh" type="button">Refresh plans</button>
+                            <p id="plans-feedback" role="status"></p>
+                            <div id="plans-list"></div>
+                        </section>
+                    </details>
+
+                    <details class="fold" open>
+                        <summary>Evaluated implementation</summary>
+                        <section>
+                            <h2>Evaluated implementation</h2>
+                            <p class="hint">Approved, isolated candidate work only. No automatic merges.</p>
+                            <button id="implementations-refresh" type="button">Refresh evaluations</button>
+                            <p id="implementations-feedback" role="status"></p>
+                            <div id="implementations-list"></div>
+                        </section>
+                    </details>
+                </div>
+            </div>
+        </section>
+
+        <!-- ---------- ACTIVITY · full-width execution timeline ---------- -->
+        <section id="workspace-activity" class="workspace-view" data-layout="focus" hidden>
+            <h2>Activity · live execution</h2>
+            <p class="hint">Every observable Hermes event in chronological order. Raw event names and payloads stay visible in the fold below each entry.</p>
+            <div id="activity-timeline" class="activity-timeline" aria-live="polite"></div>
+            <details class="fold">
+                <summary>Selected room</summary>
+                <section>
+                    <p id="room-info">Click a room to inspect its function.</p>
+                </section>
+            </details>
+        </section>
+
+        <!-- ---------- RESULTS · full-width answer and evidence ---------- -->
+        <section id="workspace-results" class="workspace-view" data-layout="focus" hidden>
+            <section aria-label="Agent response workspace" id="response-workspace">
+                <div class="response-top">
+                    <div>
+                        <h2>Response &amp; Evidence</h2>
+                        <div class="response-meta">
+                            <span id="response-source">Latest agent activity</span>
+                            <span>Status <strong id="response-status">No task selected</strong></span>
+                            <span>Task <strong id="response-id">—</strong></span>
+                        </div>
+                    </div>
+                    <div class="response-actions">
+                        <button aria-pressed="true" id="response-follow" type="button">Following live</button>
+                        <button id="response-copy" type="button">Copy answer</button>
+                    </div>
+                </div>
+                <div aria-label="Response content" class="response-tabs" role="tablist">
+                    <button aria-selected="true" class="response-tab active" data-response-tab="answer" role="tab" type="button">Answer</button>
+                    <button aria-selected="false" class="response-tab" data-response-tab="tools" role="tab" type="button">Tool activity (<span id="tool-count">0</span>)</button>
+                    <button aria-selected="false" class="response-tab" data-response-tab="history" role="tab" type="button">History</button>
+                </div>
+                <div hidden id="response-error" role="alert"></div>
+                <div class="response-pane" id="response-answer-panel" role="tabpanel">
+                    <div class="format-switch">
+                        <label><input id="response-raw-toggle" type="checkbox" /> Show raw text</label>
+                    </div>
+                    <article aria-live="polite" class="response-rich" id="response-rich"><p>Open a task to view its answer and evidence.</p></article>
+                    <pre class="response-raw" hidden id="response-text"></pre>
+                </div>
+                <div class="response-pane" hidden id="response-tools-panel" role="tabpanel">
+                    <div id="tool-events"></div>
+                </div>
+                <div class="response-pane" hidden id="response-history-panel" role="tabpanel">
+                    <button id="refresh-history" type="button">Refresh history</button>
+                    <div id="task-history"></div>
+                </div>
+            </section>
+        </section>
+
+        <!-- ---------- SYSTEM · learned profile, memory and lessons ---------- -->
+        <section id="workspace-system" class="workspace-view" data-layout="focus" hidden>
+            <section id="memory-section">
+                <h2>Learned profile &amp; memory review</h2>
+                <p class="hint">What Hermes has learned from past work, with the evidence it was drawn from. A correction here changes what future tasks are told, so every correction records who decided it and why. Retired memories stay in the record; they are never silently rewritten.</p>
+                <div class="memory-actions"><button id="memory-refresh" type="button">Refresh</button></div>
+                <p id="memory-feedback" role="status"></p>
+                <form id="memory-correct-form" hidden>
+                    <p class="memory-target" id="memory-correct-target"></p>
+                    <label>Action <select id="memory-correct-action">
+                        <option value="supersede">Replace with new wording</option>
+                        <option value="delete">Invalidate — remove with no replacement</option>
+                        <option value="merge">Merge into another memory</option>
+                    </select></label>
+                    <label id="memory-merge-label" hidden>Merge into <select id="memory-correct-merge"></select></label>
+                    <label id="memory-content-label">New wording <textarea id="memory-correct-content" maxlength="1600"></textarea></label>
+                    <label>Reason (required) <input id="memory-correct-rationale" maxlength="500" placeholder="Why this change is correct…" /></label>
+                    <label>Decided by <input id="memory-correct-actor" maxlength="120" placeholder="user" /></label>
+                    <div class="memory-form-actions">
+                        <button id="memory-correct-submit" type="submit">Apply correction</button>
+                        <button id="memory-correct-cancel" type="button">Cancel</button>
+                    </div>
+                </form>
+                <h3>Memories</h3>
+                <div id="memory-profile-list"></div>
+                <h3>Pending reviews</h3>
+                <div id="memory-review-list"></div>
+                <h3>Technical lessons</h3>
+                <div id="memory-lesson-list"></div>
+                <h3>Recent corrections</h3>
+                <div id="memory-history-list"></div>
+            </section>
+        </section>
+    </main>
+
+    <!-- ===================== Region D: contextual panel ===================== -->
+    <aside id="contextual-panel">
+        <!-- Home context: compact persona + submit a task + current/recent work -->
+        <div id="ctx-home" class="ctx-block">
+            <section class="persona-card" id="persona-card">
+                <div class="persona-head">
+                    <div class="avatar-mark">H</div>
+                    <div><h2 id="persona-display">Hermes</h2><p id="persona-subtitle">Resident software researcher</p></div>
+                    <span class="mood" id="persona-mood">Observant</span>
+                </div>
+                <div class="persona-compact-meta">
+                    <div class="kv">Status <strong id="persona-experience">— recorded outcomes</strong></div>
+                </div>
+                <p id="persona-feedback" role="status"></p>
+                <details class="persona-profile-detail">
+                    <summary>View persona profile</summary>
+                    <div class="persona-profile">
+                        <strong>Core identity · Fixed persona</strong>
+                        <p>Sharp, direct, dependable, curious, and unfiltered. A capable friend who gets things done, investigates root causes, and follows through.</p>
+                        <p>Style: natural, casual, precise. No corporate filler or forced slang.</p>
+                        <small>Hermes builds on verified task outcomes. Its foundational character is not controlled by sliders.</small>
+                    </div>
+                </details>
+            </section>
+            <section class="home-new-task">
+                <h2>New task</h2>
+                <form id="task-form">
+                    <textarea id="prompt" minlength="1" placeholder="Give Hermes a task…" required></textarea>
+                    <button type="submit">Send to Hermes</button>
+                    <p id="task-feedback"></p>
+                </form>
+                <p class="persona-narrative" id="persona-narrative">Watching the studio for new work.</p>
+            </section>
+            <section class="home-current-work">
+                <h2>Current work</h2>
+                <div class="kv">Current task <strong id="current-task">None</strong></div>
+                <div class="kv">Recent task <strong id="recent-task">—</strong></div>
+                <div class="kv">Last outcome <strong id="last-outcome">—</strong></div>
+                <div class="kv">Requires attention <strong id="requires-attention">None</strong></div>
+                <button id="home-open-work" type="button">Open in Work →</button>
+            </section>
+        </div>
+
+        <!-- Work/selection context: current selection summary -->
+        <div id="ctx-selection" class="ctx-block" hidden>
+            <h2>Selection</h2>
+            <div id="ctx-selection-body">Select a task in Work to see it here.</div>
+        </div>
+
+        <!-- Chat is docked here by main.v2 (moved from the floating corner). -->
+        <div id="chat-dock" class="ctx-block" hidden>
+            <h2 class="chat-dock-title">Hermes conversation</h2>
+            <div id="chat-host"></div>
+        </div>
+    </aside>
+
+</div>
+<script src="/src/main.v2.ts" type="module"></script>
+</body>
+</html>

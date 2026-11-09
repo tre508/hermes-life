@@ -131,6 +131,30 @@ def test_every_stage_of_the_status_table(tmp_path):
     assert snapshot['counts']['needs_attention'] == 4  # active + in_progress, nothing else
 
 
+def test_a_drafting_plan_is_not_offered_for_approval(tmp_path):
+    """A plan exists while the model is still writing it, but there is nothing to approve yet.
+
+    The drafting row is what lets the world show the planner working; the status table has to
+    distinguish it from a plan that is genuinely waiting for a human decision.
+    """
+    app = build(tmp_path)
+    base = '2026-01-01T00:00:00+00:00'
+    chain(app, 'd-drafting', formulation='f-drafting', goal=('g-drafting', 'completed'),
+          task=('t-drafting', 'completed'), plan=('p-drafting', 'drafting'), created_at=base)
+
+    record = app.state.workflow.snapshot()['discoveries']['d-drafting']
+    assert record['stage'] == 'planning'
+    assert record['status'] == 'Drafting the plan'
+    assert record['next_action'] == 'await'          # never approve_plan before there is a plan
+
+    # The plans endpoint the Planning tab reads must say the same thing.
+    row = app.state.runtime.store.connection.execute(
+        'SELECT * FROM investigation_plans WHERE id=?', ('p-drafting',)).fetchone()
+    annotated = app.state.workflow.annotate('plans', [dict(row)])[0]
+    assert annotated['workflow']['next_action'] == 'await'
+    assert annotated['workflow']['status'] == 'Drafting the plan'
+
+
 def test_a_finished_investigation_leaves_the_active_view_without_being_deleted(tmp_path):
     app = build(tmp_path)
     chain(app, 'd-one', note=NOTE, formulation='f-one', goal=('g-one', 'completed'),

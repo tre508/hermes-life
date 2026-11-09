@@ -1,0 +1,297 @@
+/* UI-VIS-007: Activity bubble styles */
+
+/* Overlay container */
+.town-bubbles {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none; /* Bubbles handle their own pointer events */
+  z-index: 40;
+  overflow: visible;
+}
+
+/* Base bubble style */
+.town-bubble {
+  position: absolute;
+  pointer-events: auto;
+  min-width: 200px;
+  max-width: 320px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  font-size: 11px;
+  line-height: 1.4;
+  color: #e8f0ec;
+  background: rgba(8, 18, 24, 0.92);
+  box-shadow:
+    0 4px 16px rgba(0, 0, 0, 0.4),
+    0 0 0 1px var(--bubble-accent, #7fd4c1);
+  font-family: system-ui, "Segoe UI", Inter, sans-serif;
+  opacity: 0;
+  transform: translateX(-50%) translateY(-100%) translateY(8px);
+  transition:
+    opacity 200ms ease-out,
+    transform 200ms ease-out;
+  will-change: transform, opacity;
+}
+
+/* Entering animation */
+.town-bubble.entering {
+  opacity: 1;
+  transform: translateX(-50%) translateY(-100%) translateY(0);
+}
+
+/* Exiting animation */
+.town-bubble.exiting {
+  opacity: 0;
+  transform: translateX(-50%) translateY(-100%) translateY(-8px);
+}
+
+/* Reduced motion: no transform animations */
+@media (prefers-reduced-motion: reduce) {
+  .town-bubble {
+    transition: opacity 150ms ease-out;
+    transform: translateX(-50%) translateY(-100%);
+  }
+  .town-bubble.entering {
+    opacity: 1;
+    transform: translateX(-50%) translateY(-100%);
+  }
+  .town-bubble.exiting {
+    opacity: 0;
+    transform: translateX(-50%) translateY(-100%);
+  }
+}
+
+/* Bubble pointer (triangle connecting to character) */
+.town-bubble__pointer {
+  position: absolute;
+  bottom: -8px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 0;
+  height: 0;
+  border-left: 8px solid transparent;
+  border-right: 8px solid transparent;
+  border-top: 8px solid var(--bubble-accent, #7fd4c1);
+  filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.3));
+}
+
+/* Header */
+.town-bubble__header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 6px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.town-bubble__icon {
+  font-size: 13px;
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+.town-bubble__role {
+  font-weight: 600;
+  font-size: 11px;
+  color: var(--bubble-accent, #7fd4c1);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  flex: 1;
+}
+
+.town-bubble__category {
+  font-size: 9px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.1);
+  color: #a8d8c8;
+}
+
+/* Category-specific header colors */
+.town-bubble--thought .town-bubble__category { background: rgba(111, 180, 240, 0.2); color: #6fb4f0; }
+.town-bubble--tool .town-bubble__category { background: rgba(232, 164, 92, 0.2); color: #e8a45c; }
+.town-bubble--execution .town-bubble__category { background: rgba(255, 217, 100, 0.2); color: #ffd964; }
+.town-bubble--success .town-bubble__category { background: rgba(143, 212, 143, 0.2); color: #8fd48f; }
+.town-bubble--error .town-bubble__category { background: rgba(247, 161, 155, 0.2); color: #f7a19b; }
+.town-bubble--waiting .town-bubble__category { background: rgba(241, 186, 121, 0.2); color: #f1ba79; }
+
+/* Content */
+.town-bubble__content {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.town-bubble__headline {
+  font-weight: 500;
+  font-size: 11.5px;
+  color: #eef7f3;
+  word-wrap: break-word;
+  overflow-wrap: anywhere;
+}
+
+.town-bubble__details {
+  font-size: 10px;
+  color: #b8d4c8;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  overflow-wrap: anywhere;
+  max-height: 80px;
+  overflow-y: auto;
+}
+
+.town-bubble__tool {
+  font-size: 10px;
+  color: #a8d8c8;
+}
+
+.town-bubble__tool code {
+  font-family: "JetBrains Mono", "Fira Code", monospace;
+  font-size: 0.95em;
+  background: rgba(255, 255, 255, 0.06);
+  padding: 1px 4px;
+  border-radius: 3px;
+  color: #e8a45c;
+}
+
+.town-bubble__target {
+  font-size: 9.5px;
+  color: #9cc8b8;
+  font-family: "JetBrains Mono", "Fira Code", monospace;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Status indicator */
+.town-bubble__status {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  border: 2px solid rgba(0, 0, 0, 0.3);
+}
+
+.town-bubble__status--running {
+  background: #f1ba79;
+  box-shadow: 0 0 6px #f1ba79;
+  animation: bubble-pulse 1.5s ease-in-out infinite;
+}
+
+.town-bubble__status--completed {
+  background: #8fd48f;
+  box-shadow: 0 0 6px #8fd48f;
+}
+
+.town-bubble__status--failed {
+  background: #f7a19b;
+  box-shadow: 0 0 6px #f7a19b;
+}
+
+.town-bubble__status--blocked {
+  background: #f1ba79;
+  box-shadow: 0 0 6px #f1ba79;
+}
+
+@keyframes bubble-pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.6; transform: scale(0.9); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .town-bubble__status--running {
+    animation: none;
+  }
+}
+
+/* Hover state */
+.town-bubble.hovered {
+  box-shadow:
+    0 6px 24px rgba(0, 0, 0, 0.5),
+    0 0 0 1px var(--bubble-accent, #7fd4c1),
+    0 0 12px var(--bubble-accent, #7fd4c1);
+  z-index: 41;
+}
+
+/* Expanded state */
+.town-bubble.expanded {
+  max-width: 400px;
+  max-height: 500px;
+  overflow-y: auto;
+  z-index: 42;
+}
+
+.town-bubble.expanded .town-bubble__details {
+  max-height: 300px;
+}
+
+.town-bubble.expanded .town-bubble__target {
+  white-space: normal;
+  word-wrap: break-word;
+}
+
+/* Role-specific accent colors (set via --bubble-accent custom property) */
+.town-bubble--coordinator { --bubble-accent: #7fd4c1; }
+.town-bubble--researcher { --bubble-accent: #6ec6e8; }
+.town-bubble--planner { --bubble-accent: #b79be0; }
+.town-bubble--builder { --bubble-accent: #e8a45c; }
+.town-bubble--tester { --bubble-accent: #e8d45c; }
+.town-bubble--archivist { --bubble-accent: #c9a37a; }
+.town-bubble--reviewer { --bubble-accent: #8fd48f; }
+
+/* High contrast mode support */
+@media (prefers-contrast: high) {
+  .town-bubble {
+    background: #000;
+    border: 2px solid var(--bubble-accent);
+    box-shadow: none;
+  }
+  .town-bubble__pointer {
+    border-top-color: var(--bubble-accent);
+  }
+}
+
+/* Dark mode is default; light mode adjustments if needed */
+@media (prefers-color-scheme: light) {
+  .town-bubble {
+    background: rgba(250, 250, 250, 0.95);
+    color: #1a2a26;
+    box-shadow:
+      0 4px 16px rgba(0, 0, 0, 0.15),
+      0 0 0 1px var(--bubble-accent);
+  }
+  .town-bubble__details { color: #3a5a50; }
+  .town-bubble__tool { color: #4a6a60; }
+  .town-bubble__tool code { background: rgba(0, 0, 0, 0.06); color: #b8642c; }
+  .town-bubble__target { color: #4a7a68; }
+  .town-bubble__header { border-bottom-color: rgba(0, 0, 0, 0.1); }
+  .town-bubble__category { background: rgba(0, 0, 0, 0.08); }
+}
+
+/* Focus styles for accessibility */
+.town-bubble:focus-visible {
+  outline: 2px solid var(--bubble-accent);
+  outline-offset: 2px;
+}
+
+/* Screen reader only content */
+.town-bubble__sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}

@@ -17,6 +17,8 @@ import {
   projectServerState, setConnection, summarize, withBaseline,
 } from './town-model';
 import { locationLabel, locationPurpose } from './town-vocabulary';
+import { BubbleController } from './town-world/bubbles';
+import './town-world/bubbles.css';
 
 const REFRESH_MS = 20_000;
 const MOTION_KEY = 'hermes-life-town-motion';
@@ -30,6 +32,7 @@ let refreshQueued: ReturnType<typeof setTimeout> | undefined;
 /** Task ids owned by an investigation goal, from the last authoritative snapshot. */
 const goalTasks = new Set<string>();
 let ui: Ui | null = null;
+let bubbleController: BubbleController | null = null;
 
 interface Ui {
   connection: HTMLElement;
@@ -83,6 +86,10 @@ export function installTown(): void {
     host.classList.add('town-still');
     renderer.setMotion(false);
   }
+
+  // Initialize bubble controller (UI-VIS-007)
+  bubbleController = new BubbleController();
+  bubbleController.initialize(host, renderer);
 
   listen(window, 'hermes:event', event => onEvent((event as CustomEvent).detail));
   listen(window, 'hermes:connection', event => {
@@ -152,6 +159,9 @@ export function installTown(): void {
     undo.length = 0;
     renderer?.destroy();
     renderer = null;
+    // Destroy bubble controller (UI-VIS-007)
+    bubbleController?.destroy();
+    bubbleController = null;
     // The live-status banner belongs to another phase: put it back before dropping the HUD block.
     if (ui?.banner && ui.bannerHome) ui.bannerHome.append(ui.banner);
     ui?.wrap.remove();
@@ -288,12 +298,32 @@ export async function refresh(force = false): Promise<TownState> {
 
 // --------------------------------------------------------------------------- live events
 
-function onEvent(event: { sequence?: number; type?: string; task_id?: string | null; payload?: Record<string, unknown> } | undefined): void {
+interface BackendEvent {
+  sequence?: number;
+  type?: string;
+  task_id?: string | null;
+  payload?: Record<string, unknown>;
+  timestamp?: string;
+}
+
+function onEvent(event: BackendEvent | undefined): void {
   if (!event || typeof event.type !== 'string') return;
   const autonomous = isAutonomousTask(event.task_id);
   town = applyEvent(town, event as never, autonomous);
   renderer?.applyState(town);
   renderUi();
+
+  // Process event through bubble controller (UI-VIS-007)
+  if (event.type) {
+    bubbleController?.processEvent({
+      type: event.type,
+      payload: event.payload,
+      task_id: event.task_id,
+      sequence: event.sequence,
+      timestamp: event.timestamp,
+    });
+  }
+
   // Terminal events change records too: re-read soon, but not per event (bounded, debounced).
   if (/(completed|failed|decided|applied|approved|pruned|error)$/.test(event.type)) {
     clearTimeout(refreshQueued);
