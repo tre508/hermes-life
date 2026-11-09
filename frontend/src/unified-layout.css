@@ -526,3 +526,513 @@
     background: none; border: none; color: #7f9aa0; font-size: 11px; cursor: pointer; padding: 0;
 }
 #app .activity-entry button.ae-expand:hover { color: #cfe6f7; }
+
+/* =====================================================================
+ * Conversation thread + composer + actionable CTAs (Work workspace)
+ * The unified work task list shows conversation_id short codes so a
+ * user can see, at a glance, which tasks share a thread.
+ *
+ * The conversation thread itself is the new centerpiece: persistent,
+ * chronological, with the composer always rendered below so a half-typed
+ * reply survives navigation. Actionable next-action buttons belt the
+ * top of the thread and dispatch the existing event bus rather than a
+ * silent no-op.
+ * ===================================================================== */
+
+/* Smaller "conv short codes" in the task list. */
+#app .task-entry .task-meta { color: #7f9aa0; font-size: 11px; }
+
+/* ----- Work workspace 3-column layout (P1: Tasks | Active task | Context) ----- */
+#app .work-grid {
+    display: grid;
+    grid-template-columns: minmax(260px, 4fr) minmax(440px, 7fr) minmax(280px, 5fr);
+    gap: 16px;
+    align-items: start;
+    min-height: 0;
+}
+@media (max-width: 1280px) {
+    /* Narrow viewports collapse the contextual panel into the center column. */
+    #app .work-grid { grid-template-columns: minmax(260px, 4fr) minmax(500px, 8fr); }
+    #app .work-context { display: none; }
+}
+#app .work-list { min-width: 0; }
+#app .work-list h2 small { color: #7f9aa0; font-weight: 500; }
+
+/* =====================================================================
+ * Tool activity groups (UI-VIS-007 §8)
+ * Conversation thread renders collapsed tool categories at the top
+ * (n operations); expanding shows each individual call.
+ * ===================================================================== */
+#app .conv-thread__tools {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 4px 4px 10px;
+    border-bottom: 1px dashed #223a46;
+    margin-bottom: 10px;
+}
+#app .tool-group {
+    border: 1px solid #223a46;
+    border-radius: 8px;
+    background: #0d1a22;
+    overflow: hidden;
+}
+#app .tool-group--read { border-color: #2b5262; }
+#app .tool-group--edit { border-color: #6a5e22; }
+#app .tool-group--shell { border-color: #6a4e22; }
+#app .tool-group--test { border-color: #4a512e; }
+#app .tool-group--web { border-color: #33506e; }
+#app .tool-group--memory { border-color: #2b3d4a; }
+#app .tool-group__head {
+    width: 100%;
+    background: none;
+    border: 0;
+    text-align: left;
+    padding: 8px 10px;
+    font-size: 11.5px;
+    color: #dceae7;
+    cursor: pointer;
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+}
+#app .tool-group__label { font-weight: 600; }
+#app .tool-group__status {
+    font-size: 10.5px;
+    padding: 1px 6px;
+    border-radius: 14px;
+    border: 1px solid #2b4856;
+    background: #12212c;
+    color: #cfe6f7;
+}
+#app .tool-group__status--completed { background: #1f483a; border-color: #2f6f57; }
+#app .tool-group__status--failed    { background: #522b2a; border-color: #7a3a38; color: #f2b7b1; }
+#app .tool-group__status--pending   { background: #2c2a14; border-color: #6a5e22; color: #f1d68a; }
+#app .tool-group__chevron {
+    margin-left: auto;
+    color: #7f9aa0;
+    font-size: 12px;
+}
+#app .tool-group--open .tool-group__chevron { color: #cfe6f7; }
+#app .tool-group__list {
+    list-style: none;
+    margin: 0;
+    padding: 4px 10px 8px;
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    background: #0a141a;
+    border-top: 1px solid #223a46;
+}
+#app .tool-group__list[hidden] { display: none; }
+#app .tool-run {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 8px;
+    font-size: 11.5px;
+    padding: 2px 0;
+}
+#app .tool-run__status {
+    color: #cfe6f7;
+    font-size: 10.5px;
+    text-transform: uppercase;
+    letter-spacing: .04em;
+    min-width: 64px;
+}
+#app .tool-run--failed .tool-run__status { color: #f2b7b1; }
+#app .tool-run--pending .tool-run__status { color: #f1d68a; }
+#app .tool-run__name {
+    color: #cfe6f7;
+    font-family: "JetBrains Mono", "Fira Code", monospace;
+    font-size: 11px;
+}
+#app .tool-run__target {
+    color: #a8e7d5;
+    font-family: "JetBrains Mono", "Fira Code", monospace;
+    font-size: 11px;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    flex: 1 1 200px;
+}
+#app .tool-run__summary {
+    width: 100%;
+    color: #8cafb7;
+    font-size: 11px;
+    padding-left: 12px;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+}
+#app .tool-group__empty { color: #8cafb7; padding: 6px 4px; margin: 0; }
+
+/* Wire-up for cross-view sync helper button next to the conversation header. */
+#app .conv-thread__sync {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin: 4px 4px 8px;
+}
+#app .conv-thread__sync a {
+    padding: 4px 9px;
+    border-radius: 14px;
+    background: #12212c;
+    border: 1px solid #2b4856;
+    color: #cfe6f7;
+    font-size: 11px;
+    text-decoration: none;
+    cursor: pointer;
+}
+#app .conv-thread__sync a:hover { background: #1c3340; }
+#app .work-center { min-width: 0; min-height: 0; display: flex; flex-direction: column; }
+#app .work-center__empty {
+    margin: 14px 4px 0;
+    padding: 16px 18px;
+    border: 1px dashed #223a46;
+    border-radius: 10px;
+    color: #8cafb7;
+    font-size: 12.5px;
+    line-height: 1.5;
+    text-align: center;
+}
+#app .work-center__empty .hint { color: #8cafb7; }
+
+/* Contextual right-column panel (P1 contextual task details) */
+#app .work-context {
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+#app .ctx-card {
+    border: 1px solid #223a46;
+    border-radius: 10px;
+    background: #101a23;
+    padding: 10px 12px;
+    font-size: 12px;
+}
+#app .ctx-card__title {
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: .04em;
+    text-transform: uppercase;
+    color: #e1d6bc;
+    margin: 0 0 6px;
+}
+#app .ctx-card .kv { padding: 2px 0; font-size: 11.5px; }
+#app .ctx-card .kv strong { color: #a8e7d5; }
+#app .ctx-card .ctx-card__hint { color: #7f9aa0; font-size: 11px; }
+#app .ctx-card pre {
+    margin: 6px 0 0;
+    background: #081519;
+    border: 1px solid #1c3540;
+    border-radius: 6px;
+    padding: 8px 10px;
+    color: #dceae7;
+    font-size: 11.5px;
+    line-height: 1.4;
+    max-height: 220px;
+    overflow: auto;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+}
+
+/* Inline approval card (P1 approval workflow integration) */
+#app .approval-card {
+    border: 1px solid #2b5262;
+    border-radius: 10px;
+    background: #11212b;
+    padding: 12px 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+#app .approval-card__title { margin: 0; font-size: 13px; font-weight: 700; color: #cfe6f7; }
+#app .approval-card__subtitle { margin: 0; font-size: 11.5px; color: #a8e7d5; }
+#app .approval-card__body {
+    margin: 0;
+    font-size: 12px;
+    color: #dceae7;
+    line-height: 1.5;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+    max-height: 320px;
+    overflow: auto;
+}
+#app .approval-card__criteria {
+    margin: 0 0 4px;
+    padding: 0;
+    list-style: none;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+#app .approval-card__criteria li {
+    border: 1px solid #1c3a47;
+    border-radius: 6px;
+    background: #0d1a22;
+    padding: 6px 8px;
+    font-size: 11.5px;
+    color: #dceae7;
+}
+#app .approval-card__row { display: flex; flex-wrap: wrap; gap: 6px; }
+#app .approval-card__btn {
+    padding: 5px 11px;
+    border-radius: 14px;
+    border: 1px solid #2b4856;
+    background: #12212c;
+    color: #dceae7;
+    font-size: 11.5px;
+    font-weight: 600;
+    cursor: pointer;
+}
+#app .approval-card__btn--approve {
+    background: #1f483a;
+    border-color: #2f6f57;
+    color: #cfe6f7;
+}
+#app .approval-card__btn--approve:hover { background: #2c6a55; }
+#app .approval-card__btn--changes {
+    background: #2c2a14;
+    border-color: #6a5e22;
+    color: #f1d68a;
+}
+#app .approval-card__btn--changes:hover { background: #3a3520; }
+#app .approval-card__btn[disabled] { opacity: 0.55; cursor: not-allowed; }
+
+/* Composer state machine variants (P1 unified composer adapts). The
+   data-mode is set by work-workspace.ts so the same composer shifts
+   variant per task state. */
+#app .task-composer[data-mode="new"]      { border-color: #2b5262; }
+#app .task-composer[data-mode="followup"]  { border-color: #2f6f57; }
+#app .task-composer[data-mode="approval"]  { border-color: #6a5e22; background: #1a1814; }
+#app .task-composer[data-mode="failed"]    { border-color: #7a3a38; background: #1f1614; }
+#app .task-composer[data-mode="completed"] { border-color: #2f6f57; background: #11271d; }
+#app .task-composer[data-mode="followup"]  .task-composer__label-text,
+#app .task-composer[data-mode="completed"] .task-composer__label-text { color: #bfe0d8; }
+#app .task-composer[data-mode="approval"]  .task-composer__label-text { color: #f1d68a; }
+#app .task-composer[data-mode="failed"]    .task-composer__label-text { color: #f7a19b; }
+#app .task-thread-host {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+    padding: 4px 4px 16px;
+    scrollbar-color: #426574 #10232c;
+}
+#app .conv-thread-head {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: 0 4px 10px;
+}
+#app .conv-thread-head h3 {
+    margin: 0;
+    font-size: 14px;
+    font-weight: 600;
+    color: #e1d6bc;
+}
+#app .conv-thread-head small {
+    color: #7f9aa0;
+    font-size: 11px;
+}
+#app .conv-thread {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+#app .conv-turn {
+    border: 1px solid #223a46;
+    border-radius: 10px;
+    padding: 10px 12px;
+    background: #0f1a22;
+    max-width: 92%;
+}
+#app .conv-turn--assistant {
+    align-self: flex-start;
+    border-color: #2b5262;
+}
+#app .conv-turn--user {
+    align-self: flex-end;
+    border-color: #2f6f57;
+    background: #11271d;
+}
+#app .conv-turn--system {
+    border-color: #4a4a2f;
+    background: #1f1f17;
+}
+#app .conv-turn__head {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: baseline;
+    margin-bottom: 6px;
+    font-size: 11px;
+}
+#app .conv-turn__role {
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: .04em;
+    color: #a8e7d5;
+}
+#app .conv-turn--user .conv-turn__role { color: #bfe0d8; }
+#app .conv-turn--assistant .conv-turn__role { color: #93c6f2; }
+#app .conv-turn__head time { color: #7f9aa0; }
+#app .conv-turn__task {
+    margin-left: auto;
+    padding: 1px 6px;
+    border-radius: 14px;
+    background: #192c38;
+    border: 1px solid #2b4856;
+    color: #cfe6f7;
+    font-size: 10.5px;
+    cursor: pointer;
+}
+#app .conv-turn__task:hover { background: #1c3a47; }
+#app .conv-turn__body {
+    color: #dceae7;
+    font-size: 13px;
+    line-height: 1.55;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+}
+#app .conv-turn__more {
+    background: none;
+    border: 0;
+    color: #7f9aa0;
+    font-size: 11px;
+    cursor: pointer;
+    padding: 0;
+    margin-left: 4px;
+}
+#app .conv-turn__more:hover { color: #cfe6f7; }
+#app .conv-turn__full { display: block; margin-top: 6px; }
+#app .conv-thread__empty {
+    margin: 6px 4px 0;
+    padding: 10px 12px;
+    border: 1px dashed #223a46;
+    border-radius: 10px;
+    color: #8cafb7;
+    font-size: 12px;
+}
+
+/* ----- Persistent composer ----- */
+#app .task-composer-host { padding: 8px 4px 12px; }
+#app .task-composer {
+    border: 1px solid #2b4856;
+    border-radius: 10px;
+    background: #101a23;
+    padding: 10px 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+#app .task-composer__label {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 12px;
+    flex-wrap: wrap;
+}
+#app .task-composer__label-text {
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: .04em;
+    color: #a8e7d5;
+    text-transform: uppercase;
+}
+#app .task-composer__label-hint {
+    font-size: 11px;
+    color: #7f9aa0;
+}
+#app .task-composer__feedback {
+    margin: 0;
+    font-size: 11.5px;
+    color: #7f9aa0;
+}
+#app .task-composer__feedback[data-kind="error"] { color: #f7a19b; }
+#app .task-composer__feedback[data-kind="ok"] { color: #87e7ba; }
+#app #task-detail-composer-text {
+    width: 100%;
+    min-height: 72px;
+    resize: vertical;
+    box-sizing: border-box;
+    background: #08161d;
+    color: #e6efe9;
+    border: 1px solid #223a46;
+    border-radius: 6px;
+    padding: 8px 10px;
+    font-family: inherit;
+    font-size: 13px;
+    line-height: 1.45;
+}
+#app .task-composer__row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+}
+#app .task-composer__count {
+    color: #7f9aa0;
+    font-size: 11px;
+}
+#app .task-composer__submit {
+    background: #1b3542;
+    color: #e7f1ed;
+    border: 1px solid #2f6f57;
+    border-radius: 16px;
+    padding: 6px 14px;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+}
+#app .task-composer__submit:hover:not([disabled]) { background: #244658; border-color: #4dac82; }
+#app .task-composer__submit[disabled] { opacity: 0.55; cursor: not-allowed; }
+
+/* ----- Actionable next-action panel ----- */
+#app .task-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    padding: 6px 0 10px;
+}
+#app .task-actions__hint {
+    margin: 0;
+    font-size: 11.5px;
+    color: #7f9aa0;
+}
+#app .task-action {
+    padding: 5px 11px;
+    border-radius: 14px;
+    border: 1px solid #2b4856;
+    background: #12212c;
+    color: #dceae7;
+    font-size: 11.5px;
+    font-weight: 600;
+    cursor: pointer;
+}
+#app .task-action:hover { background: #1c3340; }
+#app .task-action--primary {
+    background: #1b3542;
+    border-color: #2f6f57;
+    color: #cfe6f7;
+}
+#app .task-action--primary:hover { background: #244658; }
+#app .task-action--success {
+    background: #1f483a;
+    border-color: #2f6f57;
+    color: #cfe6f7;
+}
+#app .task-action--success:hover { background: #2c6a55; }
+#app .task-action--secondary {
+    background: transparent;
+    border-color: #2b5262;
+    color: #a8e7d5;
+}
+#app .task-action--secondary:hover { background: #172a32; }

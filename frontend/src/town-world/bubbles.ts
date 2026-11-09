@@ -22,6 +22,8 @@ import type { TownRenderer, RendererPoint } from '../town-renderer';
 export type BubbleCategory = 'thought' | 'tool' | 'execution' | 'success' | 'error' | 'waiting';
 
 export interface BubbleContent {
+  /** Optional anchor: ties a tool_use bubble to its matching tool_result. */
+  id?: string;
   /** Short headline for the default view */
   headline: string;
   /** Optional expanded details for hover/click */
@@ -89,9 +91,62 @@ const DEFAULT_CONFIG: BubbleConfig = {
 
 const RUNTIME_EVENTS = /^hermes\.(text|system|tool_use|tool_result|result)$/;
 
+/** Live payloads observed on the wire use `payload.name`; older records and
+ *  tests sometimes use `payload.tool_name`. Read either, with the live field
+ *  first because that's the dominant shape in production. */
+function toolNameFrom(payload: Record<string, unknown>): string {
+  const raw =
+    (payload.name as string) ??
+    (payload.tool_name as string) ??
+    (payload.tool as string) ??
+    '';
+  return raw ? String(raw) : 'tool';
+}
+
+/** The LLM provider hands back a textual record of what was actually drawn
+ *  from user-visible output. We never invent a target — if the payload has
+ *  no recognisable input or argument fields, we leave it blank. */
+function toolTargetFrom(payload: Record<string, unknown>): string {
+  const inputs = payload.input ?? payload.arguments ?? payload.parameters ?? payload.args;
+  if (typeof inputs === 'string') return inputs.slice(0, 140);
+  if (inputs && typeof inputs === 'object') {
+    try {
+      const s = JSON.stringify(inputs);
+      return s.length > 140 ? s.slice(0, 137) + '…' : s;
+    } catch {
+      return String(inputs).slice(0, 140);
+    }
+  }
+  // Last-resort: a single field like `command`, `path`, `prompt` is the most
+  // legible target a caller can surface.
+  const interesting = (payload.command as string) ?? (payload.path as string) ?? (payload.prompt as string);
+  return interesting ? String(interesting).slice(0, 140) : '';
+}
+
+function resultSummaryFrom(payload: Record<string, unknown>): string {
+  // Payload conventions, in observed order: `output` (string), `result`
+  // (object or string), `content`, `error`/`is_error`.
+  const isError = payload.is_error === true || payload.error || payload.failed === true;
+  if (isError) {
+    const msg = String(payload.error ?? payload.output ?? payload.message ?? 'Tool failed').slice(0, 160);
+    return `Error: ${msg}`;
+  }
+  const out = payload.output ?? payload.result ?? payload.content;
+  if (typeof out === 'string') return out.length > 160 ? out.slice(0, 157) + '…' : out;
+  try {
+    const s = JSON.stringify(out);
+    return s.length > 160 ? s.slice(0, 157) + '…' : s;
+  } catch {
+    return String(out).slice(0, 160) || 'Tool finished';
+  }
+}
+
 /**
  * Maps backend event types to bubble categories and target roles.
  * This is the "Bubble Event Adapter" from the architecture diagram.
+ *
+ * Returns `null` when the event carries no user-visible activity — never
+ * fabricates content.
  */
 export function categorizeEvent(event: {
   type: string;
@@ -108,16 +163,20 @@ export function categorizeEvent(event: {
 
   // Tool use events
   if (type === 'hermes.tool_use') {
-    const toolName = extractToolName(payload);
-    const toolTarget = extractToolTarget(payload);
-    const role = determineRoleForTool(payload) || 'coordinator';
+    const toolName = toolNameFrom(payload);
+    const toolTarget = toolTargetFrom(payload);
+    const role = determineRoleForTool(toolName) || 'coordinator';
+    // tool_call_id ties the result back to this exact call so the matching
+    // hermes.tool_result can update this bubble instead of stacking on top.
+    const id = typeof payload.tool_call_id === 'string' ? payload.tool_call_id : undefined;
 
     return {
       role,
       category: 'tool',
       content: {
+        id,
         headline: `Using ${toolName}`,
-        details: toolTarget,
+        details: toolTarget || undefined,
         toolName,
         toolTarget,
         status: 'running',
@@ -130,18 +189,24 @@ export function categorizeEvent(event: {
 
   // Tool result events
   if (type === 'hermes.tool_result') {
-    const toolName = extractToolName(payload);
-    const role = determineRoleForTool(payload) || 'coordinator';
-    const isError = payload.error || payload.failed || payload.status === 'error';
+    const toolName = toolNameFrom(payload);
+    const toolTarget = toolTargetFrom(payload);
+    const role = determineRoleForTool(toolName) || 'coordinator';
+    const isError = payload.is_error === true || payload.error || payload.failed === true;
+    const id = typeof payload.tool_call_id === 'string' ? payload.tool_call_id : undefined;
 
     return {
       role,
       category: isError ? 'error' : 'success',
       content: {
-        headline: isError ? `Failed: ${toolName}` : `Completed: ${toolName}`,
-        details: extractResultSummary(payload),
+        id,
+        // If the live wire records the tool_call_id, treat the result as a
+        // continuation of the in-flight bubble: surface the result summary
+        // up front so the operator sees the actual outcome.
+        headline: isError ? `Failed: ${toolName}` : (id ? `${toolName} returned` : `Completed: ${toolName}`),
+        details: resultSummaryFrom(payload),
         toolName,
-        toolTarget: extractToolTarget(payload),
+        toolTarget,
         status: isError ? 'failed' : 'completed',
         startTime: now,
         endTime: now,
@@ -151,16 +216,17 @@ export function categorizeEvent(event: {
     };
   }
 
-  // Hermes text output (assistant responses)
+  // Hermes text output (assistant streamed response). One stable bubble per
+  // task accumulates the latest text fragment.
   if (type === 'hermes.text') {
-    const text = typeof payload.text === 'string' ? payload.text : '';
-    if (!text.trim()) return null;
+    const text = typeof payload.text === 'string' ? payload.text.trim() : '';
+    if (!text) return null;
 
     return {
       role: 'coordinator',
       category: 'thought',
       content: {
-        headline: text.slice(0, 120) + (text.length > 120 ? '…' : ''),
+        headline: text.length > 120 ? text.slice(0, 117) + '…' : text,
         details: text,
         status: 'running',
         startTime: now,
@@ -170,15 +236,22 @@ export function categorizeEvent(event: {
     };
   }
 
-  // Hermes result (task completion)
+  // Final assistant answer (task response). The live payload carries the
+  // complete response text; surface the first line as the headline so a
+  // watcher sees what Hermes actually delivered, not just "Task completed".
   if (type === 'hermes.result') {
+    const text = typeof payload.text === 'string' ? payload.text.trim() : '';
+    const exit = payload.exit_code;
+    const headline = text
+      ? (text.split(/\r?\n/).find(l => l.trim()) || text).slice(0, 120)
+      : 'Task completed';
     return {
       role: 'coordinator',
       category: 'success',
       content: {
-        headline: 'Task completed',
-        details: 'Hermes response finished',
-        status: 'completed',
+        headline: headline + (text.length > 120 ? '…' : ''),
+        details: text.slice(0, 800) || (exit === 0 ? 'Result delivered cleanly' : `Result exit_code=${String(exit)}`),
+        status: exit === 0 || exit === undefined ? 'completed' : 'failed',
         startTime: now,
         endTime: now,
         taskId,
@@ -187,19 +260,11 @@ export function categorizeEvent(event: {
     };
   }
 
-  // Hermes system events
+  // Hermes system events — most are SDK init/heartbeat (not user-visible
+  // activity). Surfacing "Runtime active" on every reconnect would be noise,
+  // so we only keep the adapter handle but return null.
   if (type === 'hermes.system') {
-    return {
-      role: 'coordinator',
-      category: 'execution',
-      content: {
-        headline: 'Runtime active',
-        status: 'running',
-        startTime: now,
-        taskId,
-        sequence,
-      },
-    };
+    return null;
   }
 
   // Task lifecycle events
@@ -255,7 +320,7 @@ export function categorizeEvent(event: {
       category: 'error',
       content: {
         headline: 'Task failed',
-        details: 'Check the task result',
+        details: 'See the task record for the error',
         status: 'failed',
         startTime: now,
         endTime: now,
@@ -268,7 +333,7 @@ export function categorizeEvent(event: {
   // Workflow events (map to appropriate roles)
   const workflowRole = mapWorkflowEventToRole(type);
   if (workflowRole) {
-    const activity = mapEventToActivity(type);
+    const activity = mapEventToActivity(type, payload);
     const category = activityToCategory(activity);
     const label = formatEventLabel(type, payload);
 
@@ -289,56 +354,44 @@ export function categorizeEvent(event: {
   return null;
 }
 
-function extractToolName(payload: Record<string, unknown>): string {
-  return (
-    (payload.tool_name as string) ||
-    (payload.tool as string) ||
-    (payload.name as string) ||
-    'Hermes tool'
-  );
-}
-
-function extractToolTarget(payload: Record<string, unknown>): string {
-  const inputs = payload.input ?? payload.arguments ?? payload.parameters;
-  if (typeof inputs === 'string') return inputs.slice(0, 80);
-  if (inputs && typeof inputs === 'object') {
-    try {
-      return JSON.stringify(inputs).slice(0, 80);
-    } catch {
-      return String(inputs).slice(0, 80);
-    }
+/** When a follow-up event arrives for the same bubble (e.g. hermes.tool_result
+ *  after hermes.tool_use), preserve any earlier detail/target fields the new
+ *  payload doesn't carry — a result event usually lacks the input arguments
+ *  the original tool_use provided, so the file path / command would otherwise
+ *  disappear from the result bubble. Empty strings count as "absent", not
+ *  "set to empty", so they never clobber prior context.  */
+function mergeContent(oldC: BubbleContent, fresh: BubbleContent): BubbleContent {
+  const merged: Record<string, unknown> = { ...oldC };
+  for (const k of Object.keys(fresh) as (keyof BubbleContent)[]) {
+    const v = fresh[k];
+    if (v === undefined || v === null) continue;
+    if (typeof v === 'string' && v === '') continue;
+    merged[k] = v;
   }
-  return '';
+  return merged as unknown as BubbleContent;
 }
 
-function extractResultSummary(payload: Record<string, unknown>): string {
-  if (payload.error) return `Error: ${String(payload.error).slice(0, 100)}`;
-  if (payload.output) return String(payload.output).slice(0, 120);
-  if (payload.result) return String(payload.result).slice(0, 120);
-  return 'Tool finished';
-}
-
-function determineRoleForTool(payload: Record<string, unknown>): Role | null {
-  const toolName = extractToolName(payload).toLowerCase();
+function determineRoleForTool(toolName: string): Role | null {
+  const lower = (toolName || '').toLowerCase();
 
   // Research tools → Sage
-  if (/read_file|read|grep|glob|search|docs|doc|web|browse|fetch|arxiv|source|study|cat$|ls$|find/i.test(toolName)) {
+  if (/read_file|read_file|grep|glob|search|docs?|web|browse|fetch|arxiv|source|study|^cat$|^ls$|find|read_\b/.test(lower)) {
     return 'researcher';
   }
   // Development tools → Forge
-  if (/write_file|edit|patch|apply|git|compile|build|make|npm|cargo|revision|write/i.test(toolName)) {
+  if (/write_file|edit|patch(\b|$)|apply|git|compile|build|make|npm|cargo|revision|write_|create/.test(lower)) {
     return 'builder';
   }
   // Test tools → Patch
-  if (/pytest|test|verify|evaluate|benchmark|ctest|check|lint/i.test(toolName)) {
+  if (/pytest|^test|verify|evaluate|benchmark|ctest|check|^lint/.test(lower)) {
     return 'tester';
   }
   // Memory tools → Echo
-  if (/memory|recall|vault|reflect|personality|lesson|archive|note/i.test(toolName)) {
+  if (/memory|recall|vault|reflect|personality|lesson|archive|^note/.test(lower)) {
     return 'archivist';
   }
-  // Planning/review tools → Piper/Vale
-  if (/plan|goal|formulate|criteria|approve|review/i.test(toolName)) {
+  // Planning/review tools → Piper (review will be re-routed downstream)
+  if (/plan|goal|formulate|criteria|approve|review/.test(lower)) {
     return 'planner';
   }
 
@@ -352,25 +405,46 @@ function mapWorkflowEventToRole(type: string): Role | null {
   if (/^(goal|discovery|curiosity|study)\./.test(type)) return 'researcher';
   // Planner events
   if (/^(formulation|investigation)\./.test(type)) return 'planner';
-  // Builder events
-  if (/^implementation\.(started|revision_|environment_)/.test(type)) return 'builder';
-  if (/^implementation\./.test(type)) return 'builder';
+
+  // Implementation events route to different residents based on the stage
+  // (spec §3: ONLY the executing category changes; the bubble still belongs
+  // to Hermes when no specialist reads it).
+  // Builder-specific stages
+  if (/^implementation\.(started|environment_|revision_started|revision_completed|revision_failed)\./.test(type)) return 'builder';
+  if (/^implementation\.(applied|apply_)/.test(type)) return 'builder';
   if (/^verification\.(auto_revision_queued|auto_revision_failed)/.test(type)) return 'builder';
-  // Tester events
+  // Review stages
+  if (/^implementation\.review_/.test(type)) return 'reviewer';
+  // Tester stages
   if (/^implementation\.(evaluated|reevaluation_)/.test(type)) return 'tester';
   if (/^verification\./.test(type)) return 'tester';
-  // Reviewer events
-  if (/^implementation\.(applied|apply_|review_)/.test(type)) return 'reviewer';
+  // Any remaining implementation.* event (e.g. implementation.failed) is
+  // still reported by the implementation phase and lands on the builder
+  // character — the verifier / reviewer still claim their own suffixes.
+  if (/^implementation\./.test(type)) return 'builder';
+
   // Archivist events
   if (/^(memory|reflection|personality)\./.test(type)) return 'archivist';
 
   return null;
 }
 
-function mapEventToActivity(type: string): Activity {
+function mapEventToActivity(type: string, payload: Record<string, unknown> = {}): Activity {
+  // A few event types encode their state in the payload instead of the
+  // suffix (`implementation.evaluated`, `verification.*` carry `state` /
+  // `disposition`). Read them first so callers see the actual outcome
+  // rather than a default "unknown"-shaped execution category.
+  const candidateState = (payload.state as string) ?? (payload.disposition as string) ?? (payload.status as string);
+  if (candidateState) {
+    const norm = candidateState.toLowerCase();
+    if (/pass|verified|success|completed|accepted|corrected|applied|ready|recorded|hydrated/.test(norm)) return 'completed';
+    if (/fail|cancel|interrupt|reject|rolled_back|stopped|error|blocked/.test(norm)) return 'failed';
+    if (/queue|requested|pending|enabled|selected|reopened|retry/.test(norm)) return 'queued';
+  }
+
   const tail = type.split('.').pop() || '';
   if (/(started|running)$/.test(tail)) return 'working';
-  if (/(failed|error|blocked|interrupted|recovery_required|rolled_back|stopped)$/.test(tail)) return 'failed';
+  if (/(failed|error|blocked|interrupted|recovery_required|rolled_back|stopped|evaluated)$/.test(tail)) return 'failed';
   if (/(queued|requested|created|proposed|selected|enabled|reopened|retry|pending)$/.test(tail)) return 'queued';
   if (/(completed|summary|recorded|decided|applied|compiled|ready|passed|corrected|pruned|deleted|resumed|hydrated)$/.test(tail)) return 'completed';
   return 'unknown';
@@ -443,6 +517,14 @@ export class BubbleController {
   private animationFrame: number | null = null;
   private reducedMotion = false;
   private bubbleElements = new Map<string, HTMLElement>();
+  /** Per-bubble dismissal timers, keyed by bubble id. Cancelled when the
+   *  same bubble is updated so a quick stream of events doesn't dismiss
+   *  the bubble early (UI-VIS-007 §10, "completed" replaces "running"). */
+  private timers = new Map<string, number>();
+  /** Set on first event; used to ignore re-delivered events when the
+   *  websocket reconnects and replays historical records. Resets when an
+   *  explicit task boundary is observed. */
+  private lastSequence = 0;
 
   constructor(config: Partial<BubbleConfig> = {}) {
     this.config = { ...DEFAULT_CONFIG, ...config };
@@ -468,11 +550,15 @@ export class BubbleController {
       this.reducedMotion = mediaQuery.matches;
     });
 
-    // Start position update loop
+    // The renderer appends its <canvas> synchronously inside
+    // createTownRenderer(); the position loop reads getBoundingClientRect()
+    // each frame, so a missing canvas just resolves to a 0×0 rect until the
+    // renderer's own resize() call lands. We kick off the loop immediately
+    // and let it self-correct.
     this.startPositionLoop();
   }
 
-  /** Process a new event and create/update bubbles */
+  /** Process a new event and create/update bubbles. */
   processEvent(event: {
     type: string;
     payload?: Record<string, unknown>;
@@ -480,28 +566,91 @@ export class BubbleController {
     sequence?: number;
     timestamp?: string;
   }): void {
-    const categorized = categorizeEvent(event);
-    if (!categorized) return;
+    try {
+      // Sequence de-dup. The backend hands us `?after=N` on reconnect so we
+      // ignore anything we've already seen (§11 / acceptance 13).
+      if (typeof event.sequence === 'number') {
+        if (event.sequence <= this.lastSequence) return;
+        this.lastSequence = event.sequence;
+      }
 
-    const { role, category, content } = categorized;
-    this.addOrUpdateBubble(role, category, content);
+      const categorized = categorizeEvent(event);
+      if (!categorized) return;
+
+      // A new task lifecycle resets the per-task text accumulator so the
+      // stream-coalesced thought bubble from a previous task doesn't
+      // surface under the new task's head.
+      if (event.type === 'task.queued' || event.type === 'task.started') {
+        this.resetPerTaskBubbles(event.task_id || null);
+      }
+
+      const { role, category, content } = categorized;
+      this.addOrUpdateBubble(role, category, content, event.task_id || null);
+    } catch (err) {
+      // A malformed event must never kill the overlay: log and continue.
+      console.warn('bubble: failed to process event', event?.type, err);
+    }
   }
 
-  /** Add or update a bubble for a role */
-  private addOrUpdateBubble(role: Role, category: BubbleCategory, content: BubbleContent): void {
+  /** Drop per-task thought bubbles when a new task begins, so the old
+   *  coordinator stream doesn't bleed into the new head. */
+  private resetPerTaskBubbles(taskId: string | null) {
+    if (!taskId) return;
+    const drop: string[] = [];
+    for (const role of this.bubbles.keys()) {
+      const next: BubbleState[] = [];
+      for (const b of this.bubbles.get(role) || []) {
+        const sameTask = b.content.taskId === taskId;
+        if (sameTask && b.category === 'thought') {
+          drop.push(b.id);
+        } else if (!(sameTask && b.content.toolName === undefined)) {
+          // Leave tool bubbles alone if same task — they're useful context.
+          next.push(b);
+        } else {
+          next.push(b);
+        }
+      }
+      this.bubbles.set(role, next);
+    }
+    for (const id of drop) {
+      const el = this.bubbleElements.get(id);
+      if (el) {
+        el.classList.add('exiting');
+        window.setTimeout(() => this.removeBubbleElement(id), this.config.fadeDuration);
+      }
+      this.timers.delete(id);
+    }
+  }
+
+  /** Add or update a bubble for a role. */
+  private addOrUpdateBubble(role: Role, category: BubbleCategory, content: BubbleContent, taskId: string | null) {
     if (!this.overlay) return;
 
     const roleBubbles = this.bubbles.get(role) || [];
-    const existingIndex = roleBubbles.findIndex(b => b.category === category && b.content.toolName === content.toolName);
+
+    // Two matching strategies:
+    //  1. A tool_use / tool_result pair that shares a tool_call_id updates
+    //     the existing bubble instead of stacking.
+    //  2. The streamed thought bubble per task (same role+category+taskId).
+    // After that, anything new (different tool or different lifecycle) is
+    // a fresh entry. `maxPerResident` bounds how many stack.
+    let existingIndex = -1;
+    if (content.id) {
+      existingIndex = roleBubbles.findIndex(b => b.content.id === content.id);
+    }
+    if (existingIndex === -1 && category === 'thought' && taskId) {
+      existingIndex = roleBubbles.findIndex(b => b.category === 'thought' && b.content.taskId === taskId);
+    }
+    if (existingIndex === -1) {
+      existingIndex = roleBubbles.findIndex(b => b.category === category && b.content.toolName === content.toolName);
+    }
 
     let bubble: BubbleState;
     if (existingIndex >= 0) {
-      // Update existing bubble
       bubble = roleBubbles[existingIndex];
-      bubble.content = { ...bubble.content, ...content };
+      bubble.content = mergeContent(bubble.content, content);
       bubble.animationState = 'visible';
     } else {
-      // Create new bubble
       bubble = {
         id: `${role}-${category}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
         role,
@@ -514,10 +663,19 @@ export class BubbleController {
       };
       roleBubbles.unshift(bubble);
 
-      // Enforce max per resident
-      if (roleBubbles.length > this.config.maxPerResident) {
+      // Enforce max per resident. The slot we just took is at index 0; older
+      // entries get dismissed (and their timers cleared) so the user isn't
+      // staring at stale bubbles.
+      while (roleBubbles.length > this.config.maxPerResident) {
         const removed = roleBubbles.pop();
-        if (removed) this.dismissBubble(removed.id);
+        if (removed) {
+          this.timers.delete(removed.id);
+          const el = this.bubbleElements.get(removed.id);
+          if (el) {
+            el.classList.add('exiting');
+            window.setTimeout(() => this.removeBubbleElement(removed.id), this.config.fadeDuration);
+          }
+        }
       }
     }
 
@@ -526,7 +684,7 @@ export class BubbleController {
     this.renderBubble(bubble);
   }
 
-  /** Add bubble to history */
+  /** Add bubble to history (presentation cache, not authoritative storage). */
   private addToHistory(bubble: BubbleState): void {
     this.history.unshift({ ...bubble });
     if (this.history.length > this.config.maxHistory) {
@@ -553,13 +711,14 @@ export class BubbleController {
     if (element) {
       this.positionBubble(element, bubble.role);
 
-      // Handle animation
+      // Entry animation, only once.
       if (isNew && !this.reducedMotion) {
         element.classList.add('entering');
-        setTimeout(() => element.classList.remove('entering'), this.config.fadeDuration);
+        window.setTimeout(() => element.classList.remove('entering'), this.config.fadeDuration);
       }
 
-      // Schedule dismissal
+      // Cancel any stale dismissal timer and re-arm so this update doesn't
+      // get cut off by the previous event's schedule.
       this.scheduleDismissal(bubble);
     }
   }
@@ -578,35 +737,68 @@ export class BubbleController {
     // Set custom property for accent color
     element.style.setProperty('--bubble-accent', accentColor);
 
-    // Build content
+    // Build content. The default layout preserves the spec's shape: pointer,
+    // header (icon + role + category), content (headline + details + tool),
+    // and a status indicator dot in the corner.
     const icon = this.getCategoryIcon(bubble.category);
     const roleLabel = roleInfo.name;
+    const roleTitle = roleInfo.title;
 
-    element.innerHTML = `
-      <div class="town-bubble__pointer"></div>
-      <div class="town-bubble__header">
-        <span class="town-bubble__icon" aria-hidden="true">${icon}</span>
-        <span class="town-bubble__role">${roleLabel}</span>
-        <span class="town-bubble__category">${this.getCategoryLabel(bubble.category)}</span>
-      </div>
-      <div class="town-bubble__content">
-        <span class="town-bubble__headline">${this.escapeHtml(bubble.content.headline)}</span>
-        ${bubble.content.details ? `<span class="town-bubble__details">${this.escapeHtml(bubble.content.details)}</span>` : ''}
-        ${bubble.content.toolName ? `<span class="town-bubble__tool">Tool: <code>${this.escapeHtml(bubble.content.toolName)}</code></span>` : ''}
-        ${bubble.content.toolTarget ? `<span class="town-bubble__target">${this.escapeHtml(bubble.content.toolTarget)}</span>` : ''}
-      </div>
-      ${bubble.content.status ? `<div class="town-bubble__status town-bubble__status--${bubble.content.status}" aria-label="Status: ${bubble.content.status}"></div>` : ''}
-    `;
+    const parts: string[] = [];
+    parts.push('<div class="town-bubble__pointer"></div>');
+    parts.push('<div class="town-bubble__header">');
+    parts.push(`<span class="town-bubble__icon" aria-hidden="true">${icon}</span>`);
+    parts.push(`<span class="town-bubble__role" title="${this.escapeHtml(roleTitle)}">${this.escapeHtml(roleLabel)}</span>`);
+    parts.push(`<span class="town-bubble__category">${this.getCategoryLabel(bubble.category)}</span>`);
+    parts.push('</div>');
+    parts.push('<div class="town-bubble__content">');
+    parts.push(`<span class="town-bubble__headline"></span>`);
+    if (bubble.content.details) {
+      parts.push('<span class="town-bubble__details" hidden></span>');
+    }
+    if (bubble.content.toolName) {
+      parts.push(`<span class="town-bubble__tool"></span>`);
+    }
+    if (bubble.content.toolTarget) {
+      parts.push('<span class="town-bubble__target"></span>');
+    }
+    parts.push('</div>');
+    if (bubble.content.status) {
+      parts.push(`<div class="town-bubble__status town-bubble__status--${bubble.content.status}" aria-label="Status: ${bubble.content.status}"></div>`);
+    }
+    parts.push('<span class="town-bubble__expand" aria-hidden="true">more ▾</span>');
+    parts.push('<span class="town-bubble__nav" hidden>Open Activity →</span>');
 
-    // Click handler for expanded view
-    element.addEventListener('click', () => this.toggleExpand(bubble.id));
+    element.innerHTML = parts.join('');
+
+    // Populate the text-only spans via textContent so the values are safe
+    // regardless of input.
+    this.updateBubbleElement(element, bubble);
+
+    // Click handler: first click expands; second click routes to Activity
+    // when a task id is known. We avoid a separate hover-expand trigger
+    // (the spec calls hover OR click equivalent).
+    element.addEventListener('click', (ev) => {
+      ev.stopPropagation();
+      const nav = element.querySelector('.town-bubble__nav') as HTMLElement | null;
+      if (bubble.expanded && bubble.content.taskId && nav && !nav.hidden) {
+        // Avoid double-firing while the click that toggled expansion is in flight.
+        window.clearTimeout(this.scheduleClickAction(element, bubble));
+        this.navigateToTask(bubble.content.taskId);
+        return;
+      }
+      this.toggleExpand(bubble.id);
+      if (bubble.content.taskId) {
+        nav?.removeAttribute('hidden');
+      }
+    });
     element.addEventListener('mouseenter', () => this.onHover(bubble.id, true));
     element.addEventListener('mouseleave', () => this.onHover(bubble.id, false));
 
     return element;
   }
 
-  /** Update existing bubble element */
+  /** Update existing bubble element — text-only, no innerHTML rebuild. */
   private updateBubbleElement(element: HTMLElement, bubble: BubbleState): void {
     element.className = `town-bubble town-bubble--${bubble.category} town-bubble--${bubble.role}`;
     element.dataset.category = bubble.category;
@@ -614,66 +806,107 @@ export class BubbleController {
     const headline = element.querySelector('.town-bubble__headline');
     if (headline) headline.textContent = bubble.content.headline;
 
-    const details = element.querySelector('.town-bubble__details');
-    if (details && bubble.content.details) details.textContent = bubble.content.details;
-    else if (details && !bubble.content.details) details.remove();
+    const details = element.querySelector('.town-bubble__details') as HTMLElement | null;
+    if (details) {
+      if (bubble.content.details) {
+        details.textContent = bubble.content.details;
+        details.hidden = !bubble.expanded;
+      } else {
+        details.remove();
+      }
+    }
 
     const tool = element.querySelector('.town-bubble__tool');
-    if (tool && bubble.content.toolName) {
-      tool.innerHTML = `Tool: <code>${this.escapeHtml(bubble.content.toolName)}</code>`;
-    } else if (tool && !bubble.content.toolName) {
-      tool.remove();
+    if (tool) {
+      if (bubble.content.toolName) {
+        tool.textContent = `Tool: ${bubble.content.toolName}`;
+      } else {
+        tool.remove();
+      }
     }
 
     const target = element.querySelector('.town-bubble__target');
-    if (target && bubble.content.toolTarget) {
-      target.textContent = bubble.content.toolTarget;
-    } else if (target && !bubble.content.toolTarget) {
-      target.remove();
+    if (target) {
+      if (bubble.content.toolTarget) {
+        target.textContent = bubble.content.toolTarget;
+      } else {
+        target.remove();
+      }
     }
 
     const status = element.querySelector('.town-bubble__status');
     if (status && bubble.content.status) {
       status.className = `town-bubble__status town-bubble__status--${bubble.content.status}`;
+      status.setAttribute('aria-label', `Status: ${bubble.content.status}`);
+    } else if (status && !bubble.content.status) {
+      status.remove();
     }
 
-    // Update accent color
+    // Update accent color — role can change when the same id (tool_call_id)
+    // is updated by a `coordinator` tool_use to a role-specific bubble.
     element.style.setProperty('--bubble-accent', ROSTER[bubble.role].accent);
   }
 
-  /** Position bubble above character's head */
+  /** Helper used when a resident walks off-screen: fade the bubble rather than
+   *  leave it pinned to its last known coords. The base setOpacity handles
+   *  '0' → '' (clear) and any numeric value without flicker. */
+  private setBubbleHidden(element: HTMLElement, hidden: boolean): void {
+    element.style.opacity = hidden ? '0' : '';
+  }
+
+  /** Position bubble above character's head, clamped to the canvas. */
   private positionBubble(element: HTMLElement, role: Role): void {
     if (!this.renderer || !this.host) return;
 
     const positions = this.renderer.positions();
     const residentPos = positions.find(p => p.role === role);
-    if (!residentPos) return;
+    if (!residentPos) {
+      // If the resident isn't visible right now, fade the bubble rather than
+      // bleed off the canvas. The bubble stays attached so the running state
+      // isn't lost when the resident walks back into view.
+      this.setBubbleHidden(element, true);
+      return;
+    }
+    this.setBubbleHidden(element, false);
 
-    // Get canvas rect for coordinate conversion
     const canvas = this.host.querySelector('canvas');
-    if (!canvas) return;
-
+    const overlay = this.overlay;
+    if (!canvas || !overlay) return;
     const canvasRect = canvas.getBoundingClientRect();
-    const overlayRect = this.overlay!.getBoundingClientRect();
+    const overlayRect = overlay.getBoundingClientRect();
 
-    // Convert renderer's design-space coordinates to screen coordinates
-    // The renderer returns positions in DESIGN space (800x425)
+    // Convert renderer's design-space coords (800x425) to overlay pixels.
     const scaleX = canvasRect.width / 800;
     const scaleY = canvasRect.height / 425;
 
-    // Position above head (head is roughly at y - 2.5 in world units, which projects to screen)
-    // The renderer's positions() already gives us screen coordinates in design space
-    const x = residentPos.x * scaleX + canvasRect.left - overlayRect.left;
-    const y = (residentPos.y - 60) * scaleY + canvasRect.top - overlayRect.top; // Offset above head
+    // Head offset: design-space units. Resident figures are on a 45°/27°
+    // projection so the feet point sits well above the canvas mid-line;
+    // lifting by ~58 design units puts the bubble near the nameplate.
+    const headLift = 58;
+    let x = residentPos.x * scaleX + canvasRect.left - overlayRect.left;
+    let y = (residentPos.y - headLift) * scaleY + canvasRect.top - overlayRect.top;
+
+    // Clamp so the bubble stays inside the canvas. We allow a small margin
+    // so the bubble's own translateX(-50%) doesn't push it past the edge.
+    const halfW = 110; // bubble width / 2 ~= 220
+    const margin = 8;
+    x = Math.max(halfW + margin, Math.min(canvasRect.width - halfW - margin, x));
+    // y is the bubble's anchor point (after translateY(-100%) the bubble
+    // body sits above this y). Keep the anchor inside the canvas so the
+    // bubble body never bleeds past the top.
+    y = Math.max(110, Math.min(canvasRect.height - margin, y));
 
     element.style.left = `${Math.round(x)}px`;
     element.style.top = `${Math.round(y)}px`;
     element.style.transform = 'translateX(-50%) translateY(-100%)';
   }
 
-  /** Update all bubble positions (called each frame) */
+  /** Update all bubble positions (called each animation frame). */
   private updateAllPositions(): void {
     if (!this.overlay || !this.renderer) return;
+    // Skip work when the host/canvas are hidden — the loop continues to run
+    // so resume is instant.
+    if (document.hidden) return;
 
     for (const [id, element] of this.bubbleElements) {
       const bubble = this.findBubbleById(id);
@@ -709,15 +942,34 @@ export class BubbleController {
     }
   }
 
-  /** Schedule bubble dismissal */
+  /** Schedule (or replace) a bubble's dismissal timer. */
   private scheduleDismissal(bubble: BubbleState): void {
+    const existing = this.timers.get(bubble.id);
+    if (existing !== undefined) {
+      window.clearTimeout(existing);
+    }
     const duration = bubble.content.status === 'completed' || bubble.content.status === 'failed'
       ? this.config.terminalDuration
       : this.config.defaultDuration;
 
-    setTimeout(() => {
+    const handle = window.setTimeout(() => {
+      this.timers.delete(bubble.id);
       this.dismissBubble(bubble.id);
     }, duration);
+    this.timers.set(bubble.id, handle);
+  }
+
+  /** Bind a deferred click action so click→expand finishes before click→nav. */
+  private scheduleClickAction(element: HTMLElement, bubble: BubbleState): number {
+    // Tiny helper: returns the previous timer handle so callers can clear it.
+    const key = '__clickDelayed__' + bubble.id;
+    const prev = (element as any)[key];
+    if (prev) {
+      window.clearTimeout(prev);
+    }
+    const handle = window.setTimeout(() => { delete (element as any)[key]; }, 0);
+    (element as any)[key] = handle;
+    return prev ?? 0;
   }
 
   /** Dismiss a bubble with animation */
@@ -726,12 +978,19 @@ export class BubbleController {
     const bubble = this.findBubbleById(id);
     if (!element || !bubble) return;
 
+    // Cancel the dismissal timer (idempotent — may already have fired).
+    const timer = this.timers.get(id);
+    if (timer !== undefined) {
+      window.clearTimeout(timer);
+      this.timers.delete(id);
+    }
+
     bubble.animationState = 'exiting';
     bubble.visible = false;
 
     if (!this.reducedMotion) {
       element.classList.add('exiting');
-      setTimeout(() => this.removeBubbleElement(id), this.config.fadeDuration);
+      window.setTimeout(() => this.removeBubbleElement(id), this.config.fadeDuration);
     } else {
       this.removeBubbleElement(id);
     }
@@ -753,7 +1012,7 @@ export class BubbleController {
     }
   }
 
-  /** Toggle expanded view */
+  /** Toggle expanded view (click) */
   private toggleExpand(id: string): void {
     const bubble = this.findBubbleById(id);
     const element = this.bubbleElements.get(id);
@@ -761,6 +1020,16 @@ export class BubbleController {
 
     bubble.expanded = !bubble.expanded;
     element.classList.toggle('expanded', bubble.expanded);
+    const details = element.querySelector('.town-bubble__details') as HTMLElement | null;
+    if (details) details.hidden = !bubble.expanded;
+    const expand = element.querySelector('.town-bubble__expand');
+    if (expand) expand.textContent = bubble.expanded ? 'less ▴' : 'more ▾';
+  }
+
+  /** Dispatch to the existing Activity workspace with the chosen task id. */
+  private navigateToTask(taskId: string): void {
+    if (!taskId) return;
+    window.dispatchEvent(new CustomEvent('hermes:open-task', { detail: { id: taskId } }));
   }
 
   /** Handle hover for expanded preview */
@@ -768,11 +1037,6 @@ export class BubbleController {
     const element = this.bubbleElements.get(id);
     if (!element) return;
     element.classList.toggle('hovered', entering);
-  }
-
-  /** Get bubble element with type guard */
-  private getBubbleElement(id: string): HTMLElement | null {
-    return this.bubbleElements.get(id) ?? null;
   }
 
   /** Get icon for category */
@@ -799,14 +1063,16 @@ export class BubbleController {
     }
   }
 
-  /** Escape HTML for safe insertion */
+  /** Escape HTML for safe insertion. Only used for static template strings
+   *  (role labels, category labels, role titles) — bubble content is
+   *  written with textContent in updateBubbleElement. */
   private escapeHtml(text: string): string {
     const div = document.createElement('div');
     div.textContent = text;
     return div.innerHTML;
   }
 
-  /** Get all current bubbles */
+  /** Get a snapshot of all current bubbles (used in tests and for diagnostics). */
   getBubbles(): BubbleState[] {
     const all: BubbleState[] = [];
     for (const bubbles of this.bubbles.values()) {
@@ -826,6 +1092,8 @@ export class BubbleController {
     this.bubbleElements.forEach((_, id) => this.removeBubbleElement(id));
     this.bubbles.clear();
     this.history.length = 0;
+    for (const handle of this.timers.values()) window.clearTimeout(handle);
+    this.timers.clear();
     this.overlay?.remove();
     this.overlay = null;
     this.host = null;

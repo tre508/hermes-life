@@ -65,6 +65,47 @@ function setWorkspace(id: string) {
     const ctxHome = $('ctx-home'), ctxSel = $('ctx-selection');
     if (ctxHome) ctxHome.hidden = id !== 'home';
     if (ctxSel) ctxSel.hidden = id === 'home';
+    // P2 cross-view sync: leaving Activity clears any task-filter so the
+    // user does not come back later wondering why the timeline is empty.
+    if (id !== 'activity') setActivityTaskFilter(null);
+}
+// P2 sync: Work's "Follow activity for this task" button dispatches
+// `hermes:workspace:activity` with the chosen task id; Activity listens
+// here so the timeline filter engages and the user lands inside the
+// focused stream instead of the global activity dump.
+window.addEventListener('hermes:workspace:activity', ((ev: Event) => {
+    const detail = (ev as CustomEvent<{ task_id?: string }>).detail;
+    if (!detail || !detail.task_id) return;
+    setWorkspace('activity');
+    setActivityTaskFilter(String(detail.task_id));
+    while (($('activity-timeline')?.childElementCount || 0) > 0) {
+        $('activity-timeline')?.lastElementChild?.remove();
+    }
+    // Repaint with the filter in place: refetch a window of events
+    // scoped to this task so the user sees context, not just live deltas.
+    void refetchActivityForTask(String(detail.task_id));
+}) as EventListener);
+async function refetchActivityForTask(taskId: string) {
+    try {
+        const res = await fetch(`/api/events?tail=500&correlation_id=${encodeURIComponent(taskId)}`);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const events = await res.json() as Array<Record<string, unknown>>;
+        // Replay in chronological order; the filter regex in
+        // appendActivity() will reject events from other tasks even
+        // if the correlation_id filter leaks.
+        const host = $('activity-timeline');
+        if (!host) return;
+        for (const e of events) {
+            lastSequence = Math.max(lastSequence, Number((e as { sequence?: number }).sequence || 0));
+        }
+        // Render oldest-first so newest ends at top (matches live order).
+        for (const e of [...events].reverse()) {
+            const record = e as EventRecord;
+            appendActivity(record);
+        }
+    } catch (err) {
+        console.warn('activity refetch failed', err);
+    }
 }
 document.querySelectorAll<HTMLButtonElement>('#primary-nav button').forEach(btn => {
     btn.addEventListener('click', () => setWorkspace(btn.dataset.workspace || 'home'));
@@ -198,7 +239,9 @@ function renderRecentEvents() {
 
 function appendActivity(evt: EventRecord) {
     const host = $('activity-timeline'); if (!host) return;
+    if (activityTaskFilter && evt.task_id !== activityTaskFilter && !evt.type.startsWith('task.')) return;
     const entry = document.createElement('div'); entry.className = 'activity-entry';
+    entry.dataset.taskId = String(evt.task_id || '');
     const top = document.createElement('div'); top.className = 'ae-top';
     const title = document.createElement('span'); title.className = 'ae-title';
     title.textContent = `#${evt.sequence}  ${evt.type}`;
@@ -213,20 +256,50 @@ function appendActivity(evt: EventRecord) {
     while (host.childElementCount > 200) host.lastElementChild?.remove();
 }
 
+/** Filter for the Activity workspace. When set, only events for this task
+ *  are rendered (task lifecycle events bypass the filter so the user
+ *  still sees when the task starts/ends). Cleared on workspace close. */
+let activityTaskFilter: string | null = null;
+function setActivityTaskFilter(taskId: string | null) {
+    activityTaskFilter = taskId;
+    if (!taskId) {
+        $('activity-filter-label')?.remove();
+        return;
+    }
+    const host = $('activity-timeline');
+    if (!host) return;
+    let label = $('activity-filter-label');
+    if (!label) {
+        label = document.createElement('div');
+        label.id = 'activity-filter-label';
+        label.className = 'activity-filter-label';
+        host.parentElement?.insertBefore(label, host);
+    }
+    label.textContent = `Filtered to task ${taskId.slice(0, 8)}`;
+}
+
+/** Append a live websocket event. */
 function appendEvent(evt: EventRecord) {
     if (evt.sequence <= lastSequence) return;
     lastSequence = evt.sequence;
     if (evt.task_id) latestEventTaskId = evt.task_id;
     lastFreshness = time(evt.timestamp);
     window.dispatchEvent(new CustomEvent('hermes:event', { detail: evt }));
-    updateExecutionFromEvent(evt);
-    appendActivity(evt);
-    recentEvents.unshift(evt);
-    if (recentEvents.length > RECENT_LIMIT) recentEvents.length = RECENT_LIMIT;
-    renderRecentEvents();
-    scheduleTaskRefresh(evt);
+    if (shouldRenderForBubble(evt)) {
+        updateExecutionFromEvent(evt);
+        appendActivity(evt);
+        recentEvents.unshift(evt);
+        if (recentEvents.length > RECENT_LIMIT) recentEvents.length = RECENT_LIMIT;
+        renderRecentEvents();
+        scheduleTaskRefresh(evt);
+    }
 }
 
+/** Append a historical event from a /api/events replay (page load).
+ *  Historical events flow through the same hermes:event dispatch as live
+ *  events so the bubble controller sees them and surfaces context above
+ *  the right 3D resident. We keep the most-recent N events in the recent
+ *  strip so the dashboard's Recent events box doesn't grow unbounded. */
 function appendHistorical(evt: EventRecord) {
     if (evt.sequence <= lastSequence) return;
     lastSequence = evt.sequence;
@@ -234,10 +307,36 @@ function appendHistorical(evt: EventRecord) {
     if (evt.task_id && (evt.type === 'hermes.tool_use' || evt.type === 'hermes.tool_result')) {
         const list = toolEntries.get(evt.task_id) || []; list.push(evt); toolEntries.set(evt.task_id, list);
     }
-    appendActivity(evt);
-    updateExecutionFromEvent(evt);
-    recentEvents.unshift(evt);
-    if (recentEvents.length > RECENT_LIMIT) recentEvents.length = RECENT_LIMIT;
+    // Same dispatch path as live events so the bubble overlay renders
+    // historical events in the correct resident lane on page load.
+    window.dispatchEvent(new CustomEvent('hermes:event', { detail: evt }));
+    if (shouldRenderForBubble(evt)) {
+        appendActivity(evt);
+        updateExecutionFromEvent(evt);
+        // For the dashboard's recent-event strip, keep the most recent N
+        // (the live events are already in order; historical events arrive
+        // chronologically, so unshift keeps newest at top).
+        recentEvents.unshift(evt);
+        if (recentEvents.length > RECENT_LIMIT) recentEvents.length = RECENT_LIMIT;
+    }
+}
+
+/** Cheap filter: events that the bubble controller already understands or
+ *  that produce visible dashboard rows. Implementation-specific noise
+ *  (autonomy/maintenance/decision) is kept silent so the controller and
+ *  the recent strip don't bloat with no-op categories. */
+function shouldRenderForBubble(evt: EventRecord): boolean {
+    const t = evt.type;
+    if (t.startsWith('hermes.')) return true;
+    if (t.startsWith('task.')) return true;
+    if (t.startsWith('implementation.')) return true;
+    if (t.startsWith('verification.')) return true;
+    if (t.startsWith('memory.')) return true;
+    if (t.startsWith('reflection.')) return true;
+    if (t.startsWith('personality.')) return true;
+    if (t.startsWith('goal.') || t.startsWith('discovery.') || t.startsWith('curiosity.')) return true;
+    if (t.startsWith('formulation.') || t.startsWith('investigation.')) return true;
+    return false;
 }
 
 function connect() {
@@ -267,25 +366,70 @@ async function hydrate() {
 }
 
 // ============================= task submission =============================
+// The Home "New task" form is the same composer scaffold used in the
+// Work workspace — one code path, one draft ledger, one set of rules
+// (spec §6 "persistent conversation composer"). Bound to whatever
+// conversation localStorage remembers; on first submission a new thread
+// is created and saved, so subsequent Home submissions become follow-ups
+// automatically without the user lifting a finger.
+import { mountComposer, type ComposerOptions } from './conv-composer.ts';
+
 const taskForm = $<HTMLFormElement>('task-form');
-taskForm?.addEventListener('submit', async e => {
-    e.preventDefault();
-    const input = $<HTMLTextAreaElement>('prompt'); if (!input) return;
-    const prompt = input.value.trim(); if (!prompt) return;
-    const feedback = $('task-feedback'); if (feedback) feedback.textContent = 'Submitting…';
-    try {
-        const res = await fetch('/api/tasks', {
-            method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ prompt, conversation_id: localStorage.getItem('hermes-life-conversation-id') }),
+const taskTextarea = $<HTMLTextAreaElement>('prompt');
+const taskSubmit = $<HTMLButtonElement>('task-form-send')
+    ?? (taskForm?.querySelector<HTMLButtonElement>('button[type="submit"]') || null);
+homeComposerSetup: {
+    if (taskForm && taskTextarea && taskSubmit) {
+        taskForm.addEventListener('submit', e => e.preventDefault());
+        mountComposer({
+            textarea: taskTextarea,
+            submitButton: taskSubmit,
+            getConversationId: () => localStorage.getItem('hermes-life-conversation-id'),
+            submit: async (prompt) => {
+                const convExisting = localStorage.getItem('hermes-life-conversation-id');
+                const payload: { prompt: string; conversation_id?: string } = { prompt };
+                if (convExisting) payload.conversation_id = convExisting;
+                const res = await fetch('/api/tasks', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload),
+                });
+                if (!res.ok) {
+                    let detail = res.statusText;
+                    try { detail = String((await res.json()).detail) || detail; } catch { /* keep statusText */ }
+                    throw new Error(detail);
+                }
+                const body = await res.json();
+                if (body.conversation_id) localStorage.setItem('hermes-life-conversation-id', String(body.conversation_id));
+                setFollowLive(true); void loadTask(String(body.id)); void refreshHistory();
+                return { task_id: String(body.id || ''), conversation_id: body.conversation_id ? String(body.conversation_id) : (convExisting || null) };
+            },
         });
-        const body = await res.json();
-        if (!res.ok) throw new Error(str(body.detail) || res.statusText);
-        if (body.conversation_id) localStorage.setItem('hermes-life-conversation-id', str(body.conversation_id));
-        if (feedback) feedback.textContent = `Task accepted: ${str(body.id)}`;
-        input.value = '';
-        setFollowLive(true); void loadTask(str(body.id)); void refreshHistory();
-    } catch (error) { if (feedback) feedback.textContent = String(error); }
-});
+        break homeComposerSetup;
+    }
+    // Fallback: preserve the synchronous behaviour if any DOM lookup
+    // didn't return what we expected. Never silently fail.
+    if (!taskForm) break homeComposerSetup;
+    taskForm.addEventListener('submit', async e => {
+        e.preventDefault();
+        const input = $<HTMLTextAreaElement>('prompt'); if (!input) return;
+        const prompt = input.value.trim(); if (!prompt) return;
+        const feedback = $('task-feedback'); if (feedback) feedback.textContent = 'Submitting…';
+        try {
+            const res = await fetch('/api/tasks', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ prompt, conversation_id: localStorage.getItem('hermes-life-conversation-id') }),
+            });
+            const body = await res.json();
+            if (!res.ok) throw new Error(str(body.detail) || res.statusText);
+            if (body.conversation_id) localStorage.setItem('hermes-life-conversation-id', str(body.conversation_id));
+            if (feedback) feedback.textContent = `Task accepted: ${str(body.id)}`;
+            input.value = '';
+            setFollowLive(true); void loadTask(str(body.id)); void refreshHistory();
+        } catch (error) { if (feedback) feedback.textContent = String(error); }
+    });
+}
 
 // ============================= answer / evidence viewer =============================
 let currentAnswer = '';

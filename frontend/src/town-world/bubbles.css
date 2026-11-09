@@ -1,4 +1,7 @@
-/* UI-VIS-007: Activity bubble styles */
+/* UI-VIS-007: Activity bubble styles.
+   The overlay sits above the canvas (z 40) but below the world tooltip,
+   access corner, and selection card (z 31-33) so pointer hovers on arrow
+   keys still find those surfaces first. */
 
 /* Overlay container */
 .town-bubbles {
@@ -8,7 +11,7 @@
   width: 100%;
   height: 100%;
   pointer-events: none; /* Bubbles handle their own pointer events */
-  z-index: 40;
+  z-index: 30;
   overflow: visible;
 }
 
@@ -231,13 +234,40 @@
 }
 
 .town-bubble.expanded .town-bubble__details {
-  max-height: 300px;
+  display: block !important;
+  max-height: 320px;
+  white-space: pre-wrap;
 }
 
 .town-bubble.expanded .town-bubble__target {
   white-space: normal;
   word-wrap: break-word;
 }
+
+/* Expand/collapse and click-to-navigate affordances. */
+.town-bubble__expand {
+  display: inline-block;
+  font-size: 10px;
+  margin-top: 4px;
+  color: #7f9aa0;
+  letter-spacing: 0.04em;
+  user-select: none;
+}
+.town-bubble:hover .town-bubble__expand { color: #cfe6f7; }
+.town-bubble__nav {
+  display: block;
+  margin-top: 6px;
+  padding: 4px 8px;
+  font-size: 10.5px;
+  background: #152226;
+  border: 1px solid #2f6f57;
+  border-radius: 3px;
+  color: #cfe6f7;
+  cursor: pointer;
+  text-align: center;
+}
+.town-bubble__nav:hover { background: #1b3542; }
+.town-bubble__nav[hidden] { display: none; }
 
 /* Role-specific accent colors (set via --bubble-accent custom property) */
 .town-bubble--coordinator { --bubble-accent: #7fd4c1; }

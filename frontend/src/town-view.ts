@@ -484,7 +484,14 @@ function showResident(role: Role): void {
     const task = document.createElement('button');
     task.type = 'button';
     task.textContent = 'Open task ' + resident.taskId.slice(0, 8);
-    task.addEventListener('click', () => window.dispatchEvent(new CustomEvent('hermes:open-task', { detail: { id: resident.taskId } })));
+    // P2 sync: 3D resident click → Work task focus. We dispatch BOTH
+    // the existing results-routing event and the new taskFocus event
+    // so Work can listen for one of them without competing. The Work
+    // listener will pick up focus without a separate Activity hop.
+    task.addEventListener('click', () => {
+      window.dispatchEvent(new CustomEvent('hermes:open-task', { detail: { id: resident.taskId } }));
+      window.dispatchEvent(new CustomEvent('hermes:task:focus', { detail: { id: resident.taskId } }));
+    });
     actions.append(task);
   }
   const close = document.createElement('button');

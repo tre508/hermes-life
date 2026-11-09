@@ -899,13 +899,24 @@ def create_app(database=None, adapter=None):
 
     @app.get('/api/tasks')
     def tasks():
-        return runtime.store.tasks()
+        # Decorate every task with conversation_id so the Frontend can
+        # follow up on the same conversation thread without first loading
+        # the conversations list.
+        rows = runtime.store.tasks()
+        for t in rows:
+            cid = runtime.conversations.conversation_for_task(t['id'])
+            if cid:
+                t['conversation_id'] = cid
+        return rows
 
     @app.get('/api/tasks/{task_id}')
     def get_task(task_id: str):
         task = runtime.store.task(task_id)
         if not task:
             raise HTTPException(404, 'Task not found')
+        cid = runtime.conversations.conversation_for_task(task_id)
+        if cid:
+            task['conversation_id'] = cid
         return task
 
     @app.post('/api/tasks', status_code=202)
@@ -980,6 +991,7 @@ def create_app(database=None, adapter=None):
 
     @app.get('/api/events')
     def events(after: int=0, limit: int=200, tail: int | None = None,
+               task_id: str | None = None,
                goal_id: str | None = None, run_id: str | None = None,
                plan_id: str | None = None, project_id: str | None = None,
                correlation_id: str | None = None):
@@ -989,6 +1001,7 @@ def create_app(database=None, adapter=None):
         and then stream live, instead of replaying the whole log from sequence 0.
         """
         filters = {}
+        if task_id: filters['task_id'] = task_id
         if goal_id: filters['goal_id'] = goal_id
         if run_id: filters['run_id'] = run_id
         if plan_id: filters['plan_id'] = plan_id

@@ -100,18 +100,32 @@
             </nav>
 
             <div class="work-grid">
-                <!-- left column: the unified task workspace -->
+                <!-- left column: persistent task / conversation list (P1: task-centered Work layout) -->
                 <div class="work-list">
                     <div id="task-list-container">
                         <h2>Work <small id="work-task-count"></small></h2>
                         <div id="task-list"></div>
                     </div>
+                </div>
+
+                <!-- center column: active task action panel + conversation thread + composer
+                     (P1: action panel + unified composer live inline with the thread). -->
+                <div class="work-center">
                     <div id="task-detail-container" hidden>
-                        <!-- task detail / lifecycle injected by work-workspace.ts -->
+                        <!-- task detail / thread / composer injected by work-workspace.ts -->
+                    </div>
+                    <div id="task-center-empty" class="work-center__empty">
+                        <p class="hint">Pick a task on the left.<br/>Each item groups every message, action, and result you've shared with Hermes about it.</p>
                     </div>
                 </div>
 
-                <!-- right column: the workflow management surfaces (conserved) -->
+                <!-- right column: contextual task facts + inline approval / investigation cards.
+                     (P1: actionable investigation results + approval workflow integration). -->
+                <div id="task-context" class="work-context">
+                    <p class="hint">Select a task to see its workflow context.</p>
+                </div>
+
+                <!-- wide column: the workflow management surfaces (conserved) -->
                 <div class="work-management">
                     <details class="fold" open>
                         <summary>Independent discovery &amp; decisions</summary>

@@ -15,6 +15,17 @@ export interface Chain {
     status?: string;
     reason?: string;
     next_action?: string;
+    /**
+     * Discovery fingerprint projected into the workflow annotation so the
+     * client can render "what was this about" without re-querying the
+     * discovery record. Kept as opaque string so different discovery
+     * schemas (JSON, list, etc.) all render the same. */
+    fingerprint?: string;
+    /** Same shape, persisted form (post-mirror writeback). */
+    stored_fingerprint?: string;
+    /** Optional project + path metadata from the discovery record. */
+    project?: string;
+    path?: string;
     discovery_id?: unknown;
     curiosity_id?: unknown;
     formulation_id?: unknown;

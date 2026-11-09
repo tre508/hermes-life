@@ -96,7 +96,8 @@ class Store:
         """
         allowed_filters = {
             'project_id', 'goal_id', 'discovery_id', 'formulation_id',
-            'plan_id', 'run_id', 'attempt_id', 'correlation_id'
+            'plan_id', 'run_id', 'attempt_id', 'correlation_id',
+            'task_id',
         }
         where_clauses = ['sequence > ?']
         params = [after]
