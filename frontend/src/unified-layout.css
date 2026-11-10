@@ -189,10 +189,8 @@
 }
 
 /* Home world: fill the available region without leaving empty dashboard
-   space beneath it (P0 audit §4). `#game` carries the design aspect ratio
-   so the canvas inside has an exact-fit box and never overflows (P0 audit
-   §2: the canvas was panning ~28px outside its parent in the first cut,
-   60px in the iteration that shrunk #game below canvas height). */
+   space beneath it (P0 audit §4). `#game` fills the flex area; the renderer
+   computes its own camera frustum from the actual container size. */
 #app .home-status-strip { margin-bottom: 0; flex: 0 0 auto; }
 #app .home-world {
     flex: 1 1 auto;
@@ -204,20 +202,15 @@
 }
 #app .home-world > .world-wrap { margin: 0; }
 #app .home-world #game {
-    /* `flex: 0 0 auto` keeps the design aspect ratio intact; the parent
-       flex column will absorb any remaining space into the recent-strip
-       below, instead of squeezing the world. */
-    flex: 0 0 auto;
-    align-self: center;
+    /* Fill the flex column; renderer adapts to any aspect ratio. */
+    flex: 1 1 auto;
     width: 100%;
-    /* Match the renderer's design ratio so its canvas pixels map 1:1. */
-    aspect-ratio: 800 / 425;
-    max-width: 100%;
-    max-height: min(78vh, 720px);
+    min-height: 0;
     display: flex;
     align-items: center;
     justify-content: center;
     overflow: hidden;
+    box-sizing: border-box;
 }
 /* Legacy `style.css` declared `#game canvas { width:auto!important; height:auto!important }`.
    `!important` wins regardless of specificity, so the new fill rules must carry

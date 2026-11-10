@@ -89,3 +89,19 @@
 #app .home-world #game { background: radial-gradient(ellipse at 50% 40%, #142434 0%, #0c1521 76%, #09101b 100%); }
 #app #workspace-home .home-recent-strip > div { min-height: 118px; }
 #app #contextual-panel { scrollbar-width: thin; }
+
+/* VIS-008 responsive fit: canvas and wrapper must agree on one visible box. */
+#app #workspace-home .home-world #game {
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+  box-sizing: border-box;
+}
+#app #workspace-home .home-world #game canvas {
+  display: block;
+  max-width: none;
+  width: 100% !important;
+  height: 100% !important;
+  object-fit: fill;
+}

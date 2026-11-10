@@ -49,6 +49,17 @@ import { PHYSICAL_ROOMS, roomToWorld, type PhysicalRoomId } from './town-world/s
  * into the room rather than down onto a model (audit v2 §4, §5). */
 const ISO = { azimuthDeg: 45, elevationDeg: 27, distance: 70 } as const;
 
+/** Compute the facility center from the actual room geometry so the camera tracks the real layout. */
+function computeFacilityCenter(): THREE.Vector3 {
+  let sumX = 0, sumZ = 0;
+  for (const room of PHYSICAL_ROOMS) {
+    const p = roomToWorld(room.u, room.v);
+    sumX += p.x;
+    sumZ += p.z;
+  }
+  return new THREE.Vector3(sumX / PHYSICAL_ROOMS.length, CONTENT.y / 2, sumZ / PHYSICAL_ROOMS.length);
+}
+
 /** One walk, and one completion acknowledgement. Both are short on purpose. */
 const WALK_SECONDS = 0.75;
 const FLASH_MS = 900;
@@ -56,9 +67,6 @@ const MAX_FRAME_SECONDS = 0.05;
 
 /** Emissive levels for a role's hardware: a whole station lights from one shared material. */
 const GLOW = { resting: 0.5, working: 1.7, attention: 0.9 } as const;
-
-/** 1.0 would put the room's own corners exactly on the frame edge. */
-const FRAME_MARGIN = 1.08;
 
 /** How high a chair's seat is, matching `workstations.ts`. */
 const CHAIR = { seat: 0.46, pad: 0.07 };
@@ -188,7 +196,7 @@ export function create3DRenderer(host: HTMLElement, opts: { motion: boolean }): 
   // backdrop rather than ending at a visible edge (audit v2 §3, §11).
   scene.fog = new THREE.Fog(0x1b242c, 100, 155);
 
-  const target = new THREE.Vector3(0, CONTENT.y / 2, 0);
+  const target = computeFacilityCenter();
   const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 400);
   {
     const rad = Math.PI / 180;
@@ -362,51 +370,61 @@ export function create3DRenderer(host: HTMLElement, opts: { motion: boolean }): 
 
   // --- framing --------------------------------------------------------------------------------------
   /**
-   * Fit what must be seen — the seven plates, the figures and their names — not the whole room.
-   *
-   * The previous version fitted the room's box *including the wall tops at its far corners*. On a wide
-   * panel that made the camera retreat until the facility was a small diamond with empty margins on
-   * both sides (audit v2 §2, §4, §13). Fitting `CONTENT` instead puts those margins to work: the
-   * walls, the deck and the floor beyond them are allowed to run past the frame edge.
+   * Fit the facility to the canvas: all eight rooms, their walls, labels, and resident head height.
+   * Target ~95% width utilization (2.5% margin each side) so the facility fills the box naturally.
+   * The camera target is the actual facility center (computed from room geometry), so framing
+   * centers on real content, not a fixed point.
    */
-  // VIS-007: frame the actual eight-room footprint rather than the obsolete
-  // +/-CONTENT.x,z lab envelope. The old oversized box made the building
-  // occupy less than half of the available canvas on desktop.
-  const frameContent = () => {
+  // VIS-010: responsive fit using actual facility bounds and 95% width target
+  const frameContent = (aspect: number) => {
+    camera.updateMatrixWorld(true);
     const right = new THREE.Vector3().setFromMatrixColumn(camera.matrixWorld, 0);
     const up = new THREE.Vector3().setFromMatrixColumn(camera.matrixWorld, 1);
-    // Calculate a screen-aligned AABB around the real room footprints.
-    // Include wall/room-art height; do not include exterior sky geometry.
     let minX = Infinity, maxX = -Infinity;
     let minY = Infinity, maxY = -Infinity;
-    const point = new THREE.Vector3();
+    const world = new THREE.Vector3();
+
     for (const room of PHYSICAL_ROOMS) {
-      for (const du of [-room.width / 2 - 0.2, room.width / 2 + 0.2]) {
-        for (const dv of [-room.depth / 2 - 0.2, room.depth / 2 + 0.2]) {
-          for (const height of [0, 3.4]) {
+      const halfW = room.width / 2;
+      const halfD = room.depth / 2;
+      // Room floor corners (with small padding for wall thickness)
+      const floorPadding = 0.2;
+      // Heights to include: floor, wall tops (1.65), label height (0.045), resident head (4.6)
+      const heights = [-0.2, 0.045, 1.65, 4.6];
+      // Depth extension to include front label (at halfD - 0.68) and rear wall
+      const labelOffset = 0.68;
+      const depthExtents = [-halfD - floorPadding, halfD - labelOffset + 1.8]; // label width ~3.6, half ~1.8
+
+      for (const du of [-halfW - floorPadding, halfW + floorPadding]) {
+        for (const dv of depthExtents) {
+          for (const h of heights) {
             const pos = roomToWorld(room.u + du, room.v + dv);
-            point.set(pos.x, height, pos.z).sub(target);
-            const sx = point.dot(right), sy = point.dot(up);
-            minX = Math.min(minX, sx); maxX = Math.max(maxX, sx);
-            minY = Math.min(minY, sy); maxY = Math.max(maxY, sy);
+            world.set(pos.x, h, pos.z).sub(target);
+            const x = world.dot(right), y = world.dot(up);
+            minX = Math.min(minX, x); maxX = Math.max(maxX, x);
+            minY = Math.min(minY, y); maxY = Math.max(maxY, y);
           }
         }
       }
     }
+
     const midX = (minX + maxX) / 2;
     const midY = (minY + maxY) / 2;
     const width = maxX - minX;
     const height = maxY - minY;
-    const aspect = DESIGN.width / DESIGN.height;
-    // Allow 5-7% margins at the edges; preserve the whole facility.
-    const halfHeight = Math.max(height / 2 / 0.88, width / 2 / aspect / 0.91);
-    camera.left = -halfHeight * aspect + midX;
-    camera.right = halfHeight * aspect + midX;
-    camera.top = halfHeight + midY;
-    camera.bottom = -halfHeight + midY;
+
+    // 95% utilization = 2.5% margin each side. Use the limiting dimension.
+    const FIT = 0.95;
+    const halfHeight = Math.max(height / (2 * FIT), width / (2 * aspect * FIT));
+
+    camera.left = midX - halfHeight * aspect;
+    camera.right = midX + halfHeight * aspect;
+    camera.top = midY + halfHeight;
+    camera.bottom = midY - halfHeight;
     camera.updateProjectionMatrix();
   };
-  frameContent();
+  // The true aspect ratio is set by resize() when the host has layout.
+
 
   // --- lifecycle ------------------------------------------------------------------------------------
   let frames = 0;
@@ -692,7 +710,13 @@ export function create3DRenderer(host: HTMLElement, opts: { motion: boolean }): 
     const rect = host.getBoundingClientRect();
     const width = Math.round(rect.width);
     if (width < 2) return;            // layout has not settled yet
-    const height = Math.max(1, Math.round(width * DESIGN.height / DESIGN.width));
+    // VIS-008: CSS may limit the world to a shorter, wider rectangle. Use
+    // actual visible container height, not the legacy 800:425 design ratio.
+    const parent = host.parentElement;
+    const visibleHeight = parent?.clientHeight || 0;
+    const fallbackHeight = Math.round(width * DESIGN.height / DESIGN.width);
+    const height = Math.max(1, Math.round(visibleHeight > 2 ? visibleHeight : (rect.height > 2 ? rect.height : fallbackHeight)));
+    frameContent(width / height);
     renderer.setSize(width, height, true);
     renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.5));
     if (!motion) draw();

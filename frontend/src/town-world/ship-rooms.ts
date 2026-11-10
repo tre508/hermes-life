@@ -27,18 +27,21 @@ export interface PhysicalRoom {
   owner: Role | null;
 }
 
+// VIS-008: horizontal spread and tighter vertical room positions, without role changes.
 // VIS-007: Wider room footprints create a continuous visual hull, rather
 // than small isolated office modules; backend role anchors stay unchanged.
 // U increases right on screen, V increases toward the camera / bottom of image.
+// VIS-010: Facility widened and vertically compressed to fill a wide canvas
+// without clipping — ~23u horizontal span, ~11v vertical span.
 export const PHYSICAL_ROOMS: readonly PhysicalRoom[] = [
-  { id: 'director_office', label: 'DIRECTOR OFFICE', u: 0, v: -9.2, width: 8.1, depth: 6.4, owner: 'planner' },
-  { id: 'research_station', label: 'RESEARCH STATION', u: -8.8, v: -5.8, width: 7.8, depth: 6.5, owner: 'researcher' },
-  { id: 'review_station', label: 'REVIEW STATION', u: 8.8, v: -5.8, width: 7.8, depth: 6.5, owner: 'reviewer' },
-  { id: 'dev_station', label: 'DEV STATION', u: -9.0, v: 1.2, width: 8.0, depth: 6.6, owner: 'builder' },
+  { id: 'director_office', label: 'DIRECTOR OFFICE', u: 0, v: -5.5, width: 8.1, depth: 6.4, owner: 'planner' },
+  { id: 'research_station', label: 'RESEARCH STATION', u: -11.5, v: -3.5, width: 7.8, depth: 6.5, owner: 'researcher' },
+  { id: 'review_station', label: 'REVIEW STATION', u: 11.5, v: -3.5, width: 7.8, depth: 6.5, owner: 'reviewer' },
+  { id: 'dev_station', label: 'DEV STATION', u: -11.5, v: 2.0, width: 8.0, depth: 6.6, owner: 'builder' },
   { id: 'control_room', label: 'CONTROL ROOM', u: 0, v: 0, width: 8.5, depth: 8.0, owner: 'coordinator' },
-  { id: 'lab', label: 'LAB', u: 9.0, v: 1.2, width: 8.0, depth: 6.6, owner: 'tester' },
-  { id: 'archive', label: 'ARCHIVE', u: -8.8, v: 8.4, width: 8.0, depth: 6.3, owner: 'archivist' },
-  { id: 'break_room', label: 'BREAK ROOM', u: 8.8, v: 8.4, width: 8.0, depth: 6.3, owner: null },
+  { id: 'lab', label: 'LAB', u: 11.5, v: 2.0, width: 8.0, depth: 6.6, owner: 'tester' },
+  { id: 'archive', label: 'ARCHIVE', u: -11.5, v: 5.5, width: 8.0, depth: 6.3, owner: 'archivist' },
+  { id: 'break_room', label: 'BREAK ROOM', u: 11.5, v: 5.5, width: 8.0, depth: 6.3, owner: null },
 ] as const;
 
 export function roomToWorld(u: number, v: number): { x: number; z: number } {
