@@ -107,116 +107,126 @@
 
         <!-- ---------- WORK · task-centric lifecycle + management ---------- -->
         <section id="workspace-work" class="workspace-view" data-layout="workspace" hidden>
-            <nav id="work-subnav" class="work-subnav" aria-label="Work views">
-                <button type="button" data-workview="tasks" class="active" aria-pressed="true">Tasks</button>
-                <button type="button" data-workview="discover">Discover</button>
-                <button type="button" data-workview="goals">Goals</button>
-                <button type="button" data-workview="planning">Planning</button>
-                <button type="button" data-workview="build" data-tab="build">Build</button>
-            </nav>
+                    <header class="workspace-heading">
+                        <div>
+                            <h2 id="work-heading">Work</h2>
+                            <p id="work-subheading" class="hint">Task board — pick a task to open its thread, composer, and context</p>
+                        </div>
+                    </header>
 
-            <div class="work-grid">
-                <!-- left column: persistent task / conversation list (P1: task-centered Work layout) -->
-                <div class="work-list">
-                    <div id="task-list-container">
-                        <h2>Work <small id="work-task-count"></small></h2>
-                        <div id="task-list"></div>
-                    </div>
-                </div>
+                    <nav id="work-subnav" class="work-subnav" aria-label="Work views">
+                        <button type="button" data-workview="tasks" class="active" aria-pressed="true">Tasks</button>
+                        <button type="button" data-workview="discover">Discover</button>
+                        <button type="button" data-workview="goals">Goals</button>
+                        <button type="button" data-workview="planning">Planning</button>
+                        <button type="button" data-workview="build">Build</button>
+                    </nav>
 
-                <!-- center column: active task action panel + conversation thread + composer
-                     (P1: action panel + unified composer live inline with the thread). -->
-                <div class="work-center">
-                    <div id="task-detail-container" hidden>
-                        <!-- task detail / thread / composer injected by work-workspace.ts -->
-                    </div>
-                    <div id="task-center-empty" class="work-center__empty">
-                        <p class="hint">Pick a task on the left.<br/>Each item groups every message, action, and result you've shared with Hermes about it.</p>
-                    </div>
-                </div>
+                    <!-- Work subview panels: only one visible at a time -->
+                    <div id="workview-outlet">
 
-                <!-- right column: contextual task facts + inline approval / investigation cards.
-                     (P1: actionable investigation results + approval workflow integration). -->
-                <div id="task-context" class="work-context">
-                    <p class="hint">Select a task to see its workflow context.</p>
-                </div>
+                        <!-- TASKS: 3-column layout (list | detail+thread+composer | context) -->
+                        <section id="workview-tasks" class="workview-panel" data-workview="tasks">
+                            <div class="work-grid">
+                                <div class="work-list">
+                                    <div id="task-list-container">
+                                        <h2>Work <small id="work-task-count"></small></h2>
+                                        <div id="task-list"></div>
+                                    </div>
+                                </div>
 
-                <!-- wide column: the workflow management surfaces (conserved) -->
-                <div class="work-management">
-                    <details class="fold" open>
-                        <summary>Independent discovery &amp; decisions</summary>
-                        <section id="decision-section">
-                            <h2>Independent decisions</h2>
-                            <div class="kv">Discovery loop <strong id="decision-state">—</strong></div>
-                            <label>Scan interval (seconds) <input id="decision-scan-interval" max="86400" min="60" type="number" value="3600" /></label>
-                            <button id="decision-toggle" type="button">Enable scheduled discovery</button>
-                            <button id="decision-scan" type="button">Run decision now</button>
-                            <p id="decision-feedback" role="status"></p>
-                            <h3>Curiosity queue</h3>
-                            <div id="curiosity-list"></div>
-                        </section>
-                        <section id="discovery-section">
-                            <h2>Independent discovery</h2>
-                            <button id="discovery-scan" type="button">Scan worker projects</button>
-                            <button id="discovery-refresh" type="button">Refresh</button>
-                            <p class="hint">Read-only TODO/FIXME scan of the coding worker's project checkouts. Review proposals before they enter the autonomous queue.</p>
-                            <p id="discovery-status" role="status"></p>
-                            <div id="discovery-list"></div>
-                        </section>
-                    </details>
+                                <div class="work-center">
+                                    <div id="task-detail-container" hidden>
+                                        <!-- task detail / thread / composer injected by work-workspace.ts -->
+                                    </div>
+                                    <div id="task-center-empty" class="work-center__empty">
+                                        <p class="hint">Pick a task on the left.<br/>Each item groups every message, action, and result you've shared with Hermes about it.</p>
+                                    </div>
+                                </div>
 
-                    <details class="fold" open>
-                        <summary>Autonomous goals</summary>
-                        <section id="autonomy-section">
-                            <h2>Autonomous goals</h2>
-                            <div class="kv">Scheduler <strong id="autonomy-status">—</strong></div>
-                            <div class="autonomy-actions">
-                                <button id="autonomy-toggle" type="button">Enable autonomy</button>
-                                <button id="goals-refresh" type="button">Refresh</button>
+                                <div id="task-context" class="work-context">
+                                    <p class="hint">Select a task to see its workflow context.</p>
+                                </div>
                             </div>
-                            <p class="hint">Disabled by default. Only executes goals added here; one at a time.</p>
-                            <form id="goal-form">
-                                <input id="goal-title" maxlength="160" placeholder="Goal title" required />
-                                <textarea id="goal-prompt" placeholder="Exact task Hermes should complete…" required></textarea>
-                                <label>Priority (0–100) <input id="goal-priority" max="100" min="0" type="number" value="50" /></label>
-                                <button type="submit">Add goal</button>
-                            </form>
-                            <p id="goal-feedback" role="status"></p>
-                            <div id="goal-list"></div>
                         </section>
-                    </details>
 
-                    <details class="fold" open>
-                        <summary>Goal formulation &amp; investigation plans</summary>
-                        <section id="formulation-section">
-                            <h2>Goal formulation</h2>
-                            <p class="hint">Select a discovery and ask Hermes to formulate an evidence-backed proposal. No automatic coding. Approval creates a read-only investigation goal.</p>
-                            <button id="formulations-refresh" type="button">Refresh proposals</button>
-                            <p id="formulation-feedback" role="status"></p>
-                            <div id="formulation-list"></div>
+                        <!-- DISCOVER: global discovery dashboard (phase41301-rework mounts here) -->
+                        <section id="workview-discover" class="workview-panel" data-workview="discover" hidden>
+                            <div id="discovery-section">
+                                <h2>Independent discovery</h2>
+                                <button id="discovery-scan" type="button">Scan worker projects</button>
+                                <button id="discovery-refresh" type="button">Refresh</button>
+                                <p class="hint">Read-only TODO/FIXME scan of the coding worker's project checkouts. Review proposals before they enter the autonomous queue.</p>
+                                <p id="discovery-status" role="status"></p>
+                                <div id="discovery-list"></div>
+                            </div>
+                            <section id="decision-section">
+                                <h2>Independent decisions</h2>
+                                <div class="kv">Discovery loop <strong id="decision-state">—</strong></div>
+                                <label>Scan interval (seconds) <input id="decision-scan-interval" max="86400" min="60" type="number" value="3600" /></label>
+                                <button id="decision-toggle" type="button">Enable scheduled discovery</button>
+                                <button id="decision-scan" type="button">Run decision now</button>
+                                <p id="decision-feedback" role="status"></p>
+                                <h3>Curiosity queue</h3>
+                                <div id="curiosity-list"></div>
+                            </section>
                         </section>
-                        <section>
-                            <h2>Investigation plans</h2>
-                            <p class="hint">Completed approved investigations can be converted into evidence-backed plans. Plans are review-only; no coding starts automatically.</p>
-                            <button id="plans-refresh" type="button">Refresh plans</button>
-                            <p id="plans-feedback" role="status"></p>
-                            <div id="plans-list"></div>
-                        </section>
-                    </details>
 
-                    <details class="fold" open>
-                        <summary>Evaluated implementation</summary>
-                        <section>
-                            <h2>Evaluated implementation</h2>
-                            <p class="hint">Approved, isolated candidate work only. No automatic merges.</p>
-                            <button id="implementations-refresh" type="button">Refresh evaluations</button>
-                            <p id="implementations-feedback" role="status"></p>
-                            <div id="implementations-list"></div>
+                        <!-- GOALS: global autonomy & goals (phase41302-workflow mounts here) -->
+                        <section id="workview-goals" class="workview-panel" data-workview="goals" hidden>
+                            <section id="autonomy-section">
+                                <h2>Autonomous goals</h2>
+                                <div class="kv">Scheduler <strong id="autonomy-status">—</strong></div>
+                                <div class="autonomy-actions">
+                                    <button id="autonomy-toggle" type="button">Enable autonomy</button>
+                                    <button id="goals-refresh" type="button">Refresh</button>
+                                </div>
+                                <p class="hint">Disabled by default. Only executes goals added here; one at a time.</p>
+                                <form id="goal-form">
+                                    <input id="goal-title" maxlength="160" placeholder="Goal title" required />
+                                    <textarea id="goal-prompt" placeholder="Exact task Hermes should complete…" required></textarea>
+                                    <label>Priority (0–100) <input id="goal-priority" max="100" min="0" type="number" value="50" /></label>
+                                    <button type="submit">Add goal</button>
+                                </form>
+                                <p id="goal-feedback" role="status"></p>
+                                <div id="goal-list"></div>
+                            </section>
                         </section>
-                    </details>
-                </div>
-            </div>
-        </section>
+
+                        <!-- PLANNING: formulation & investigation plans (phase415-review / phase41302 mount here) -->
+                        <section id="workview-planning" class="workview-panel" data-workview="planning" hidden>
+                            <section id="formulation-section">
+                                <h2>Goal formulation</h2>
+                                <p class="hint">Select a discovery and ask Hermes to formulate an evidence-backed proposal. No automatic coding. Approval creates a read-only investigation goal.</p>
+                                <button id="formulations-refresh" type="button">Refresh proposals</button>
+                                <p id="formulation-feedback" role="status"></p>
+                                <div id="formulation-list"></div>
+                            </section>
+                            <section>
+                                <h2>Investigation plans</h2>
+                                <p class="hint">Completed approved investigations can be converted into evidence-backed plans. Plans are review-only; no coding starts automatically.</p>
+                                <button id="plans-refresh" type="button">Refresh plans</button>
+                                <p id="plans-feedback" role="status"></p>
+                                <div id="plans-list"></div>
+                            </section>
+                        </section>
+
+                        <!-- BUILD: evaluated implementation & review (phase415-review mounts here) -->
+                        <section id="workview-build" class="workview-panel" data-workview="build" hidden>
+                            <details class="fold" open>
+                                <summary>Evaluated implementation</summary>
+                                <section>
+                                    <h2>Evaluated implementation</h2>
+                                    <p class="hint">Approved, isolated candidate work only. No automatic merges.</p>
+                                    <button id="implementations-refresh" type="button">Refresh evaluations</button>
+                                    <p id="implementations-feedback" role="status"></p>
+                                    <div id="implementations-list"></div>
+                                </section>
+                            </details>
+                        </section>
+
+                    </div>
+                </section>
 
         <!-- ---------- ACTIVITY · full-width execution timeline ---------- -->
         <section id="workspace-activity" class="workspace-view" data-layout="focus" hidden>

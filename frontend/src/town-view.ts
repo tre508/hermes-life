@@ -422,16 +422,17 @@ function clock(timestamp: number): string {
 
 // --------------------------------------------------------------------------- interaction
 
+import { openWorkspace, openWorkView, openTask } from './navigation-state.ts';
+
 function openView(view: string): void {
-  // The old [data-ops-tab] rail was replaced by main.v2 in Phase 4.
-  // Route through existing visible controls so their native handlers run.
+  // Canonical navigation intents replace synthetic .click() chains
   const direct: Record<string, string> = {
     overview: 'home', activity: 'activity', evidence: 'results',
     results: 'results', memory: 'system',
   };
   const root = direct[view];
   if (root) {
-    document.querySelector<HTMLButtonElement>(`#primary-nav button[data-workspace="${root}"]:not([data-hc-room]):not([data-hc-chat])`)?.click();
+    openWorkspace(root as 'home' | 'activity' | 'results' | 'system');
     return;
   }
   const workview: Record<string, string> = {
@@ -440,7 +441,7 @@ function openView(view: string): void {
   };
   const subview = workview[view];
   if (subview) {
-    document.querySelector<HTMLButtonElement>(`#work-subnav button[data-workview="${subview}"]`)?.click();
+    openWorkView(subview as 'tasks' | 'discover' | 'goals' | 'planning' | 'build');
   }
 }
 
@@ -503,13 +504,10 @@ function showResident(role: Role): void {
     const task = document.createElement('button');
     task.type = 'button';
     task.textContent = 'Open task ' + resident.taskId.slice(0, 8);
-    // P2 sync: 3D resident click → Work task focus. We dispatch BOTH
-    // the existing results-routing event and the new taskFocus event
-    // so Work can listen for one of them without competing. The Work
-    // listener will pick up focus without a separate Activity hop.
+    // Canonical intent: open task in Work workspace (Tasks subview)
+    // Single action, single destination — no dual event dispatch
     task.addEventListener('click', () => {
-      window.dispatchEvent(new CustomEvent('hermes:open-task', { detail: { id: resident.taskId } }));
-      window.dispatchEvent(new CustomEvent('hermes:task:focus', { detail: { id: resident.taskId } }));
+      openTask(resident.taskId!, { destination: 'work' });
     });
     actions.append(task);
   }

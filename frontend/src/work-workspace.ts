@@ -15,13 +15,15 @@
  *   3. a persistent composer with draft preservation so a half-typed reply
  *      survives navigation and is wired into the same conversation_id on submit
  *
- * The previous drill-down (lifecycle strip + per-stage cards) is still a
- * legacy helper inside this module, kept for the Work subnav (Tasks /
- * Discover / Goals / Planning / Build); it is no longer the primary view.
+ * Work subviews (Tasks / Discover / Goals / Planning / Build) are exclusive
+ * panels under #workview-outlet. Only one is visible at a time. Switching is
+ * driven by navigation-state.ts openWorkView() → onNavigationChange → setWorkView().
+ * No scrollIntoView for navigation.
  */
 import { type LifeStage, type Chain, type TaskRec } from './task-lifecycle.ts';
 import { mountComposer, type ComposerOptions } from './conv-composer.ts';
 import { mountThread, type Turn } from './conv-thread.ts';
+import { openWorkView, openTask, onNavigationChange, getCurrentWorkView } from './navigation-state.ts';
 
 /** Composer copy + accent derive from the active task's chain state.
  *  Same composer DOM element is reused; we just re-render the label,
@@ -35,7 +37,7 @@ const str = (v: unknown): string => (typeof v === 'string' ? v : v == null ? '' 
 const node = (tag: string, text = '', cls = ''): HTMLElement => {
     const n = document.createElement(tag); n.textContent = text; if (cls) n.className = cls; return n;
 };
-const esc = (s: string): string => s.replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]!));
+const esc = (s: string): string => s.replace(/[&<>"\']/g, c => ({ '&': '&', '<': '<', '>': '>', '"': '"', "'": "''" }[c]!));
 
 type ChainMap = Record<string, Chain>;
 let tasks: TaskRec[] = [];
@@ -49,6 +51,10 @@ type ConvHandles = {
     thread: ReturnType<typeof mountThread> | null;
 };
 let convHandles: ConvHandles | null = null;
+
+// Per-workview scroll position restoration
+const scrollPositions: Record<string, number> = {};
+let currentWorkView = 'tasks';
 
 async function api(path: string): Promise<{ [k: string]: unknown } | unknown[]> {
     const res = await fetch(path);
@@ -782,36 +788,109 @@ window.addEventListener('hermes:event', ((ev: Event) => {
     }
 }) as EventListener);
 
+/** Save current scroll position for the active workview. */
+function saveScrollPosition(view: string) {
+    const outlet = $('workview-outlet');
+    if (outlet) scrollPositions[view] = outlet.scrollTop;
+}
+
+/** Restore scroll position for a workview. */
+function restoreScrollPosition(view: string) {
+    const outlet = $('workview-outlet');
+    if (outlet && scrollPositions[view] !== undefined) {
+        outlet.scrollTop = scrollPositions[view];
+    }
+}
+
+/** Update heading/breadcrumb for the active workview. */
+function updateWorkHeading(view: string) {
+    const heading = $('work-heading');
+    const subheading = $('work-subheading');
+    if (!heading || !subheading) return;
+
+    const labels: Record<string, [string, string]> = {
+        tasks: ['Work', 'Task board — pick a task to open its thread, composer, and context'],
+        discover: ['Discover', 'Independent discovery & decisions — scan worker projects, review findings'],
+        goals: ['Goals', 'Autonomous goals & scheduler — create goals, manage autonomy'],
+        planning: ['Planning', 'Goal formulation & investigation plans — review, approve, convert to plans'],
+        build: ['Build', 'Evaluated implementation & review — candidate runs, verification, decisions'],
+    };
+    const [title, desc] = labels[view] || labels.tasks;
+    heading.textContent = title;
+    subheading.textContent = desc;
+}
+
+/** Switch the active Work subview.
+ *  - Shows only the target panel, hides others
+ *  - Updates subnav button active/aria-pressed state
+ *  - Updates heading/breadcrumb
+ *  - Saves current panel's scroll position, restores target's
+ *  - Does NOT use scrollIntoView for navigation
+ *  - Preserves task thread/composer when leaving Tasks (DOM persists) */
+function setWorkView(view: string) {
+    const validViews = ['tasks', 'discover', 'goals', 'planning', 'build'];
+    if (!validViews.includes(view)) view = 'tasks';
+
+    // Save scroll position of current view before switching
+    saveScrollPosition(currentWorkView);
+
+    // Hide all workview panels
+    document.querySelectorAll<HTMLElement>('#workview-outlet > .workview-panel').forEach(panel => {
+        panel.hidden = true;
+    });
+
+    // Show target panel
+    const targetPanel = $(`workview-${view}`);
+    if (targetPanel) targetPanel.hidden = false;
+
+    // Update subnav buttons
+    const nav = $('work-subnav');
+    if (nav) {
+        nav.querySelectorAll<HTMLButtonElement>('button[data-workview]').forEach(btn => {
+            const isActive = btn.dataset.workview === view;
+            btn.classList.toggle('active', isActive);
+            btn.setAttribute('aria-pressed', String(isActive));
+        });
+    }
+
+    // Update heading/breadcrumb
+    updateWorkHeading(view);
+
+    // Restore scroll position for target view
+    restoreScrollPosition(view);
+
+    currentWorkView = view;
+}
+
 function wireSubnav() {
     const nav = $('work-subnav'); if (!nav) return;
-    const anchors: Record<string, string> = {
-        tasks: 'task-list-container',
-        discover: 'discovery-section',
-        goals: 'autonomy-section',
-        planning: 'plans-list',
-        build: 'implementations-list',
-    };
     nav.querySelectorAll<HTMLButtonElement>('button[data-workview]').forEach(btn => {
         btn.addEventListener('click', () => {
-            nav.querySelectorAll('button[data-workview]').forEach(b => { b.classList.remove('active'); b.setAttribute('aria-pressed', 'false'); });
-            btn.classList.add('active'); btn.setAttribute('aria-pressed', 'true');
-            const targetId = anchors[btn.dataset.workview || 'tasks'];
-            const target = targetId ? document.getElementById(targetId) : null;
-            if (target) (target.closest('details') || target).scrollIntoView({ behavior: 'smooth', block: 'start' });
+            const view = btn.dataset.workview || 'tasks';
+            openWorkView(view as 'tasks' | 'discover' | 'goals' | 'planning' | 'build');
         });
     });
 }
 
+// React to canonical workView changes from navigation-state
+onNavigationChange((nav) => {
+    if (nav.workspace === 'work') {
+        setWorkView(nav.workView);
+    }
+});
+
+// Initialize workView from navigation-state (in case it was set before this module loaded)
+setWorkView(getCurrentWorkView());
+
 // P2 cross-view sync: a 3D resident click dispatches `hermes:task:focus`
-// with the resident's task_id. We switch to the Work workspace, click
-// the matching task entry so the conversation + composer + context
-// panel all appear together, and scroll the row into view. One event
-// gets every workspace onto the same authoritative execution context.
+// with the resident's task_id. We open the task in Work (thread/composer)
+// via the canonical navigation intent. One event gets every workspace
+// onto the same authoritative execution context.
 window.addEventListener('hermes:task:focus', ((ev: Event) => {
     const id = (ev as CustomEvent<{ id?: string }>).detail?.id;
     if (!id) return;
-    const workBtn = document.querySelector<HTMLButtonElement>('#primary-nav button[data-workspace="work"]');
-    if (workBtn) workBtn.click();
+    // Canonical intent: open task in Work workspace (Tasks subview)
+    openTask(id, { destination: 'work' });
     // The list may not have rendered yet (loadData is async); retry up
     // to a few hundred ms before giving up.
     let attempts = 0;
@@ -827,18 +906,18 @@ window.addEventListener('hermes:task:focus', ((ev: Event) => {
     trySelect();
 }) as EventListener);
 
+// hermes:workview is now handled by navigation-state's onNavigationChange
+// listener above. Kept as no-op for any legacy dispatchers.
 window.addEventListener('hermes:workview', ((ev: Event) => {
-    const view = (ev as CustomEvent<{ view?: string }>).detail?.view;
-    if (!view) return;
-    const nav = $('work-subnav');
-    const btn = nav?.querySelector<HTMLButtonElement>(`button[data-workview="${view}"]`);
-    if (btn) btn.click();
+    // Handled by onNavigationChange → setWorkView
 }) as EventListener);
 
 let started = false;
 function initialize() {
     if (started) return; started = true;
     wireSubnav();
+    // Initialize scroll position tracking for Tasks view
+    scrollPositions.tasks = 0;
     void loadData();
     window.setInterval(() => { if (selectedId) void loadData(); }, 15000);
 }

@@ -486,16 +486,144 @@
     display: inline-block;
 }
 
-/* ---- Activity timeline ---- */
-#app #workspace-activity h2 { color: #e1d6bc; }
-#app .activity-timeline {
-    display: flex;
+/* =====================================================================
+ * Work workspace subview panels
+ * Only one .workview-panel is visible at a time; switching is via
+ * setWorkView() in work-workspace.ts (no scrollIntoView for nav).
+ * ===================================================================== */
+#app #workview-outlet {
+    min-height: 0;
+}
+#app .workview-panel {
+    display: none;
     flex-direction: column;
-    gap: 6px;
-    max-height: 64vh;
-    overflow-y: auto;
-    padding: 4px;
-    scrollbar-color: #426574 #10232c;
+    gap: 16px;
+    min-height: 0;
+}
+#app .workview-panel[hidden] {
+    display: none !important;
+}
+#app .workview-panel:not([hidden]) {
+    display: flex;
+}
+
+/* Tasks view uses the existing 3-column grid */
+#app #workview-tasks .work-grid {
+    display: grid;
+    grid-template-columns: minmax(260px, 4fr) minmax(440px, 7fr) minmax(280px, 5fr);
+    gap: 16px;
+    align-items: start;
+    min-height: 0;
+    flex: 1 1 auto;
+}
+@media (max-width: 1280px) {
+    #app #workview-tasks .work-grid {
+        grid-template-columns: minmax(260px, 4fr) minmax(500px, 8fr);
+    }
+    #app #workview-tasks .work-context {
+        display: none;
+    }
+}
+
+/* Discover, Goals, Planning, Build views: single-column stacked sections */
+#app #workview-discover,
+#app #workview-goals,
+#app #workview-planning,
+#app #workview-build {
+    max-width: none;
+}
+#app #workview-discover > section,
+#app #workview-goals > section,
+#app #workview-planning > section,
+#app #workview-build > section {
+    border: 1px solid #223a46;
+    border-radius: 10px;
+    background: #101a23;
+    padding: 16px;
+    margin-bottom: 12px;
+}
+#app #workview-discover > section:last-child,
+#app #workview-goals > section:last-child,
+#app #workview-planning > section:last-child,
+#app #workview-build > section:last-child {
+    margin-bottom: 0;
+}
+#app #workview-discover h2,
+#app #workview-goals h2,
+#app #workview-planning h2,
+#app #workview-build h2 {
+    margin: 0 0 10px;
+    color: #e1d6bc;
+    font-size: 14px;
+    font-weight: 700;
+}
+#app #workview-discover .hint,
+#app #workview-goals .hint,
+#app #workview-planning .hint,
+#app #workview-build .hint {
+    margin: 0 0 12px;
+    color: #7f9aa0;
+    font-size: 12px;
+}
+#app #workview-discover button,
+#app #workview-goals button,
+#app #workview-planning button,
+#app #workview-build button {
+    padding: 6px 14px;
+    border-radius: 20px;
+    border: 1px solid #2b4856;
+    background: #12212c;
+    color: #abc6c2;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    margin-right: 8px;
+    margin-bottom: 8px;
+}
+#app #workview-discover button:hover,
+#app #workview-goals button:hover,
+#app #workview-planning button:hover,
+#app #workview-build button:hover {
+    border-color: #3d6b5e;
+}
+
+/* Fold styling for Build view (kept from legacy) */
+#app #workview-build details.fold {
+    border: 1px solid #223a46;
+    border-radius: 10px;
+    background: #101a23;
+    padding: 16px;
+}
+#app #workview-build details.fold > summary {
+    cursor: pointer;
+    font-size: 13px;
+    font-weight: 700;
+    color: #e1d6bc;
+    margin-bottom: 12px;
+}
+#app #workview-build details.fold > summary::-webkit-details-marker {
+    display: none;
+}
+#app #workview-build details.fold > summary::before {
+    content: "▸ ";
+    color: #7f9aa0;
+}
+#app #workview-build details.fold[open] > summary::before {
+    content: "▾ ";
+}
+
+/* Work subnav active state already styled in unified-layout.css */
+/* .work-subnav button.active { background: #1b3542; border-color: #2f6f57; color: #eef6f0; } */
+
+/* Workspace heading for Work */
+#app #workspace-work .workspace-heading {
+    margin-bottom: 8px;
+}
+#app #workspace-work .workspace-heading h2 {
+    color: #e1d6bc;
+}
+#app #workspace-work .workspace-heading p.hint {
+    color: #7f9aa0;
 }
 #app .activity-entry {
     border: 1px solid #223a46;

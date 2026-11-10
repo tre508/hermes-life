@@ -5,6 +5,7 @@
  */
 import './phase41302-workflow.css';
 import { makeRefresh } from './refresh-feedback.ts';
+import { openWorkView, openTask } from './navigation-state.ts';
 type Obj=Record<string,unknown>;
 type Group='waiting'|'running'|'completed'|'stopped'|'all';
 const el=(id:string)=>document.getElementById(id);
@@ -38,15 +39,11 @@ function group(r:Obj):Group{
  if(s==='investigation complete'||s==='completed'||s.includes('superseded'))return 'completed';
  if(s.includes('failed')||s.includes('rejected')||s.includes('blocked')||s.includes('interrupted')||s.includes('cancelled'))return 'stopped';
  return 'running';
-}
-function taskOpen(taskId:string){
- window.dispatchEvent(new CustomEvent('hermes:open-task',{detail:{id:taskId}}));
-}
-function openTab(label:string){
- const target=Array.from(document.querySelectorAll<HTMLButtonElement>('button')).find(x=>x.textContent?.trim()===label&&!x.closest('#chat-panel'));
- target?.click();
-}
-function setBusy(node:HTMLButtonElement,promise:Promise<unknown>,after:()=>void,notify:(msg:string)=>void){
+ }
+ function taskOpen(taskId:string){
+   openTask(taskId, { destination: 'results' });
+ }
+ function setBusy(node:HTMLButtonElement,promise:Promise<unknown>,after:()=>void,notify:(msg:string)=>void){
  node.disabled=true;void promise.then(()=>{after()}).catch(e=>notify(str(e))).finally(()=>{node.disabled=false});
 }
 function setupGoals(){
@@ -135,8 +132,8 @@ function setupGoals(){
    if(goal.task_id){actions.append(button('View answer & evidence',()=>taskOpen(str(goal.task_id))))}
    else{actions.append(txt('span','No execution task linked yet.','hl413-flow-meta'))}
    const action=nextAction(goal);
-   if(action==='open_review')actions.append(button('Review candidate',()=>openTab('Build')));
-   if(action==='start_build'||action==='approve_plan')actions.append(button('Open in Build',()=>openTab('Build')));
+   if(action==='open_review')actions.append(button('Review candidate',()=>openWorkView('build')));
+   if(action==='start_build'||action==='approve_plan')actions.append(button('Open in Build',()=>openWorkView('build')));
    if(['pending','interrupted'].includes(recordState(goal))){const b=button('Cancel',()=>{if(!window.confirm('Cancel this goal?'))return;setBusy(b,api(`/goals/${encodeURIComponent(str(goal.id))}/cancel`,'POST'),()=>void refresh.run(),m=>{notice=m;render()})});actions.append(b)}
    if(['failed','interrupted'].includes(recordState(goal))){const b=button('Retry',()=>{setBusy(b,api(`/goals/${encodeURIComponent(str(goal.id))}/retry`,'POST'),()=>void refresh.run(),m=>{notice=m;render()})});actions.append(b)}
    card.append(actions);entries.append(card);

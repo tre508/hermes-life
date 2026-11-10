@@ -1,6 +1,7 @@
 /** HL-FLOW-005: one coherent Planning/Build status, evidence and approval surface. */
 import './phase415-review.css';
 import { makeRefresh } from './refresh-feedback.ts';
+import { openWorkView, openTask } from './navigation-state.ts';
 type Rec=Record<string,unknown>;
 const $=(id:string)=>document.getElementById(id);
 const s=(x:unknown)=>typeof x==='string'?x:String(x??'');
@@ -46,7 +47,9 @@ function stateMessage(plan:Rec){const r=track(plan);const d=r?decisionMap.get(s(
  if(s(r.state)==='candidate_failed')return 'Tests ran and failed. Inspect evidence or request a revision.';
  return s(r.error)||'Execution stopped; open Build for full details.';
 }
-function showTask(id:string){window.dispatchEvent(new CustomEvent('hermes:open-task',{detail:{id}}))}
+function showTask(id:string){
+  openTask(id, { destination: 'results' });
+}
 function renderPlanning(){const root=$('hl415-planning');if(!root)return;root.replaceChildren();
  const head=node('div','','hl415-head');const pRefresh=btn(refreshCtl.label(),()=>void refresh());pRefresh.disabled=refreshCtl.phase==='loading';head.append(node('h2','Plans & implementation status'),pRefresh);root.append(head);
  root.append(node('p',error||`${plans.length} plans · ${runs.length} implementation runs · ${refreshCtl.statusText()||'Not refreshed yet'} · Checked ${stamp(refreshCtl.checkedAt||last)}`,'hl415-caption'));
@@ -114,7 +117,14 @@ function renderPlanning(){const root=$('hl415-planning');if(!root)return;root.re
     wrap.append(b);
     card.append(wrap)
   }
-  if(r)actions.append(btn('View in Build',()=>{document.querySelector<HTMLButtonElement>('[data-tab="build"]')?.click();document.getElementById('hl415-run-'+s(r.id))?.scrollIntoView({block:'nearest'});if(!document.getElementById('hl415-run-'+s(r.id)))openReview(r)}));
+  if(r)actions.append(btn('View in Build',()=>{
+      openWorkView('build');
+      // Scroll to the run card after the view switch (handled by navigation-state subscriber)
+      setTimeout(() => {
+        document.getElementById('hl415-run-'+s(r.id))?.scrollIntoView({block:'nearest'});
+        if(!document.getElementById('hl415-run-'+s(r.id))) openReview(r);
+      }, 0);
+    }));
   card.append(actions);root.append(card);
  }
 }

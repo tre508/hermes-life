@@ -21,6 +21,7 @@ import './phase41303-memory';
 import './phase415-review';
 import './work-workspace';
 import './command-centre-ui';
+import { openWorkspace, openWorkView, openTask, openResult, openActivityForTask, onNavigationChange } from './navigation-state.ts';
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string): T | null => document.getElementById(id) as T | null;
 const str = (v: unknown): string => (typeof v === 'string' ? v : v == null ? '' : String(v));
@@ -32,24 +33,16 @@ if (versionPill) versionPill.textContent = 'HERMESHA / 0.4.0';
 // ============================= workspace & layout =============================
 const app = $('app')!;
 const workspaces = ['home', 'work', 'activity', 'results', 'system'];
-let currentWorkspace = 'home';
 
-// Distinct, non-contradictory sources of truth:
-//   • "Connection"  → the WebSocket and the backend /health surface.
-//   • "Backend"     → activity the backend is doing right now: a task is
-//                      queued, running, just completed, etc. Hermes may be
-//                      processing tool calls with no visible role activity,
-//                      so this can be Running while the world summary still
-//                      reads "no role working" — both are correct.
-//   • "World role"  → town-view's authoritative role projection, painted
-//                      into the existing Command Center strip (already
-//                      distinct visually).
+// Single source of truth for workspace/layout — driven by navigation-state
 function setLayout(layout: 'world' | 'workspace' | 'focus') {
     app.classList.remove('layout-home', 'layout-workspace', 'layout-focus');
     app.classList.add(layout === 'world' ? 'layout-home' : `layout-${layout}`);
 }
-function setWorkspace(id: string) {
-    currentWorkspace = id;
+
+// React to canonical navigation state changes
+onNavigationChange((nav) => {
+    const id = nav.workspace;
     workspaces.forEach(w => {
         const view = $(`workspace-${w}`);
         if (view) view.hidden = w !== id;
@@ -59,25 +52,20 @@ function setWorkspace(id: string) {
         btn.classList.toggle('active', on);
         btn.setAttribute('aria-pressed', String(on));
     });
-    // Auto layout: Home shows the world large, Work keeps a working panel,
-    // everything else gives content nearly full width.
     setLayout(id === 'home' ? 'world' : id === 'work' ? 'workspace' : 'focus');
-    // Home contextual panel is primary on Home, selection elsewhere.
     const ctxHome = $('ctx-home'), ctxSel = $('ctx-selection');
     if (ctxHome) ctxHome.hidden = id !== 'home';
     if (ctxSel) ctxSel.hidden = id === 'home';
-    // P2 cross-view sync: leaving Activity clears any task-filter so the
-    // user does not come back later wondering why the timeline is empty.
     if (id !== 'activity') setActivityTaskFilter(null);
-}
+});
 // P2 sync: Work's "Follow activity for this task" button dispatches
 // `hermes:workspace:activity` with the chosen task id; Activity listens
 // here so the timeline filter engages and the user lands inside the
 // focused stream instead of the global activity dump.
+// Legacy event — handled by navigation-state's openActivityForTask adapter
 window.addEventListener('hermes:workspace:activity', ((ev: Event) => {
     const detail = (ev as CustomEvent<{ task_id?: string }>).detail;
     if (!detail || !detail.task_id) return;
-    setWorkspace('activity');
     setActivityTaskFilter(String(detail.task_id));
     while (($('activity-timeline')?.childElementCount || 0) > 0) {
         $('activity-timeline')?.lastElementChild?.remove();
@@ -109,16 +97,22 @@ async function refetchActivityForTask(taskId: string) {
     }
 }
 document.querySelectorAll<HTMLButtonElement>('#primary-nav button').forEach(btn => {
-    btn.addEventListener('click', () => setWorkspace(btn.dataset.workspace || 'home'));
+    btn.addEventListener('click', () => {
+        const ws = btn.dataset.workspace;
+        if (ws) openWorkspace(ws as 'home' | 'work' | 'activity' | 'results' | 'system');
+    });
 });
 // Any activation of a Work sub-view (phase deep links included) brings the user to Work.
 document.addEventListener('click', (e) => {
-    const target = (e.target as HTMLElement).closest('#work-subnav button[data-workview]');
-    if (target) setWorkspace('work');
+    const target = (e.target as HTMLElement).closest('#work-subnav button[data-workview]') as HTMLButtonElement | null;
+    if (target) {
+        const view = target.dataset.workview;
+        if (view) openWorkView(view as 'tasks' | 'discover' | 'goals' | 'planning' | 'build');
+    }
 }, true);
 window.addEventListener('hermes:workview', ((ev: Event) => {
     const view = (ev as CustomEvent<{ view?: string }>).detail?.view;
-    if (view) setWorkspace('work');
+    if (view) openWorkView(view as 'tasks' | 'discover' | 'goals' | 'planning' | 'build');
 }) as EventListener);
 
 // Phase 4 left-rail Chat uses the same existing chat control, not another chat instance.
@@ -587,11 +581,12 @@ async function syncLatestTask() {
 }
 
 // Opening a task from the town, Work lifecycle, or goals routes to Results and loads it.
+// This is a legacy event; navigation-state's handleLegacyOpenTask adapter calls openTask with destination 'results'
 window.addEventListener('hermes:open-task', ((ev: Event) => {
     const id = (ev as CustomEvent<{ id: string }>).detail?.id;
     if (!id) return;
     setFollowLive(false);
-    setWorkspace('results');
+    // Navigation state updated via adapter; loadTask handles Results view rendering
     void loadTask(id);
 }) as EventListener);
 
@@ -608,12 +603,12 @@ async function loadPersona() {
 }
 
 const homeOpenWork = $('home-open-work');
-homeOpenWork?.addEventListener('click', () => setWorkspace('work'));
-$('studio-open-activity')?.addEventListener('click', () => setWorkspace('activity'));
+homeOpenWork?.addEventListener('click', () => openWorkspace('work'));
+$('studio-open-activity')?.addEventListener('click', () => openWorkspace('activity'));
 // Home recent-strip "Open in Work" — same destination as the sidebar, also kept in
 // case the persona block is collapsed; both surfaces route to the unified work
 // workspace via the same handler.
-$('home-recent-open')?.addEventListener('click', () => setWorkspace('work'));
+$('home-recent-open')?.addEventListener('click', () => openWorkspace('work'));
 renderRecentEvents();
 
 // ============================= mount =============================
@@ -622,6 +617,7 @@ installTown();
 void hydrate();
 void loadPersona();
 
-setWorkspace('home');
+// Initialize navigation state to home
+openWorkspace('home');
 paintStatus();
 console.log('Hermes Life unified workspace initialized.');

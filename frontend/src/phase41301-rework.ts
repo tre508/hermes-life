@@ -6,6 +6,7 @@
  */
 import './phase41301-rework.css';
 import { makeRefresh } from './refresh-feedback.ts';
+import { openWorkView, openTask } from './navigation-state.ts';
 type R=Record<string,unknown>;
 const $=(id:string)=>document.getElementById(id);
 const val=(x:unknown)=>String(x??'');
@@ -137,10 +138,10 @@ function render(){
     const investigation=text(r.investigation_status);
     card.append(node('p','hl413r-muted',`Investigation: ${investigation || 'not started'}${r.goal_id||r.discovery_goal_id?' · Goal '+val(r.discovery_goal_id||r.goal_id).slice(0,8):''}${quality==='excluded'?' · Needs review: '+qualityReason:''}`));
     if(r.can_investigate===true&&stage(r)==='active'){buttons.append(btn('Investigate',()=>void investigate(r)))}
-    if(r.task_id){buttons.append(btn('View findings',()=>window.dispatchEvent(new CustomEvent('hermes:open-task',{detail:{id:val(r.task_id)}}))))}
-    if(r.plan_id){buttons.append(btn('View plan',()=>openTab('Planning')))}
-    if(r.workflow&&wfNext(r)==='start_build'){buttons.append(btn('Start build',()=>openTab('Planning')))}
-    if(wfNext(r)==='open_review'){buttons.append(btn('Review candidate',()=>openTab('Build')))}
+    if(r.task_id){buttons.append(btn('View findings',()=>openTask(val(r.task_id), { destination: 'results' })))}
+    if(r.plan_id){buttons.append(btn('View plan',()=>openWorkView('planning')))}
+    if(r.workflow&&wfNext(r)==='start_build'){buttons.append(btn('Start build',()=>openWorkView('planning')))}
+    if(wfNext(r)==='open_review'){buttons.append(btn('Review candidate',()=>openWorkView('build')))}
     for(const command of ['open','deferred','dismissed']){
       const button=btn(command==='open'?'Reopen':command==='deferred'?'Defer':'Dismiss',()=>void mutate('curiosity',r,command));
       button.disabled=!r.id||command===state(r);buttons.append(button)
@@ -157,10 +158,6 @@ function render(){
  advBody.replaceChildren();const interval=$('decision-scan-interval') as HTMLInputElement|null;
  const schedule=node('p','hl413r-muted',`Scheduled discovery controls remain configured in the existing backend${interval?' · Interval: '+interval.value+' seconds':''}.`);
  const raw=node('pre','',scanResult?JSON.stringify(scanResult,null,2):'No scan result captured by this browser.');advBody.append(schedule,raw);
-}
-function openTab(label:string){
- const target=Array.from(document.querySelectorAll<HTMLButtonElement>('button')).find(x=>x.textContent?.trim()===label&&!x.closest('#chat-panel'));
- target?.click();
 }
 function scanButton_(){return btn('Scan VM projects',()=>void scan())}
 async function mutate(kind:string,r:R,action:string){notice=`Updating ${action}…`;render();try{await endpoint(`/${kind}/${encodeURIComponent(val(r.id))}/${action}`,'POST');notice=`${action} saved`;await refresh.run()}catch(e){notice=val(e);render()}}

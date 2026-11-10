@@ -1,6 +1,9 @@
 /** Phase 4 presentation-only interactions for ONE Hermesha Command Centre.
  * Does not fetch/mutate application state or duplicate existing workspace controllers.
+ * Uses navigation-state.ts for canonical navigation intents.
  */
+import { openWorkspace, openWorkView } from './navigation-state.ts';
+
 const roomToLocation: Record<string, string | null> = {
   'control': 'town_square', 'director': 'planning_house',
   'research': 'library', 'review': 'review_office',
@@ -91,7 +94,8 @@ document.querySelectorAll<HTMLButtonElement>('#primary-nav button[data-hc-room]'
   btn.addEventListener('click', () => {
     const room = btn.dataset.hcRoom;
     if (!room) return;
-    // Existing primary-nav click handler switches to Home synchronously.
+    // Ensure Home workspace is active, then select room
+    openWorkspace('home');
     queueMicrotask(() => selectRoom(room));
   });
 });
@@ -99,11 +103,9 @@ document.querySelectorAll<HTMLButtonElement>('#primary-nav button[data-hc-room]'
 document.querySelectorAll<HTMLButtonElement>('#primary-nav button[data-hc-workview]').forEach(btn => {
   btn.addEventListener('click', () => {
     const workview = btn.dataset.hcWorkview;
-    // Let main.v2's primary-nav handler show Work, then delegate to its native subnav.
-    queueMicrotask(() => {
-      const existing = document.querySelector<HTMLButtonElement>(`#work-subnav button[data-workview="${workview}"]`);
-      existing?.click();
-    });
+    if (!workview) return;
+    // Canonical intent: open Work workspace with specific subview
+    openWorkView(workview as 'tasks' | 'discover' | 'goals' | 'planning' | 'build');
   });
 });
 
