@@ -1,8 +1,9 @@
 # HERMES LIFE — MASTER PRODUCT, UI & ENGINEERING SPECIFICATION
 
 **Document ID:** HL-SOT-002  
-**Version:** 2.0 (consolidated target)  
+**Version:** 2.1 (autonomous initiative milestone added)  
 **Prepared:** 2026-11-04  
+**Updated:** 2026-11-10  
 **Status:** Normative product specification and development roadmap  
 **Repository destination:** `/home/gayzer/Apps/hermes-life/HERMES_LIFE_MASTER_DEV_SPEC.md`  
 **Replaces as planning authority:** `HERMES_LIFE_DEV_SPEC.md` v1.0, once explicitly adopted; retain the old document as historical reference.  
@@ -14,7 +15,7 @@
 
 ### 0.1 Mission
 
-Hermes Life is a **persistent personal AI coding and task assistant**, controlled from one web application. Its purpose is to let a user describe a goal, select or create a project, observe Hermes investigate and plan, approve changes at appropriate boundaries, have Hermes build and test real code in an isolated VM, review and revise candidates, and retain useful knowledge over time. It also supports noncoding tasks, document study, research, and self-directed improvement **within declared authorization boundaries**.
+Hermes Life is a **persistent personal AI coding and task assistant**, controlled from one web application. Its purpose is to let a user describe a goal, select or create a project, observe Hermes investigate and plan, approve changes at appropriate boundaries, have Hermes build and test real code in an isolated VM, review and revise candidates, and retain useful knowledge over time. It also supports noncoding tasks, document study, research, and self-directed improvement **within declared authorization boundaries**. It can also originate **entirely new, separately registered projects**—applications, tools, research and automations—from evidence-backed opportunities or validated learning goals, subject to the autonomy policy in §26.
 
 The virtual world is a readable representation of **real** agent work, not a game running a separate simulated agent. Chat, goals, plans, builds, events, and memories are views into **one persisted system**.
 
@@ -47,7 +48,7 @@ The virtual world is a readable representation of **real** agent work, not a gam
 - **Actual work:** activity and completion claims require persisted events/evidence.
 - **Progress without babysitting:** safe authorized handoffs proceed automatically; human approvals are explicit and meaningful.
 - **Reversible changes:** candidate work stays isolated; durable history and recovery protect user work.
-- **Project awareness:** source, specifications, tasks, tools, memories, and outcomes are scoped to a project when applicable.
+- **Project awareness:** source, specifications, tasks, tools, memories, and outcomes are scoped to a project when applicable. New projects may be initiated autonomously within authorization boundaries; project registration is not limited to existing repositories.
 - **Reproducible outcomes:** store exact commands, environments, commits, evidence and errors.
 - **Readable over crowded:** the UI defaults to relevant outcomes; diagnostics are available on demand.
 
@@ -61,13 +62,15 @@ The virtual world is a readable representation of **real** agent work, not a gam
 
 **A. Direct coding:** “Fix the duplicate discovery list in Hermes Life.” User selects project, Hermes retrieves source-of-truth context, inspects the actual code, drafts an evidence-backed plan, obtains authorization for edits, builds an isolated candidate, tests, streams progress, and presents a diff and evidence for acceptance/revision. Applying to the host is a **separate** authorization.
 
-**B. Autonomous coding:** With autonomy enabled and a registered project, Hermes discovers a meaningful opportunity, discards low-quality duplicates, forms a goal, investigates safely, produces a plan, and waits at the plan-approval gate. Approval advances to an isolated build automatically when the project is eligible and resources are available. Candidate review remains explicit.
+**B. Autonomous coding:** With autonomy enabled and a registered project, Hermes discovers a meaningful opportunity, discards low-quality duplicates, forms a goal, investigates safely, produces a plan, and waits at the plan-approval gate. Approval advances to an isolated build automatically when the project is eligible and resources are available. Candidate review remains explicit. Under §26, Hermes may also originate a *new* project and initialize a fresh isolated repository only when the configured policy explicitly authorizes that operation; the existing default plan/build/review gates remain in force unless a separately approved scope-specific policy says otherwise.
 
 **C. Conversational assistant:** User sends a question, file/task request, or correction. Hermes responds in the same chat, supports follow-ups, can run authorized tools, and remembers relevant preferences and project facts with provenance.
 
 **D. Directed study:** User registers a PDF/document/repository. Hermes indexes it, studies bounded units, verifies exercises where appropriate, produces cited notes and technical lessons, and advances units until completed or blocked.
 
 **E. Troubleshooting:** User can see an exact task/goal state, error, timestamps, current tool activity, historical transitions, and actionable next step without navigating an opaque event dump.
+
+**F. Self-directed project development (HL-AUTO-001 target):** Hermes detects a repeated workflow, skill gap or unmet need, produces an evidence-backed opportunity, ranks it against existing commitments, proposes a new application/tool/research project, initializes a distinct VM workspace when authorized, develops and evaluates it through existing execution stages, retains lessons and resumes future milestones after restart. No user-authored ticket is required to originate the initiative.
 
 ### 1.2 Explicit non-goals
 
@@ -139,7 +142,7 @@ Desktop layout has **three conceptual regions**: a navigable operational workspa
 3. **Discover** — findings, curiosity questions, relevance, and investigation requests.
 4. **Planning** — investigation findings and **actual structured plans**, approvals and blockers.
 5. **Build** — implementation runs, candidate tests, reviews, revisions and application status.
-6. **Projects** — registration, permissions, sync, specifications and source status.
+6. **Projects** — project portfolio (registered and autonomously originated projects), proposals, milestones, repository/workspace initialization, permissions, sync, specifications, source status, budgets and execution evidence (§26).
 7. **Knowledge** — registered documents, study progress, Obsidian memory and memory reviews.
 8. **Activity/Evidence** — searchable timeline and linked execution evidence. These may remain separate tabs if they are semantically distinct.
 9. **Settings** — autonomy mode, scheduler status, VM connectivity, retention and integrations.
@@ -521,7 +524,7 @@ Explain failures by category: `vm_unavailable`, `project_unsynced`, `approval_re
 
 ## 17. Autonomy, scheduling, and permissions
 
-**HL-AUTO-001:** Autonomy is an explicit enable/disable state. User-triggered tasks can be executed independently according to permissions. Disabled autonomy must not silently enqueue new self-directed tasks.
+**HL-AUTO-CTRL-001:** Autonomy is an explicit enable/disable state. User-triggered tasks can be executed independently according to permissions. Disabled autonomy must not silently enqueue new self-directed tasks.
 
 **HL-AUTO-002:** One scheduling owner selects eligible goals by priority, age, dependencies, project scope, resource budget and current run lease. Safe handoffs are idempotent. No duplicate task starts because of repeated browser clicks or restart.
 
@@ -530,6 +533,10 @@ Explain failures by category: `vm_unavailable`, `project_unsynced`, `approval_re
 **HL-AUTO-004:** Permissions are per operation: read-only inspect; test baseline or run project code; write isolated candidate; promote a revision; accept candidate; apply to host; publish/deploy. Approval for one scope never silently escalates to another. Read-only must be enforced at tool/workspace level, not prompt text alone.
 
 **HL-AUTO-005:** Concurrent operations require consistent leases and crash recovery. An external side effect is never retried blindly; replaying an internal idempotent state transition is allowed if the transition has a unique key.
+
+**HL-AUTO-CTRL-002:** Autonomy mode, per-action approval, active schedules, budgets and per-project scope govern *both* existing-project work and §26 new-project initiatives. Enabling discovery does not grant repository creation, downloads, execution, host writes or deployment. Never interpret generated proposals as authority to approve themselves.
+
+**ID migration note:** In master spec v2.0 the basic enable/disable control was labeled `HL-AUTO-001`. In v2.1 that control is renamed `HL-AUTO-CTRL-001` to reserve **`HL-AUTO-001`** for the complete new milestone in §26. References in historical goals/audits must be remapped with provenance; do not silently reinterpret old records.
 
 ---
 
@@ -630,9 +637,15 @@ This roadmap is **dependency-based**, not a promise that every earlier patch has
 | 9 | **HL-WORLD-014 / P1** | Event-driven virtual lab stations and details | 3 | Room/activity changes map to actual events and explain task status |
 | 10 | **HL-STUDY-015 / P2** | Reliable directed study progress and reports | 0, 8 | Full source units complete exactly once with artifacts |
 | 11 | **HL-MAINT-016 / P2** | Experiment retention and DB-driven dry-run prune | 1, 4, 5 | Safe preview/orphan/retention tests, storage warnings |
-| 12 | **HL-QUALITY-017 / P2** | Full recovery, browser regression, install and end-to-end suite | All | Continuous real-environment release gate |
+| 12 | **HL-PERS-001 / P1** | Adaptive personality and shared evidence-backed preference/experience integration (§26.2) | 8 | Verified preferences/corrections reused without contaminating project selection or fabricating memories |
+| 13 | **HL-AUTO-001.0 / P1** | Self-directed initiative audit and architectural integration map (§26.10) | 0, 8, 12 | Current routes/tables/services mapped; no duplicate scheduler; approval and isolation gaps documented |
+| 14 | **HL-AUTO-001.1–001.2 / P1** | Shared policy, persistence, opportunity discovery and skill validation | 13 | Evidence-backed candidates/skills, migrated schema, denied operations proven non-mutating |
+| 15 | **HL-AUTO-001.3–001.4 / P1** | Proposal/bootstrap and durable multi-project orchestration | 14, 1, 2, 4 | New VM repo project registered and resumable; permission and user-priority tests pass |
+| 16 | **HL-AUTO-001.5–001.6 / P1** | Existing execution adapter, experience loop and Projects portfolio UI | 15, 3, 5, 8 | Real build/test evidence, feedback and accurate dashboard controls |
+| 17 | **HL-AUTO-001.7 / P1** | End-to-end fault injection, live verification and rollout | 16 | §26.11 scenarios pass without bypassing authorization or losing work |
+| 18 | **HL-QUALITY-017 / P2** | Full recovery, browser regression, install and end-to-end suite | All | Continuous real-environment release gate |
 
-**Suggested first sprint:** 0 → 1 → 2 → 3. Do not begin storage cleanup while candidate recovery and environment ownership remain unverified. UI polish should not obscure the underlying execution-state gap.
+**Suggested first sprint:** 0 → 1 → 2 → 3. Complete HL-MEM-013 and HL-PERS-001 before starting HL-AUTO-001 implementation phases; run its Phase 0 integration audit before any new persistence or orchestration code. Do not begin storage cleanup while candidate recovery and environment ownership remain unverified. UI polish should not obscure the underlying execution-state gap.
 
 ---
 
@@ -660,6 +673,8 @@ This roadmap is **dependency-based**, not a promise that every earlier patch has
 | Event/streaming | `/ws/events` exists; real stream end-to-end and UI recovery not established | Partial/unverified |
 | Study | Handbook 13-unit manifest and timer installed earlier | Continued autonomous completion unverified |
 | Experiment pruning | Proposed policy, no confirmed implementation | Planned |
+| HL-PERS-001 adaptive personality | Requested dependency for shared preference/experience integration | **Unverified; inspect live implementation** |
+| HL-AUTO-001 self-directed project creation | New normative target in §26; implementation plan supplied, but no live routes/schema/VM execution independently verified | **Planned; not claimed implemented** |
 
 **Known conflict with older spec:** The earlier `HL-SOT-001` §15 `HL-BUG-001` and milestone sequence were a snapshot from November 2; they should not be treated as currently confirmed defects. This document's registry and verified source/runtime evidence supersede those stale status claims once this document is adopted.
 
@@ -742,6 +757,7 @@ Copy this file into the host repository; review it; explicitly designate `HERMES
 
 ### 24.4 Change log
 
+- **v2.1 / 2026-11-10:** Added §26 HL-AUTO-001 autonomous learning, opportunity selection, new-project bootstrap, portfolio orchestration, policy modes, Projects UI and tests; added HL-PERS-001 prerequisite and roadmap milestones; migrated former control ID `HL-AUTO-001` → `HL-AUTO-CTRL-001`. No runtime implementation claims.
 - **v2.0 / 2026-11-04:** Consolidated product purpose, architecture, full UI information model, interactive curiosity, goal/task distinction, plan lifecycle, approval gates, candidate review/revisions, reproducible test environments, memory/Obsidian, virtual lab event mapping, maintenance policy, deployment gates and updated dependency roadmap.
 - **v1.0 / 2026-11-02:** Original HL-SOT-001 target specification, retained as historical context.
 
@@ -761,5 +777,155 @@ Hermes Life is ready to act as the user's everyday personal AI coding/task assis
 8. Continue conversations and future projects with sourced Obsidian memory and accurate project context.
 9. Understand Hermes' current work from both activity cards and the virtual lab, without guessing what animations mean.
 10. Trust that every completion claim maps to an actual persisted state, real execution evidence and a verifiable outcome.
+11. Enable an authorized autonomy mode and observe Hermes identify a real opportunity or knowledge gap, create and manage a **new project** without a user-authored ticket, test actual results, and resume it across sessions; inspect its rationale, costs, permissions and artifacts in Projects.
 
 **Design invariant:** Hermes must never leave the user wondering: *What is this record? Is it new or old? Has it started? What did Hermes do? What stopped it? What is the next action?*
+
+
+---
+
+## 26. HL-AUTO-001 — Autonomous Learning, Project Ideation & Self-Directed Development
+
+**Milestone:** `HL-AUTO-001` · **Priority:** P1, dependent on core workflow stability and `HL-PERS-001` · **Status:** normative target, NOT verified operational. **Source:** Hermes Life HL-AUTO-001 Development Implementation Plan (2026-11-10). This section owns the milestone; legacy §17 control IDs use `HL-AUTO-CTRL-*`.
+
+### 26.1 Product intent, scope and compatibility (HL-AUTO-PROJ-001)
+
+Hermes MUST be capable of *initiating* work, not only consuming user tickets or known repository TODOs. It MAY independently select learning objectives; identify opportunities in authorized observations; generate project ideas; and build **new** applications, automation tools, research projects and other bounded, testable systems. The source need not be an already registered project. It MUST still establish an auditable project identity, specification, isolated workspace, roadmap, execution evidence and permission decision before making changes.
+
+Reuse §7 discovery/curiosity, §8 plans, §9 the existing `autonomy.tick()` scheduling owner, §10 implementation/revision, §11 platform test environments, §12 projects, §13 SQLite/Obsidian memory, §14 study and §16 events. Do not construct competing schedulers, independent knowledge databases or a second untracked coding pipeline. **Direct requests retain configurable precedence over autonomous initiatives.** No unrestricted external side effects are implied by being in an 'independent' mode.
+
+**Acceptance:** A new project can originate from a verified signal without a user-authored ticket, but no operation can bypass §8.3 default approval semantics except where an explicit, narrowly scoped policy grant records that authority. Accepting a VM candidate never implies host merge/deployment.
+
+### 26.2 HL-PERS-001 prerequisite and shared intelligence (HL-AUTO-PROJ-002)
+
+Deliver and verify `HL-PERS-001` first: it must represent user preferences, explicit corrections, durable interaction decisions and related experience with source references, confidence, update/reversal semantics and privacy filtering. **Personality adaptation** controls *how* Hermes collaborates; **autonomous initiative** chooses *what* eligible work to pursue. Both use existing authoritative SQLite memory and Obsidian mirror (§13); distinct policy modules reference the same evidence records. Do not copy a speculative personality inference into an execution permission. Historical data stays source-labeled and must not be treated as automatically validated.
+
+### 26.3 Component responsibilities and integration contracts
+
+| Requirement | Service responsibility | Reuse / extension boundary |
+|---|---|---|
+| `HL-AUTO-LEARN-001` | Detect skill gaps from task failures and goals; choose bounded study units, exercises and validation checks; store demonstrated skill evidence, not claimed expertise. | Extend §14 study and §13 technical lessons; reference existing task/test evidence. |
+| `HL-AUTO-OPP-001` | Ingest authorized repeated-work observations, task outcomes, explicit interests and registered project signals; normalize/fingerprint, deduplicate, score and retain provenance. | Extend §7 discovery without treating raw text as executable instructions. |
+| `HL-AUTO-IDEA-001` | Create versioned project proposals: problem, sources, novelty, expected utility, alternatives, feasibility, costs, dependencies, risks, authorization needs, criteria and test plan. | Use structured §8 plans; proposal ≠ approved work. |
+| `HL-AUTO-BOOT-001` | Initialize approved/authorized **new** project repository, spec, dependency manifest, VM workspace, project registry record, roadmap and baseline. | Reuse §12 project registry, §11 env and §2 host/VM separation; rollback partial initialization. |
+| `HL-AUTO-PORT-001` | Maintain multiple project milestones, dependencies, leases, priorities, pauses, checkpoints, blockers and recovery; select bounded next actions. | Extend only existing §9 scheduling owner and §17 policy. |
+| `HL-AUTO-EXEC-001` | Dispatch approved work via existing planner, coding workspace, tests, evaluation, bounded revision and candidate review. | §§8–11, never direct host edits by an unreviewed candidate. |
+| `HL-AUTO-EXP-001` | Compare expected vs observed value, test results and cost; record validated successes/failures and adjust future candidate rankings without pretending model-weight changes. | Shared §13 experience/Obsidian; confidence and evidence explicit. |
+| `HL-AUTO-POL-001` | Enforce mode, allowlists, per-action grants, schedules, task preemption, budgets, concurrency and audit history. | Extend §17 one policy engine; deny unsafe/missing permission server-side. |
+| `HL-AUTO-UI-001` | Projects portfolio, proposals, milestone details, decision rationale, real-time progress, budget, evidence, pause/approve/cancel controls. | Extend §3/§12 Projects; consume persisted §16 events. |
+
+All component/interface names are **proposed logical responsibilities**, not assertions that similarly named classes or routes exist. Phase 0 MUST inspect actual code, OpenAPI, migrations, VM adapter and frontend before finalizing names.
+
+### 26.4 Autonomous initiative selection loop (HL-AUTO-DECIDE-001)
+
+```text
+authorized observations / user corrections / project outcomes / learning gaps
+  → source references and signal extraction
+  → normalization + duplicate suppression
+  → candidate opportunity / learning objective
+  → value, feasibility, uncertainty, cost and risk assessment
+  → selection (learn | propose new project | resume existing | no action)
+  → explicit policy check and durable decision event
+  → proposal / optional approval gate
+  → project bootstrap in isolated VM (if eligible)
+  → milestone planning and bounded execution using existing engine
+  → test/evaluate/revise/review
+  → evidence-backed experience update and next eligible selection
+```
+
+Candidate rank SHOULD combine **user relevance, expected utility, feasibility, evidence quality, novelty and learning benefit**, less resource cost, risk, uncertainty and interruption penalty. Weights/thresholds MUST be configurable and inspectable; evaluation results MAY recalibrate them. A low-confidence idea must not automatically become an executable ticket. A `no_action` decision is valid when no sufficiently supported opportunity exists. Every initiative decision records **input source IDs, policy version, scores/uncertainty, selected action, alternatives considered at summary level, budget estimate and actual disposition**; these are operational summaries, not private reasoning.
+
+Prevent loops: candidates need stable fingerprints, backoff/cooldown, bounded retries and a reactivation condition (new evidence, changed source, explicit user request). A repeated scan alone is not progress. Scans MUST yield to active user work and respect budget.
+
+### 26.5 Project state machine, milestones and recovery (HL-AUTO-STATE-001)
+
+**Portfolio-level target states:** `candidate → proposed → awaiting_approval? → approved → initializing → planned → active → evaluating → completed`, with `paused`, `blocked`, `failed`, `cancelled`, `archived` and bounded `evaluating → active` revision. These are conceptual; map them to existing state names during Phase 0 instead of imposing incompatible strings. Keep **proposal state**, **project state**, **milestone state**, **goal/task state** and **implementation-run/review state** as separate linked records (§9.2).
+
+A project proposal must not be counted as an initialized repository; a created repository must not be labeled completed before criteria evaluation. Milestones have durable ordered/dependency relations, acceptance criteria, owner execution record and blocker reason. Scheduler selects a single eligible **next bounded action** with stable idempotency key and execution lease. On crash/restart, reconcile actual DB/VM state before requeue; ambiguous external side effects become `recovery_required`, not automatically retried. User pause/stop MUST affect the real worker and remain durable after reconnect; stop may wait for a safe checkpoint when immediate cancellation would corrupt state.
+
+### 26.6 Persistence, provenance and knowledge integration (HL-AUTO-DATA-001)
+
+Extend the **existing SQLite schema with migrations**, without recreating existing `projects`, `goals`, `tasks`, `runs`, `events`, `memories`, `reviews` or `approvals`. Candidate logical records (final table/column names subject to repository inspection):
+
+| Record | Required fields / relationships |
+|---|---|
+| Opportunity | stable ID, source type and evidence IDs, scope, dedupe fingerprint, problem, benefit hypothesis, confidence, status, observed/updated timestamps |
+| Learning objective / skill evidence | skill, knowledge gap source, study resource/version, exercise run/test outputs, verified result, confidence, applicability and timestamps |
+| Project proposal | proposal ID/version, opportunity ID, proposed project identity, problem, specs, feasibility, budget, acceptance criteria, policy evaluation and disposition |
+| New-project registration / bootstrap attempt | existing project ID, origin `user/autonomous`, approved scope, VM repository/workspace path, source baseline hash, bootstrap artifacts, rollback/recovery status |
+| Milestone / work item | project ID, ordered dependencies, goals/plan links, testable criteria, state, lease/checkpoint and blocker |
+| Autonomous decision / policy / budget ledger | origin inputs, candidate scores, choice, mode/grant policy snapshot, approval actor/scope/time, budget estimates/usage and stop reason |
+| Experience record | linked decision/project/run, expected result, measured outcome, success/failure classification, supporting test/review evidence, reusable lesson |
+
+Enforce foreign keys, uniqueness/idempotency, versioned migrations and replay-safe transitions (§19). Obsidian mirrors project decisions, learning notes, validated skills and outcomes with stable IDs, timestamps and source/checksum references. **SQLite remains authoritative.** Handle mirror failures with visible retry status; no silent overwrite of edited vault notes. Never persist secrets into routine notes, UI events or model prompts.
+
+### 26.7 Configurable autonomy, approvals and budgets (HL-AUTO-MODE-001)
+
+These are **design modes**, not a claim about current settings:
+
+| Mode | Permitted background initiative | Approval boundary |
+|---|---|---|
+| **Observe** | Inspect explicitly authorized signals, classify opportunities and summarize evidence | No automatic project initialization, execution or repository writes |
+| **Suggest** | Create learning plans and structured project proposals | User approval required before project bootstrap and task execution |
+| **Guided** | Continue *previously approved* projects and milestones inside approved VM scope | New-project initiation and out-of-scope action require explicit approval; existing plan/candidate gates apply |
+| **Independent within scope** | Discover, initialize and execute new projects **only within explicitly granted VM/workspace allowlists, action capabilities, limits and approval policy** | Out-of-scope filesystem/network/packages/host apply, secrets, publishing, purchases and destructive changes require separate authorization or are forbidden |
+
+Authorization MUST be **per operation**, not solely a mode label: read inspection, network access, remote downloads, package install, VM repo creation, isolated edits, testing executable code, revision promotion, host apply, publishing, external messaging, financial actions and changes to Hermes core each have separately checkable capabilities. An independent-mode grant may be configured to authorize specific internal VM development stages, but **never implicitly authorizes host application, deployment, expense or secret access**. Preserve §8.3 gates as default; any pre-granted approval must bind to exact operation class, project/workspace, bounds, expiry and policy version and be recorded as an auditable grant—not a synthetic human click.
+
+Budgets MUST support time, compute, token/API cost where measurable, storage, concurrency, per-project caps and scheduling window; account for unavailable measurements as `unknown` and block when a hard cap cannot be enforced. User work SHOULD preempt background work at safe checkpoints; never cancel/replay non-idempotent side effects blindly. On disable/limit/exhaustion, show current state and a concrete resume path.
+
+### 26.8 Proposed API and event contracts (HL-AUTO-API-001)
+
+**Do not install routes solely from these examples.** Query current `/openapi.json` and adapt naming to §19:
+
+- `GET/PATCH /api/autonomy/config` — mode, scope, schedule, cap and policy version; mutation auditable.
+- `GET /api/opportunities`, `POST /api/opportunities/{id}/propose|dismiss` — inspect, dedupe and propose (choose actual route convention during audit).
+- `GET /api/projects`, `POST /api/projects`, `GET /api/projects/{id}` — extend existing project semantics; project origin, proposals, milestones and bootstrapping, not duplicate project services.
+- `POST /api/projects/{id}/approve|pause|resume|cancel|archive` — guarded state transition with idempotency key and actual worker effect.
+- `GET /api/learning/objectives`, `GET /api/skills`, `GET /api/autonomy/decisions`, `GET /api/approvals` — evidence, validated learning, policy and decision history.
+- Existing `/ws/events`: add `opportunity.*`, `proposal.*`, `project.*`, `milestone.*`, `learning.*`, `approval.*`, `budget.*` and `execution.*` event families **only if consistent with existing schema**, with sequence, correlation, status and stable IDs.
+
+Mutations return authoritative IDs/current states; conflicts include current state, blocker and valid next action. No client-side mode toggle may bypass server-side policy. Events are persisted before publication and replayed on reconnect.
+
+### 26.9 Projects dashboard and user-facing visibility (HL-AUTO-UI-002)
+
+The existing **Projects** navigation (§3/§12) evolves into a **portfolio workspace**, not a second 'Projects' tab. Show active, proposed, paused, blocked, completed and archived projects; identify **user-originated vs autonomous**. Portfolio cards show *what*, *why* (provenance and decision summary), priority, milestone count/actual stage, latest real operation/time, blocker, budget spent/remaining and next action. Project detail: versioned proposal/spec; repository and host/VM source mapping; milestone roadmap/dependencies; execution runs/tests/candidate diffs; decisions and learning; permission scope; artifacts and timeline.
+
+Provide approve/reject proposal, reprioritize, pause/resume/cancel, inspect evidence and configure project-specific permissions (where backend supported). Show clear **autonomy enabled/paused, mode, scheduled window and spending limits**. Never substitute fictional resident dialogue, invented progress, generated reasoning, or mock scores for actual backend telemetry. Consistent §3 loading/offline/error/stale/empty states, resize/scroll behavior and accessible keyboard controls are mandatory. Direct task results and project approvals must remain discoverable in Chat/Goals/Planning/Build through the same linked records.
+
+### 26.10 Ordered HL-AUTO-001 implementation phases
+
+| Phase | Implementation deliverable | Exit gate |
+|---|---|---|
+| **0 — Audit + contract mapping** | Inspect live repo/commit, OpenAPI, DB migrations, existing Phase 4.11 workspace integration, VM, §9 scheduler, memory, events, frontend and `HL-PERS-001` status; reconcile naming/ID drift. | Written integration map, existing vs missing classified, planned migration/permissions; no duplicated subsystem. |
+| **1 — Shared persistence + policy** | Add versioned opportunity/decision/portfolio records, audit-grant and budget accounting, scope evaluator and stop semantics. | Fresh/legacy DB migration, idempotency, deny-without-mutation, policy version and restart tests. |
+| **2 — Opportunity + learning** | Evidence ingestion, repeated-pattern and skill-gap detection, dedupe, ranked candidate registry, bounded source study and independently verified exercises. | Fixtures yield provenance-backed opportunities and tested skill evidence; unchanged sources cannot spin an infinite loop. |
+| **3 — Proposals + project bootstrap** | Versioned project specification and criteria, authorization gate, new isolated VM repo/workspace setup, dependency environment and registration via current project adapter; rollback. | Approved proposal produces usable registered project; denied proposal produces **no** unauthorized workspace write. |
+| **4 — Portfolio orchestration** | Milestone dependency state, queue selection, priority over background, leases, checkpoints, pause/resume/recovery and per-project budgets using the single existing scheduler. | Two projects survive restart without duplicate work; direct user task is honored; blocked states are actionable. |
+| **5 — Execution + experience** | Reuse existing plans/VM build, tests/evaluation/revision/candidate review; extract test-linked outcome lessons and refine ranking. | Brand-new project has real implementation/test artifacts and subsequent improvement; host remains unchanged without apply approval. |
+| **6 — Projects UI + telemetry** | Portfolio/detail, rationale, proposals, controls, budgets, milestones and real events; linked Chat/Goals/Build references. | Browser validates scrolling/layout, accurate states, working approvals, pause, reconnect and no fabricated activity. |
+| **7 — End-to-end hardening** | Full VM scenario suite, failure injection, resource caps, policy bypass tests, migrations and deployment verification. | §26.11 mandatory scenarios all pass; final live status registry updated with evidence. |
+
+Each phase produces a reviewable, independently testable development goal per §23 with source-level verification; do not treat this table as authorization to build in host workspace.
+
+### 26.11 Mandatory acceptance scenarios (HL-AUTO-TEST-001)
+
+| ID | Scenario | Passing evidence |
+|---|---|---|
+| AUTO-01 | Observe repeated manual workflow → propose standalone automation tool | Evidence IDs, deduped opportunity, versioned rationale/feasibility, no fabricated trigger |
+| AUTO-02 | Skill gap → select study → run exercise → verify skill → propose demo project | Test-backed skill record and linked proposal; unverified study does not assert mastery |
+| AUTO-03 | Independent-within-scope originates entirely new app without user-authored ticket | Allowlisted VM repository, registered project, milestones and policy/grant record |
+| AUTO-04 | Suggest/Guided modes encounter missing project authorization | Explicit approval requested; **no** unauthorized repo creation or execution |
+| AUTO-05 | New project passes implementation/evaluation/revision review | Exact test commands, outputs, base/candidate hashes, result/revision history; no host change |
+| AUTO-06 | Two active initiatives, blocked dependency and user direct request | Correct priority/yield, durable checkpoints, no duplicate task and clear blocked state |
+| AUTO-07 | VM unavailable or process crashes mid-bootstrap/build | Reconciled persisted state and VM contents, no duplicate repo/external side effect; recoverable next action |
+| AUTO-08 | Token/time/storage limit reached, prohibited path/download/deploy attempted | Backend denial or clean pause, audit entry, no unapproved mutation; measurable budget usage |
+| AUTO-09 | Failed repeated tests and prior outcome used in later decision | Bounded retries, visible blocker, evidence-backed lesson and changed/justified next ranking |
+| AUTO-10 | Websocket disconnect/refresh during initiative | Replayed authoritative project events, correct UI counts/status, complete task review remains accessible |
+| AUTO-11 | Existing project workflows and HL-PERS-001 memory continue working | Regression tests on discovery/plan/build/review/Obsidian and distinct personality vs initiative policy |
+
+### 26.12 Definition of done, non-goals and status discipline
+
+**Done** requires a fully verified path from authorized, evidence-backed observation → **autonomously chosen** opportunity/learning objective → versioned proposal → new registered, isolated VM project → milestone selection → real implementation/test/revision → reviewable deliverable → experience lesson → safe restart/resume, with meaningful dashboard visibility and enforcement of mode/permissions/budgets throughout. Demonstrate with **at least one new project that did not originate as a user-authored ticket**. Report exact source commit, migration level, VM job/run IDs, suite outputs and observable UI actions. Update §22 only after actual deployment evidence; otherwise mark `planned`, `partial`, `unverified` or `blocked` as appropriate.
+
+**Out of scope unless separately authorized:** training model weights, unrestricted web crawling, autonomous purchases, secret use, messaging third parties, silent host merge/publish/deploy, self-modification outside the approved workspace, and claiming model-generated thoughts as private reasoning. A standalone implementation-plan DOCX is supporting design material; this master section is the normative feature target after adoption.
