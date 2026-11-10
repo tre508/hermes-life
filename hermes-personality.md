@@ -2,7 +2,7 @@
 
 **Severity:** Medium — Functional and architectural gap  
 **Category:** Personality, Memory, Learning & Architecture  
-**Status:** Implemented and verified end-to-end — the personality findings (PSP-01…PSP-07, UI-01) are closed; the only outstanding §9 deliverable is a standalone context-assembly architecture note (the order itself is documented in `personality.compose_prompt`)  
+**Status:** Implemented and verified end-to-end — the personality findings (PSP-01…PSP-07, UI-01) are closed; the §9 standalone context-assembly architecture note is `docs/context-assembly.md`, and the personality/project-selection policy separation is pinned by `tests/test_pers001_policy_separation.py`  
 **Specification references:** HL-ARCH-002, HL-ARCH-004, HL-MEM-001  
 **Primary files:** `hermes_life/personality.py`, personality adapter, conversation memory, reflection, Obsidian memory, and project knowledge components.
 

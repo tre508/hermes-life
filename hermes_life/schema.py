@@ -1,7 +1,7 @@
 """Explicit, versioned schema setup and single-owner restart recovery."""
 from .store import now
 
-SCHEMA_VERSION = 33
+SCHEMA_VERSION = 38
 DDL = r'''
 
             CREATE TABLE IF NOT EXISTS tasks (
@@ -147,6 +147,16 @@ def migrate(connection):
         _upgrade_to_v32(connection)
     if version < 33:
         _upgrade_to_v33(connection)
+    if version < 34:
+        _upgrade_to_v34(connection)
+    if version < 35:
+        _upgrade_to_v35(connection)
+    if version < 36:
+        _upgrade_to_v36(connection)
+    if version < 37:
+        _upgrade_to_v37(connection)
+    if version < 38:
+        _upgrade_to_v38(connection)
     # Repair partially-applied v4 installations without touching earlier data.
     has_personality = connection.execute(
         "SELECT 1 FROM sqlite_master WHERE type='table' AND name='agent_personality'"
@@ -752,4 +762,202 @@ def _upgrade_to_v33(connection):
     connection.execute('CREATE UNIQUE INDEX IF NOT EXISTS idx_persona_experiences_task'
                        ' ON persona_experiences(task_id)')
     connection.execute('PRAGMA user_version=33')
+    connection.commit()
+
+
+def _upgrade_to_v34(connection):
+    # HL-AUTO-001 Phase 1 (§26.10): shared persistence + policy for autonomous initiative.
+    # Versioned opportunity/decision/portfolio records, audit grants and budget accounting.
+    # SQLite remains authoritative; dedupe fingerprints and idempotency keys are unique.
+    connection.execute("""CREATE TABLE IF NOT EXISTS autonomy_policy_settings (
+        id INTEGER PRIMARY KEY CHECK(id=1),
+        mode TEXT NOT NULL DEFAULT 'observe'
+            CHECK(mode IN ('observe','suggest','guided','independent')),
+        allowlist TEXT NOT NULL DEFAULT '[]',
+        policy_version INTEGER NOT NULL DEFAULT 1,
+        updated_at TEXT NOT NULL)""")
+    connection.execute("""CREATE TABLE IF NOT EXISTS autonomy_opportunities (
+        id TEXT PRIMARY KEY,
+        source_type TEXT NOT NULL CHECK(source_type IN
+            ('task_outcome','user_correction','repeated_workflow','skill_gap',
+             'project_signal','explicit_interest')),
+        title TEXT NOT NULL,
+        problem TEXT NOT NULL,
+        benefit_hypothesis TEXT,
+        evidence_refs TEXT NOT NULL DEFAULT '[]',
+        confidence REAL NOT NULL DEFAULT 0.5 CHECK(confidence>=0 AND confidence<=1),
+        dedupe_key TEXT NOT NULL UNIQUE,
+        status TEXT NOT NULL DEFAULT 'candidate'
+            CHECK(status IN ('candidate','dismissed','proposed','ineligible')),
+        project_id TEXT,
+        created_at TEXT NOT NULL, updated_at TEXT NOT NULL)""")
+    connection.execute('CREATE INDEX IF NOT EXISTS idx_autonomy_opportunities_status'
+                       ' ON autonomy_opportunities(status, created_at)')
+    connection.execute("""CREATE TABLE IF NOT EXISTS project_proposals (
+        id TEXT PRIMARY KEY,
+        opportunity_id TEXT NOT NULL REFERENCES autonomy_opportunities(id),
+        version INTEGER NOT NULL,
+        title TEXT NOT NULL,
+        specification TEXT NOT NULL,
+        feasibility TEXT, estimated_cost TEXT, acceptance_criteria TEXT,
+        policy_snapshot TEXT,
+        status TEXT NOT NULL DEFAULT 'draft'
+            CHECK(status IN ('draft','awaiting_approval','approved','rejected','superseded')),
+        created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
+        UNIQUE(opportunity_id, version))""")
+    connection.execute("""CREATE TABLE IF NOT EXISTS autonomy_grants (
+        id TEXT PRIMARY KEY,
+        action_type TEXT NOT NULL,
+        project_id TEXT,
+        scope TEXT NOT NULL DEFAULT '{}',
+        decision TEXT NOT NULL CHECK(decision IN ('granted','denied','expired','revoked')),
+        actor TEXT NOT NULL DEFAULT 'system',
+        rationale TEXT,
+        policy_version INTEGER NOT NULL,
+        expires_at TEXT,
+        created_at TEXT NOT NULL)""")
+    connection.execute('CREATE INDEX IF NOT EXISTS idx_autonomy_grants_action'
+                       ' ON autonomy_grants(action_type, decision, created_at)')
+    connection.execute("""CREATE TABLE IF NOT EXISTS budget_ledger (
+        id TEXT PRIMARY KEY,
+        project_id TEXT,
+        resource TEXT NOT NULL CHECK(resource IN ('time_seconds','tokens','storage_bytes','concurrency')),
+        limit_amount REAL NOT NULL,
+        used REAL NOT NULL DEFAULT 0,
+        window_start TEXT NOT NULL, window_end TEXT,
+        created_at TEXT NOT NULL,
+        UNIQUE(project_id, resource, window_start))""")
+    connection.execute("""CREATE TABLE IF NOT EXISTS autonomy_decisions (
+        id TEXT PRIMARY KEY,
+        opportunity_id TEXT REFERENCES autonomy_opportunities(id),
+        action TEXT NOT NULL CHECK(action IN
+            ('learn','propose_project','resume_existing','no_action','blocked')),
+        scores TEXT, policy_version INTEGER NOT NULL,
+        rationale TEXT NOT NULL,
+        disposition TEXT NOT NULL DEFAULT 'recorded',
+        created_at TEXT NOT NULL)""")
+    connection.execute('CREATE INDEX IF NOT EXISTS idx_autonomy_decisions_created'
+                       ' ON autonomy_decisions(created_at)')
+    # Single-row policy settings: seed the default (Observe mode = no background execution).
+    connection.execute("""INSERT INTO autonomy_policy_settings (id, updated_at)
+        SELECT 1, ? WHERE NOT EXISTS (SELECT 1 FROM autonomy_policy_settings WHERE id=1)""",
+        (now(),))
+    connection.execute('PRAGMA user_version=34')
+    connection.commit()
+
+
+def _upgrade_to_v35(connection):
+    # HL-AUTO-001 Phase 2 (§26.10): opportunity + learning. Skill evidence must come from a
+    # real exercise run (task_id), never a claimed expertise; ingestion is fingerprint-keyed
+    # so unchanged sources cannot spin an infinite loop.
+    connection.execute("""CREATE TABLE IF NOT EXISTS initiative_settings (
+        id INTEGER PRIMARY KEY CHECK(id=1),
+        last_scan TEXT, last_error TEXT,
+        weights TEXT NOT NULL DEFAULT '{}',
+        updated_at TEXT NOT NULL)""")
+    connection.execute("""INSERT INTO initiative_settings (id, updated_at)
+        SELECT 1, ? WHERE NOT EXISTS (SELECT 1 FROM initiative_settings WHERE id=1)""", (now(),))
+    connection.execute("""CREATE TABLE IF NOT EXISTS learning_objectives (
+        id TEXT PRIMARY KEY,
+        skill TEXT NOT NULL,
+        gap_source TEXT NOT NULL CHECK(gap_source IN ('failed_task','proposal_requirement','explicit_request')),
+        evidence_refs TEXT NOT NULL DEFAULT '[]',
+        dedupe_key TEXT NOT NULL UNIQUE,
+        status TEXT NOT NULL DEFAULT 'open'
+            CHECK(status IN ('open','queued','exercised','verified','blocked','dismissed')),
+        study_resource TEXT,
+        confidence REAL NOT NULL DEFAULT 0.5 CHECK(confidence>=0 AND confidence<=1),
+        created_at TEXT NOT NULL, updated_at TEXT NOT NULL)""")
+    connection.execute('CREATE INDEX IF NOT EXISTS idx_learning_objectives_status'
+                       ' ON learning_objectives(status, updated_at)')
+    connection.execute("""CREATE TABLE IF NOT EXISTS skill_evidence (
+        id TEXT PRIMARY KEY,
+        objective_id TEXT NOT NULL REFERENCES learning_objectives(id),
+        task_id TEXT NOT NULL,
+        exercise_ref TEXT,
+        result TEXT NOT NULL CHECK(result IN ('passed','failed')),
+        evidence TEXT,
+        created_at TEXT NOT NULL,
+        UNIQUE(objective_id, task_id))""")
+    connection.execute('PRAGMA user_version=35')
+    connection.commit()
+
+
+def _upgrade_to_v36(connection):
+    # HL-AUTO-001 Phase 3 (§26.10): proposals -> project bootstrap. Autonomous projects are
+    # VM identities; host registration/apply stays a separate authorization (§26.7).
+    connection.execute("""CREATE TABLE IF NOT EXISTS autonomy_projects (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL UNIQUE,
+        origin TEXT NOT NULL CHECK(origin IN ('user','autonomous')),
+        proposal_id TEXT REFERENCES project_proposals(id),
+        vm_path TEXT NOT NULL,
+        spec_sha256 TEXT,
+        status TEXT NOT NULL DEFAULT 'initializing'
+            CHECK(status IN ('initializing','active','paused','blocked','failed',
+                             'cancelled','archived')),
+        created_at TEXT NOT NULL, updated_at TEXT NOT NULL)""")
+    connection.execute("""CREATE TABLE IF NOT EXISTS project_bootstraps (
+        id TEXT PRIMARY KEY,
+        proposal_id TEXT NOT NULL REFERENCES project_proposals(id),
+        project_name TEXT NOT NULL,
+        vm_path TEXT NOT NULL,
+        status TEXT NOT NULL CHECK(status IN
+            ('initializing','active','rolled_back','failed','recovery_required')),
+        steps_done TEXT NOT NULL DEFAULT '[]',
+        spec_sha256 TEXT, base_commit TEXT, error TEXT,
+        created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
+        UNIQUE(proposal_id))""")
+    connection.execute('CREATE INDEX IF NOT EXISTS idx_project_bootstraps_status'
+                       ' ON project_bootstraps(status)')
+    connection.execute('PRAGMA user_version=36')
+    connection.commit()
+
+
+def _upgrade_to_v37(connection):
+    # HL-AUTO-001 Phase 4 (§26.10): portfolio orchestration. Milestones are durable, ordered,
+    # dependency-resolvable work items; a milestone's goal is its lease, so one milestone has
+    # at most one live goal and restarts reconcile instead of duplicating.
+    connection.execute("""CREATE TABLE IF NOT EXISTS project_milestones (
+        id TEXT PRIMARY KEY,
+        project_name TEXT NOT NULL REFERENCES autonomy_projects(name),
+        title TEXT NOT NULL,
+        prompt TEXT NOT NULL,
+        order_index INTEGER NOT NULL DEFAULT 0,
+        dependency_ids TEXT NOT NULL DEFAULT '[]',
+        acceptance_criteria TEXT,
+        estimated_seconds REAL,
+        state TEXT NOT NULL DEFAULT 'pending'
+            CHECK(state IN ('pending','ready','in_progress','completed','blocked','failed','cancelled')),
+        goal_id TEXT,
+        blocker TEXT,
+        checkpoint TEXT,
+        created_at TEXT NOT NULL, updated_at TEXT NOT NULL)""")
+    connection.execute('CREATE INDEX IF NOT EXISTS idx_project_milestones_project'
+                       ' ON project_milestones(project_name, state, order_index)')
+    connection.execute('PRAGMA user_version=37')
+    connection.commit()
+
+
+def _upgrade_to_v38(connection):
+    # HL-AUTO-001 Phase 5 (§26.10): execution + experience. Every milestone outcome is
+    # scored against its recorded expectation with links to the real task/run artifacts;
+    # lessons require outcome evidence. UNIQUE(project, milestone, task) keeps scoring
+    # idempotent across restarts.
+    connection.execute("""CREATE TABLE IF NOT EXISTS experience_records (
+        id TEXT PRIMARY KEY,
+        project_name TEXT,
+        milestone_id TEXT REFERENCES project_milestones(id),
+        goal_id TEXT, task_id TEXT, run_id TEXT,
+        expected_result TEXT NOT NULL,
+        measured_result TEXT NOT NULL,
+        classification TEXT NOT NULL CHECK(classification IN ('success','failure','partial')),
+        evidence_refs TEXT NOT NULL DEFAULT '[]',
+        lesson TEXT,
+        confidence REAL NOT NULL DEFAULT 0.5 CHECK(confidence>=0 AND confidence<=1),
+        created_at TEXT NOT NULL,
+        UNIQUE(project_name, milestone_id, task_id))""")
+    connection.execute('CREATE INDEX IF NOT EXISTS idx_experience_records_project'
+                       ' ON experience_records(project_name, created_at)')
+    connection.execute('PRAGMA user_version=38')
     connection.commit()

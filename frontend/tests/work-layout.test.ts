@@ -71,22 +71,22 @@ test('superseded .work-management stack is gone from CSS and HTML', () => {
     assert.doesNotMatch(html, /work-management/);
 });
 
-test('five exclusive workview panels + outlet exist in the document', () => {
-    for (const id of ['workview-outlet', 'workview-tasks', 'workview-discover', 'workview-goals', 'workview-planning', 'workview-build']) {
+test('six exclusive workview panels + outlet exist in the document', () => {
+    for (const id of ['workview-outlet', 'workview-tasks', 'workview-discover', 'workview-goals', 'workview-planning', 'workview-build', 'workview-projects']) {
         assert.match(html, new RegExp(`id="${id}"`), `missing #${id}`);
     }
     // Only the Tasks panel ships visible by default; the rest are hidden.
     const panels = html.match(/<section id="workview-[a-z]+" class="workview-panel"[^>]*>/g) ?? [];
-    assert.equal(panels.length, 5);
+    assert.equal(panels.length, 6);
     const hiddenCount = panels.filter(p => p.includes('hidden')).length;
-    assert.equal(hiddenCount, 4, 'exactly four panels start hidden');
+    assert.equal(hiddenCount, 5, 'exactly five panels start hidden');
 });
 
-test('global Work panels (Discover/Goals/Planning/Build) own their scroll', () => {
+test('global Work panels (Discover/Goals/Planning/Build/Projects) own their scroll', () => {
     assert.match(css, /#workview-discover:not\(\[hidden\]\),[^}]*overflow-y:\s*auto/);
     assert.match(css, /#workview-goals:not\(\[hidden\]\),/);
     assert.match(css, /#workview-planning:not\(\[hidden\]\),/);
-    assert.match(css, /#workview-build:not\(\[hidden\]\) \{[^}]*overflow-y:\s*auto/);
+    assert.match(css, /#workview-build:not\(\[hidden\]\)[,{][^}]*overflow-y:\s*auto/);
 });
 
 test('single Command Centre identity: one #primary-nav, one #game, seven roles/eight rooms untouched', () => {

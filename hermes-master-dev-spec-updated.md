@@ -673,8 +673,8 @@ This roadmap is **dependency-based**, not a promise that every earlier patch has
 | Event/streaming | `/ws/events` exists; real stream end-to-end and UI recovery not established | Partial/unverified |
 | Study | Handbook 13-unit manifest and timer installed earlier | Continued autonomous completion unverified |
 | Experiment pruning | Proposed policy, no confirmed implementation | Planned |
-| HL-PERS-001 adaptive personality | Requested dependency for shared preference/experience integration | **Unverified; inspect live implementation** |
-| HL-AUTO-001 self-directed project creation | New normative target in §26; implementation plan supplied, but no live routes/schema/VM execution independently verified | **Planned; not claimed implemented** |
+| HL-PERS-001 adaptive personality | Implemented and verified end-to-end (extraction → consolidation → retrieval → assembly → execution → post-task learning); 38+3 passing tests (`tests/test_pers001_*`, incl. policy-separation guardrails); architecture note `docs/context-assembly.md` | Implemented; personality policy verified separate from project-selection policy |
+| HL-AUTO-001 self-directed project creation | Phases 0–6 implemented and verified (policy engine, opportunities/proposals/decisions, bootstrap, portfolio, experience, Projects UI); Phase 7 live subset verified on the real worker (bootstrap, milestone execution, restart reconciliation, WS replay, denials). See `docs/auto001-phase0-audit.md` | **Partial; live-verified core loop** — AUTO-02 study-exercise and AUTO-09 live revision paths remain fixture-only |
 
 **Known conflict with older spec:** The earlier `HL-SOT-001` §15 `HL-BUG-001` and milestone sequence were a snapshot from November 2; they should not be treated as currently confirmed defects. This document's registry and verified source/runtime evidence supersede those stale status claims once this document is adopted.
 

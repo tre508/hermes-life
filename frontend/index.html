@@ -120,6 +120,7 @@
                         <button type="button" data-workview="goals">Goals</button>
                         <button type="button" data-workview="planning">Planning</button>
                         <button type="button" data-workview="build">Build</button>
+                        <button type="button" data-workview="projects">Projects</button>
                     </nav>
 
                     <!-- Work subview panels: only one visible at a time -->
@@ -223,6 +224,27 @@
                                     <div id="implementations-list"></div>
                                 </section>
                             </details>
+                        </section>
+
+                        <!-- PROJECTS: autonomous portfolio (portfolio-view mounts here) -->
+                        <section id="workview-projects" class="workview-panel" data-workview="projects" hidden>
+                            <h2>Projects portfolio</h2>
+                            <p class="hint">Autonomous and user projects with real milestone state, proposals awaiting your decision, ranked opportunities, and outcome records. Pause, resume, cancel and bounded retries act on the backend directly.</p>
+                            <button id="portfolio-refresh" type="button">Refresh portfolio</button>
+                            <p id="portfolio-status" role="status"></p>
+                            <div id="portfolio-proposals">
+                                <h3>Proposals awaiting decision</h3>
+                            </div>
+                            <div id="portfolio-list"></div>
+                            <div id="portfolio-detail"></div>
+                            <section>
+                                <h3>Ranked opportunities</h3>
+                                <div id="portfolio-opportunities"></div>
+                            </section>
+                            <section>
+                                <h3>Recent outcome records</h3>
+                                <div id="portfolio-experiences"></div>
+                            </section>
                         </section>
 
                     </div>

@@ -378,11 +378,7 @@ function determineRoleForTool(toolName: string): Role | null {
   if (/read_file|read_file|grep|glob|search|docs?|web|browse|fetch|arxiv|source|study|^cat$|^ls$|find|read_\b/.test(lower)) {
     return 'researcher';
   }
-  // Development tools → Forge
-  if (/write_file|edit|patch(\b|$)|apply|git|compile|build|make|npm|cargo|revision|write_|create/.test(lower)) {
-    return 'builder';
-  }
-  // Test tools → Patch
+  // Test tools → Patch (before dev: `verify_build` is verification, not a build)
   if (/pytest|^test|verify|evaluate|benchmark|ctest|check|^lint/.test(lower)) {
     return 'tester';
   }
@@ -390,9 +386,20 @@ function determineRoleForTool(toolName: string): Role | null {
   if (/memory|recall|vault|reflect|personality|lesson|archive|^note/.test(lower)) {
     return 'archivist';
   }
-  // Planning/review tools → Piper (review will be re-routed downstream)
-  if (/plan|goal|formulate|criteria|approve|review/.test(lower)) {
+  // Review / approval tools → Vale (spec §3: code review, candidate
+  // evaluation, approval status). Before planning so `approve_plan`
+  // routes to the reviewer, not the planner.
+  if (/review|approve|reject/.test(lower)) {
+    return 'reviewer';
+  }
+  // Planning tools → Piper. Before dev so `compile_criteria` (plan
+  // preparation) stays with Piper rather than Forge's `compile`.
+  if (/plan|goal|formulate|criteria/.test(lower)) {
     return 'planner';
+  }
+  // Development tools → Forge
+  if (/write_file|edit|patch(\b|$)|apply|git|compile|build|make|npm|cargo|revision|write_|create/.test(lower)) {
+    return 'builder';
   }
 
   return null;
@@ -514,6 +521,9 @@ export class BubbleController {
   private renderer: TownRenderer | null = null;
   private host: HTMLElement | null = null;
   private overlay: HTMLElement | null = null;
+  /** Reduced-motion media listener — disposed in destroy() (§13). */
+  private mediaQuery: MediaQueryList | null = null;
+  private mediaHandler: (() => void) | null = null;
   private animationFrame: number | null = null;
   private reducedMotion = false;
   private bubbleElements = new Map<string, HTMLElement>();
@@ -544,11 +554,12 @@ export class BubbleController {
     this.overlay.setAttribute('aria-label', 'Agent activity bubbles');
     host.appendChild(this.overlay);
 
-    // Listen for reduced motion changes
-    const mediaQuery = window.matchMedia('(prefers-reduced-motion: reduce)');
-    mediaQuery.addEventListener('change', () => {
-      this.reducedMotion = mediaQuery.matches;
-    });
+    // Listen for reduced motion changes (handler removed in destroy())
+    this.mediaQuery = window.matchMedia('(prefers-reduced-motion: reduce)');
+    this.mediaHandler = () => {
+      this.reducedMotion = this.mediaQuery?.matches ?? false;
+    };
+    this.mediaQuery.addEventListener('change', this.mediaHandler);
 
     // The renderer appends its <canvas> synchronously inside
     // createTownRenderer(); the position loop reads getBoundingClientRect()
@@ -565,6 +576,9 @@ export class BubbleController {
     task_id?: string | null;
     sequence?: number;
     timestamp?: string;
+    /** Set by the shell for /api/events replays (page load). Historic events
+     *  advance the watermark but must never replay as new execution (§14). */
+    historical?: boolean;
   }): void {
     try {
       // Sequence de-dup. The backend hands us `?after=N` on reconnect so we
@@ -573,6 +587,11 @@ export class BubbleController {
         if (event.sequence <= this.lastSequence) return;
         this.lastSequence = event.sequence;
       }
+
+      // Historic replay (page-load /api/events tail): the watermark above is
+      // already advanced, so a later live re-delivery is still deduped — but
+      // the historic event itself must not render as execution (§14).
+      if (event.historical) return;
 
       const categorized = categorizeEvent(event);
       if (!categorized) return;
@@ -593,19 +612,16 @@ export class BubbleController {
   }
 
   /** Drop per-task thought bubbles when a new task begins, so the old
-   *  coordinator stream doesn't bleed into the new head. */
+   * coordinator stream doesn't bleed into the new head. Tool and lifecycle
+   * bubbles stay — they're useful context for the running task. */
   private resetPerTaskBubbles(taskId: string | null) {
     if (!taskId) return;
     const drop: string[] = [];
     for (const role of this.bubbles.keys()) {
       const next: BubbleState[] = [];
       for (const b of this.bubbles.get(role) || []) {
-        const sameTask = b.content.taskId === taskId;
-        if (sameTask && b.category === 'thought') {
+        if (b.content.taskId === taskId && b.category === 'thought') {
           drop.push(b.id);
-        } else if (!(sameTask && b.content.toolName === undefined)) {
-          // Leave tool bubbles alone if same task — they're useful context.
-          next.push(b);
         } else {
           next.push(b);
         }
@@ -622,10 +638,10 @@ export class BubbleController {
     }
   }
 
-  /** Add or update a bubble for a role. */
+  /** Add or update a bubble for a role.
+   *  State mutation and history recording are pure (run headless in tests);
+   *  only the DOM work at the bottom is gated on the overlay existing. */
   private addOrUpdateBubble(role: Role, category: BubbleCategory, content: BubbleContent, taskId: string | null) {
-    if (!this.overlay) return;
-
     const roleBubbles = this.bubbles.get(role) || [];
 
     // Two matching strategies:
@@ -681,6 +697,7 @@ export class BubbleController {
 
     this.bubbles.set(role, roleBubbles);
     this.addToHistory(bubble);
+    if (!this.overlay) return;
     this.renderBubble(bubble);
   }
 
@@ -763,11 +780,18 @@ export class BubbleController {
       parts.push('<span class="town-bubble__target"></span>');
     }
     parts.push('</div>');
+    if (bubble.content.startTime) {
+      // §9 expanded tool-call details: start/completion times are metadata of
+      // the expanded view, populated in updateBubbleElement.
+      parts.push('<span class="town-bubble__times" hidden></span>');
+    }
     if (bubble.content.status) {
       parts.push(`<div class="town-bubble__status town-bubble__status--${bubble.content.status}" aria-label="Status: ${bubble.content.status}"></div>`);
     }
     parts.push('<span class="town-bubble__expand" aria-hidden="true">more ▾</span>');
-    parts.push('<span class="town-bubble__nav" hidden>Open Activity →</span>');
+    // §9 navigation: a real button so the nav affordance is a distinct
+    // target — bubble body toggles expansion, button routes to the record.
+    parts.push('<button type="button" class="town-bubble__nav" hidden>Open in Results →</button>');
 
     element.innerHTML = parts.join('');
 
@@ -775,22 +799,17 @@ export class BubbleController {
     // regardless of input.
     this.updateBubbleElement(element, bubble);
 
-    // Click handler: first click expands; second click routes to Activity
-    // when a task id is known. We avoid a separate hover-expand trigger
-    // (the spec calls hover OR click equivalent).
-    element.addEventListener('click', (ev) => {
+    const navButton = element.querySelector('.town-bubble__nav') as HTMLButtonElement | null;
+    navButton?.addEventListener('click', (ev) => {
       ev.stopPropagation();
-      const nav = element.querySelector('.town-bubble__nav') as HTMLElement | null;
-      if (bubble.expanded && bubble.content.taskId && nav && !nav.hidden) {
-        // Avoid double-firing while the click that toggled expansion is in flight.
-        window.clearTimeout(this.scheduleClickAction(element, bubble));
-        this.navigateToTask(bubble.content.taskId);
-        return;
-      }
+      if (bubble.content.taskId) this.navigateToTask(bubble.content.taskId);
+    });
+    // Click on the bubble body toggles the expanded details (§9: hover OR
+    // click reveals additional information — click is the reliable trigger;
+    // hover highlights). The nav button is revealed once a task id exists.
+    element.addEventListener('click', () => {
       this.toggleExpand(bubble.id);
-      if (bubble.content.taskId) {
-        nav?.removeAttribute('hidden');
-      }
+      if (bubble.content.taskId) navButton?.removeAttribute('hidden');
     });
     element.addEventListener('mouseenter', () => this.onHover(bubble.id, true));
     element.addEventListener('mouseleave', () => this.onHover(bubble.id, false));
@@ -840,6 +859,21 @@ export class BubbleController {
       status.setAttribute('aria-label', `Status: ${bubble.content.status}`);
     } else if (status && !bubble.content.status) {
       status.remove();
+    }
+
+    // §9 expanded metadata: start and completion times. The start survives a
+    // tool_use → tool_result merge; the end exists only once a result lands.
+    const times = element.querySelector('.town-bubble__times') as HTMLElement | null;
+    if (times) {
+      const start = bubble.content.startTime;
+      const end = bubble.content.endTime;
+      if (start && end) {
+        const fmt = (t: number) => new Date(t).toLocaleTimeString();
+        times.textContent = `Started ${fmt(start)} · Finished ${fmt(end)}`;
+      } else if (start) {
+        times.textContent = `Started ${new Date(start).toLocaleTimeString()}`;
+      }
+      times.hidden = !bubble.expanded;
     }
 
     // Update accent color — role can change when the same id (tool_call_id)
@@ -921,6 +955,36 @@ export class BubbleController {
         this.positionBubble(element, bubble.role);
       }
     }
+    this.resolveOverlaps();
+  }
+
+  /** §7/§8: bubbles of different residents must not cover one another. After
+   *  each bubble has been anchored to its resident, nudge any later (lower
+   *  priority = newer) bubble upward so it stacks above the one it collides
+   *  with. Bounded work: at most one bubble per resident (≤7 rects), one
+   *  layout read per frame only when two or more bubbles are visible. */
+  private resolveOverlaps(): void {
+    if (this.bubbleElements.size < 2) return;
+    const rects: Array<{
+      id: string; left: number; top: number; width: number; height: number; createdAt: number;
+    }> = [];
+    for (const [id, element] of this.bubbleElements) {
+      const bubble = this.findBubbleById(id);
+      if (!bubble || !bubble.visible || bubble.animationState === 'exiting') continue;
+      const rect = element.getBoundingClientRect();
+      if (rect.width === 0 || rect.height === 0) continue;
+      rects.push({ id, left: rect.left, top: rect.top, width: rect.width, height: rect.height, createdAt: bubble.createdAt });
+    }
+    if (rects.length < 2) return;
+    rects.sort((a, b) => a.createdAt - b.createdAt);
+    const plan = planOverlapAdjustments(rects);
+    for (const { id, deltaTop } of plan) {
+      const element = this.bubbleElements.get(id);
+      if (!element) continue;
+      const current = parseFloat(element.style.top);
+      if (Number.isNaN(current)) continue;
+      element.style.top = `${Math.round(current + deltaTop)}px`;
+    }
   }
 
   /** Find bubble by ID across all roles */
@@ -964,19 +1028,6 @@ export class BubbleController {
       this.dismissBubble(bubble.id);
     }, duration);
     this.timers.set(bubble.id, handle);
-  }
-
-  /** Bind a deferred click action so click→expand finishes before click→nav. */
-  private scheduleClickAction(element: HTMLElement, bubble: BubbleState): number {
-    // Tiny helper: returns the previous timer handle so callers can clear it.
-    const key = '__clickDelayed__' + bubble.id;
-    const prev = (element as any)[key];
-    if (prev) {
-      window.clearTimeout(prev);
-    }
-    const handle = window.setTimeout(() => { delete (element as any)[key]; }, 0);
-    (element as any)[key] = handle;
-    return prev ?? 0;
   }
 
   /** Dismiss a bubble with animation */
@@ -1029,6 +1080,8 @@ export class BubbleController {
     element.classList.toggle('expanded', bubble.expanded);
     const details = element.querySelector('.town-bubble__details') as HTMLElement | null;
     if (details) details.hidden = !bubble.expanded;
+    const times = element.querySelector('.town-bubble__times') as HTMLElement | null;
+    if (times) times.hidden = !bubble.expanded;
     const expand = element.querySelector('.town-bubble__expand');
     if (expand) expand.textContent = bubble.expanded ? 'less ▴' : 'more ▾';
   }
@@ -1060,23 +1113,17 @@ export class BubbleController {
 
   /** Get label for category */
   private getCategoryLabel(category: BubbleCategory): string {
-    switch (category) {
-      case 'thought': return 'Thought';
-      case 'tool': return 'Tool';
-      case 'execution': return 'Executing';
-      case 'success': return 'Success';
-      case 'error': return 'Error';
-      case 'waiting': return 'Waiting';
-    }
+    return CATEGORY_LABELS[category];
   }
 
-  /** Escape HTML for safe insertion. Only used for static template strings
-   *  (role labels, category labels, role titles) — bubble content is
+  /** Escape HTML for safe insertion, including in attribute context (the
+   *  quote entities matter for title="…"). Only used for static template
+   *  strings (role labels, category labels, role titles) — bubble content is
    *  written with textContent in updateBubbleElement. */
   private escapeHtml(text: string): string {
-    const div = document.createElement('div');
-    div.textContent = text;
-    return div.innerHTML;
+    return text.replace(/[&<>"']/g, c => ({
+      '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+    }[c]!));
   }
 
   /** Get a snapshot of all current bubbles (used in tests and for diagnostics). */
@@ -1093,9 +1140,51 @@ export class BubbleController {
     return [...this.history];
   }
 
+  /** Render the §11 recent-bubble history into a host element. Presentation
+   *  cache only — Activity/Results remain the authoritative record. */
+  renderHistoryInto(host: HTMLElement, limit = 20): void {
+    host.replaceChildren();
+    const rows = formatHistoryRows(this.history, limit);
+    if (!rows.length) {
+      const empty = document.createElement('p');
+      empty.className = 'town-bubble-history__empty';
+      empty.textContent = 'No bubble activity recorded yet this session.';
+      host.append(empty);
+      return;
+    }
+    for (const row of rows) {
+      const item = document.createElement('div');
+      item.className = 'town-bubble-history__row';
+      const time = document.createElement('span');
+      time.className = 'town-bubble-history__time';
+      time.textContent = row.time;
+      const role = document.createElement('strong');
+      role.textContent = `${row.roleName} · ${row.categoryLabel}`;
+      role.title = row.roleTitle;
+      const detail = document.createElement('span');
+      detail.className = 'town-bubble-history__detail';
+      detail.textContent = [row.tool, row.headline, row.status].filter(Boolean).join(' — ');
+      item.append(time, role, detail);
+      if (row.taskId) {
+        const open = document.createElement('button');
+        open.type = 'button';
+        open.className = 'town-bubble-history__open';
+        open.textContent = `task ${row.taskId.slice(0, 8)}`;
+        open.addEventListener('click', () => this.navigateToTask(row.taskId!));
+        item.append(open);
+      }
+      host.append(item);
+    }
+  }
+
   /** Clean up */
   destroy(): void {
     this.stopPositionLoop();
+    if (this.mediaQuery && this.mediaHandler) {
+      this.mediaQuery.removeEventListener('change', this.mediaHandler);
+    }
+    this.mediaQuery = null;
+    this.mediaHandler = null;
     this.bubbleElements.forEach((_, id) => this.removeBubbleElement(id));
     this.bubbles.clear();
     this.history.length = 0;
@@ -1112,8 +1201,80 @@ export class BubbleController {
 // Utility
 // ============================================================================
 
+export const CATEGORY_LABELS: Record<BubbleCategory, string> = {
+  thought: 'Thought',
+  tool: 'Tool',
+  execution: 'Executing',
+  success: 'Success',
+  error: 'Error',
+  waiting: 'Waiting',
+};
+
 function prefersReducedMotion(): boolean {
   return typeof window !== 'undefined'
     && typeof window.matchMedia === 'function'
     && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+}
+
+/** One inspectable row of the §11 presentation cache. Pure so tests can run
+ *  headless; renderHistoryInto only turns these into DOM. */
+export interface HistoryRowDescriptor {
+  time: string;
+  roleName: string;
+  roleTitle: string;
+  categoryLabel: string;
+  tool?: string;
+  headline: string;
+  status?: string;
+  taskId?: string;
+}
+
+/** Format the most recent `limit` history entries for display (§11). */
+export function formatHistoryRows(history: BubbleState[], limit = 20): HistoryRowDescriptor[] {
+  return history.slice(0, Math.max(1, limit)).map(b => ({
+    time: new Date(b.createdAt).toLocaleTimeString(),
+    roleName: ROSTER[b.role].name,
+    roleTitle: ROSTER[b.role].title,
+    categoryLabel: CATEGORY_LABELS[b.category],
+    tool: b.content.toolName,
+    headline: b.content.headline,
+    status: b.content.status,
+    taskId: b.content.taskId,
+  }));
+}
+
+/**
+ * Plan vertical adjustments so overlapping bubbles stack above each other
+ * instead of covering one another (§7/§8). `items` arrive in priority order
+ * (oldest/highest priority first — each keeps its anchor position); every
+ * later item that intersects an already-placed one is moved to sit just
+ * above it. Pure geometry so tests can run headless.
+ */
+export function planOverlapAdjustments(
+  items: Array<{ id: string; left: number; top: number; width: number; height: number }>,
+  margin = 8,
+): Array<{ id: string; deltaTop: number }> {
+  const adjusted = new Map<string, number>();
+  const placed: Array<{ id: string; left: number; top: number; width: number; height: number }> = [];
+  for (const item of items) {
+    let top = item.top + (adjusted.get(item.id) ?? 0);
+    for (const p of placed) {
+      const pTop = p.top + (adjusted.get(p.id) ?? 0);
+      const horizontalOverlap =
+        item.left < p.left + p.width + margin &&
+        p.left < item.left + item.width + margin;
+      const verticalOverlap =
+        top < pTop + p.height + margin &&
+        pTop < top + item.height + margin;
+      if (horizontalOverlap && verticalOverlap) {
+        // Sit fully above the colliding (higher-priority) bubble.
+        top = pTop - item.height - margin;
+      }
+    }
+    adjusted.set(item.id, top - item.top);
+    placed.push(item);
+  }
+  return [...adjusted.entries()]
+    .filter(([, delta]) => delta !== 0)
+    .map(([id, deltaTop]) => ({ id, deltaTop }));
 }

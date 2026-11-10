@@ -530,7 +530,8 @@
 #app #workview-discover:not([hidden]),
 #app #workview-goals:not([hidden]),
 #app #workview-planning:not([hidden]),
-#app #workview-build:not([hidden]) {
+#app #workview-build:not([hidden]),
+#app #workview-projects:not([hidden]) {
     overflow-y: auto;
     scrollbar-color: #426574 #10232c;
     padding-right: 2px;
@@ -1289,3 +1290,14 @@
     max-height: none;
     overflow: visible;
 }
+
+/* ===== HL-AUTO-001 Phase 6: Projects portfolio ===== */
+.portfolio-card { border: 1px solid var(--border, #333); border-radius: 8px; padding: .6rem .8rem; margin: .5rem 0; }
+.portfolio-card__title { margin: 0 0 .2rem; font-size: 1rem; }
+.portfolio-controls { display: flex; gap: .4rem; flex-wrap: wrap; margin-top: .4rem; }
+.portfolio-milestone { border-left: 3px solid var(--border, #444); padding: .2rem 0 .2rem .6rem; margin: .4rem 0; }
+.milestone-completed { border-left-color: #3a3; }
+.milestone-in_progress { border-left-color: #aa3; }
+.milestone-blocked, .milestone-failed { border-left-color: #a33; }
+.portfolio-proposal { border: 1px dashed var(--border, #555); border-radius: 6px; padding: .5rem .7rem; margin: .4rem 0; }
+#portfolio-detail { margin-top: .6rem; }

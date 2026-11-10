@@ -20,6 +20,7 @@ import './phase41302-workflow';
 import './phase41303-memory';
 import './phase415-review';
 import './work-workspace';
+import './portfolio-view';
 import './command-centre-ui';
 import { openWorkspace, openWorkView, openTask, openResult, openActivityForTask, onNavigationChange, initHistory, handleLegacyOpenTask } from './navigation-state.ts';
 
@@ -290,7 +291,9 @@ function appendEvent(evt: EventRecord) {
     lastSequence = evt.sequence;
     if (evt.task_id) latestEventTaskId = evt.task_id;
     lastFreshness = time(evt.timestamp);
-    window.dispatchEvent(new CustomEvent('hermes:event', { detail: evt }));
+    // `historical:false` marks a live websocket delivery so the bubble layer
+    // can render it (UI-VIS-007 §14: historic events never replay as new).
+    window.dispatchEvent(new CustomEvent('hermes:event', { detail: { ...evt, historical: false } }));
     if (shouldRenderForBubble(evt)) {
         updateExecutionFromEvent(evt);
         appendActivity(evt);
@@ -313,9 +316,10 @@ function appendHistorical(evt: EventRecord) {
     if (evt.task_id && (evt.type === 'hermes.tool_use' || evt.type === 'hermes.tool_result')) {
         const list = toolEntries.get(evt.task_id) || []; list.push(evt); toolEntries.set(evt.task_id, list);
     }
-    // Same dispatch path as live events so the bubble overlay renders
-    // historical events in the correct resident lane on page load.
-    window.dispatchEvent(new CustomEvent('hermes:event', { detail: evt }));
+    // Same dispatch path so downstream consumers see page-load history, but
+    // tagged `historical` — the bubble layer must never replay these as new
+    // execution (UI-VIS-007 §14, "Historic events do not replay as new").
+    window.dispatchEvent(new CustomEvent('hermes:event', { detail: { ...evt, historical: true } }));
     if (shouldRenderForBubble(evt)) {
         appendActivity(evt);
         updateExecutionFromEvent(evt);

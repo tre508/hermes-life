@@ -203,6 +203,19 @@ def create_app(database=None, adapter=None):
     revisions = ImplementationRevision(runtime, implementer, reviewer)
     verifier = VerificationEngine(runtime, implementer, reviewer)  # HL-VERIFY-001
     workflow = WorkflowStatus(runtime)  # HL-UI-STATE-001: one read-only status authority
+    # HL-AUTO-001 Phase 1: one policy engine + shared registries. Not a second scheduler —
+    # selection still happens in Autonomy.tick; this governs authorization and evidence records.
+    from .autonomy_policy import AutonomyPolicy, PolicyDenied
+    from .opportunities import OpportunityRegistry
+    from .initiative import InitiativeEngine
+    from .bootstrap import ProjectBootstrapper, BootstrapError
+    autonomy_policy = AutonomyPolicy(runtime.store)
+    opportunities = OpportunityRegistry(runtime.store, autonomy_policy)
+    initiative = InitiativeEngine(runtime.store, autonomy_policy, opportunities)
+    bootstrapper = ProjectBootstrapper(runtime.store, autonomy_policy,
+                                       workspaces=runtime.project_workspaces)
+    from .portfolio import PortfolioEngine, DEFAULT_ESTIMATE_SECONDS
+    portfolio = PortfolioEngine(runtime.store, autonomy_policy, bootstrapper)
     # Independent verification is wired into the three places that can change a candidate,
     # and can request a targeted revision through the existing FLOW-006 engine.
     planner.verifier = verifier
@@ -211,12 +224,18 @@ def create_app(database=None, adapter=None):
     verifier.revisions = revisions
     autonomy.planner = planner  # lifecycle handoff at goal completion needs the planner
     autonomy.study = runtime.study  # HL-STUDY-004: scheduler hook for study units
+    from .experience import ExperienceEngine
+    experience = ExperienceEngine(runtime.store, opportunities)
+    portfolio.experience = experience
+    portfolio.autonomy = autonomy  # Phase 4: selection + completion hooks on the ONE scheduler
+    autonomy.portfolio = portfolio
     @asynccontextmanager
     async def lifespan(app):
         with runtime.store.lock:
             migrate(runtime.store.connection)
             runtime.knowledge_library.migrate()
             recover_interrupted(runtime.store.connection)
+        portfolio.reconcile()  # Phase 4: resolve leased milestones against real goal state
         autonomy.start()
         revisions.start()
         decision.start()
@@ -239,6 +258,11 @@ def create_app(database=None, adapter=None):
     add_knowledge_routes(app, runtime.project_knowledge)
     add_approval_routes(app, runtime.project_workspaces)
     app.state.autonomy = autonomy
+    app.state.autonomy_policy = autonomy_policy
+    app.state.opportunities = opportunities
+    app.state.initiative = initiative
+    app.state.bootstrapper = bootstrapper
+    app.state.experience = experience
     app.state.discovery = discovery
     app.state.decision = decision
     app.state.formulation = formulation
@@ -309,6 +333,267 @@ def create_app(database=None, adapter=None):
     @app.put("/api/autonomy")
     def autonomy_control(payload: AutonomyInput):
         return autonomy.enable(payload.enabled)
+
+    # -- HL-AUTO-001 Phase 1: policy, opportunities, proposals, decisions, budgets ----
+    class AutonomyConfigInput(BaseModel):
+        mode: str | None = None
+        allowlist: list[str] | None = None
+
+    @app.get('/api/autonomy/config')
+    def autonomy_config():
+        config = autonomy_policy.settings()
+        config['budgets'] = [autonomy_policy.budget(r) for r in
+                             ('time_seconds', 'tokens', 'storage_bytes', 'concurrency')]
+        config['budgets'] = [b for b in config['budgets'] if b]
+        return config
+
+    @app.patch('/api/autonomy/config')
+    def patch_autonomy_config(payload: AutonomyConfigInput):
+        try:
+            return autonomy_policy.configure(payload.mode, payload.allowlist)
+        except ValueError as exc:
+            raise HTTPException(422, str(exc))
+
+    @app.get('/api/opportunities')
+    def list_opportunities(status: str | None = None, limit: int = 100):
+        return {'opportunities': opportunities.list(status, limit)}
+
+    @app.post('/api/opportunities', status_code=201)
+    def create_opportunity(payload: dict):
+        try:
+            row = opportunities.ingest(
+                payload.get('source_type', ''), payload.get('title', ''),
+                payload.get('problem', ''), evidence_refs=payload.get('evidence_refs'),
+                benefit_hypothesis=payload.get('benefit_hypothesis'),
+                confidence=payload.get('confidence', 0.5),
+                dedupe_key=payload.get('dedupe_key'), project_id=payload.get('project_id'))
+        except (TypeError, ValueError) as exc:
+            raise HTTPException(422, str(exc))
+        return ({'duplicate': True, 'opportunity': row} if row.get('duplicate')
+                else {'duplicate': False, 'opportunity': row})
+
+    @app.post('/api/opportunities/{ident}/propose')
+    def propose_opportunity(ident: str, payload: dict):
+        try:
+            proposal = opportunities.propose(
+                ident, payload.get('title', ''), payload.get('specification', ''),
+                feasibility=payload.get('feasibility'),
+                estimated_cost=payload.get('estimated_cost'),
+                acceptance_criteria=payload.get('acceptance_criteria'))
+        except PolicyDenied as exc:
+            raise HTTPException(403, exc.decision['reason'])
+        except ValueError as exc:
+            raise HTTPException(422, str(exc))
+        if proposal is None:
+            raise HTTPException(404, 'Opportunity not found')
+        return proposal
+
+    @app.post('/api/opportunities/{ident}/dismiss')
+    def dismiss_opportunity(ident: str, payload: dict):
+        try:
+            row = opportunities.dismiss(ident, payload.get('reason', ''))
+        except ValueError as exc:
+            raise HTTPException(409, str(exc))
+        if row is None:
+            raise HTTPException(404, 'Opportunity not found')
+        return row
+
+    @app.get('/api/proposals')
+    def list_proposals(opportunity_id: str | None = None, limit: int = 100):
+        return {'proposals': opportunities.proposals(opportunity_id, limit)}
+
+    class ProposalDecisionInput(BaseModel):
+        approve: bool
+        actor: str | None = None
+        rationale: str
+
+    @app.post('/api/proposals/{proposal_id}/decision')
+    def decide_proposal(proposal_id: str, payload: ProposalDecisionInput):
+        try:
+            row = opportunities.decide_proposal(proposal_id, payload.approve,
+                                                payload.actor or 'user', payload.rationale)
+        except ValueError as exc:
+            raise HTTPException(409, str(exc))
+        if row is None:
+            raise HTTPException(404, 'Proposal not found')
+        return row
+
+    @app.get('/api/autonomy/decisions')
+    def autonomy_decisions(limit: int = 100):
+        return {'decisions': opportunities.decisions(limit)}
+
+    @app.get('/api/approvals')
+    def autonomy_approvals(decision: str | None = None, limit: int = 100):
+        return {'grants': autonomy_policy.grants(decision, limit)}
+
+    class GrantInput(BaseModel):
+        action: str
+        project_id: str | None = None
+        scope: dict | None = None
+        actor: str | None = None
+        rationale: str | None = None
+        expires_at: str | None = None
+
+    @app.post('/api/approvals', status_code=201)
+    def create_grant(payload: GrantInput):
+        try:
+            return autonomy_policy.grant(payload.action, payload.project_id, payload.scope,
+                                         payload.actor or 'user', payload.rationale,
+                                         payload.expires_at)
+        except ValueError as exc:
+            raise HTTPException(422, str(exc))
+
+    @app.post('/api/approvals/{grant_id}/revoke')
+    def revoke_grant(grant_id: str, payload: dict):
+        try:
+            row = autonomy_policy.revoke(grant_id, payload.get('actor', 'user'),
+                                         payload.get('rationale'))
+        except ValueError as exc:
+            raise HTTPException(422, str(exc))
+        if row is None:
+            raise HTTPException(409, 'Grant is not active')
+        return row
+
+    class BudgetInput(BaseModel):
+        resource: str
+        limit_amount: float
+        project_id: str | None = None
+        window_days: int = 30
+
+    @app.put('/api/autonomy/budgets')
+    def set_budget(payload: BudgetInput):
+        try:
+            return autonomy_policy.set_budget(payload.resource, payload.limit_amount,
+                                              payload.project_id, payload.window_days)
+        except ValueError as exc:
+            raise HTTPException(422, str(exc))
+
+    # -- HL-AUTO-001 Phase 2: initiative ingestion, learning, ranking -----------------
+    @app.post('/api/opportunities/scan')
+    def scan_opportunities():
+        return initiative.detect()
+
+    @app.get('/api/opportunities/ranked')
+    def ranked_opportunities(limit: int = 20):
+        return {'opportunities': initiative.ranked(limit)}
+
+    @app.get('/api/learning/objectives')
+    def learning_objectives(status: str | None = None, limit: int = 100):
+        return {'objectives': initiative.objectives(status, limit)}
+
+    @app.post('/api/learning/objectives', status_code=201)
+    def create_learning_objective(payload: dict):
+        try:
+            return initiative.create_objective(
+                payload.get('skill', ''), payload.get('gap_source', ''),
+                evidence_refs=payload.get('evidence_refs'),
+                study_resource=payload.get('study_resource'),
+                dedupe_key=payload.get('dedupe_key'))
+        except ValueError as exc:
+            raise HTTPException(422, str(exc))
+
+    @app.post('/api/learning/objectives/{ident}/exercise', status_code=201)
+    def record_exercise(ident: str, payload: dict):
+        try:
+            row = initiative.record_exercise(
+                ident, payload.get('task_id', ''), payload.get('result', ''),
+                evidence=payload.get('evidence'), exercise_ref=payload.get('exercise_ref'))
+        except ValueError as exc:
+            raise HTTPException(422, str(exc))
+        if row is None:
+            raise HTTPException(404, 'Objective not found')
+        return row
+
+    @app.get('/api/skills')
+    def verified_skills():
+        return {'skills': initiative.skills()}
+
+    # -- HL-AUTO-001 Phase 3: proposal -> project bootstrap ---------------------------
+    class BootstrapInput(BaseModel):
+        project_name: str
+        vm_path: str
+
+    @app.post('/api/proposals/{proposal_id}/bootstrap', status_code=201)
+    def bootstrap_proposal(proposal_id: str, payload: BootstrapInput):
+        try:
+            record = bootstrapper.bootstrap(proposal_id, payload.project_name, payload.vm_path)
+        except PolicyDenied as exc:
+            raise HTTPException(403, exc.decision['reason'])
+        except BootstrapError as exc:
+            raise HTTPException(409, str(exc))
+        if record is None:
+            raise HTTPException(404, 'Proposal not found')
+        return record
+
+    @app.get('/api/bootstraps')
+    def list_bootstraps(limit: int = 100):
+        return {'bootstraps': bootstrapper.list_bootstraps(limit)}
+
+    @app.get('/api/autonomy/projects')
+    def autonomy_projects(origin: str | None = None):
+        return {'projects': bootstrapper.projects(origin)}
+
+    # -- HL-AUTO-001 Phase 4: portfolio orchestration ---------------------------------
+    class MilestoneInput(BaseModel):
+        title: str
+        prompt: str
+        order_index: int = 0
+        dependency_ids: list[str] | None = None
+        acceptance_criteria: str | None = None
+        estimated_seconds: float | None = None
+
+    @app.post('/api/autonomy/projects/{name}/milestones', status_code=201)
+    def add_milestone(name: str, payload: MilestoneInput):
+        try:
+            return portfolio.add_milestone(
+                name, payload.title, payload.prompt, payload.order_index,
+                payload.dependency_ids, payload.acceptance_criteria,
+                payload.estimated_seconds if payload.estimated_seconds is not None
+                else DEFAULT_ESTIMATE_SECONDS)
+        except ValueError as exc:
+            raise HTTPException(409, str(exc))
+
+    @app.get('/api/autonomy/projects/{name}/milestones')
+    def list_milestones(name: str):
+        if bootstrapper.project(name) is None:
+            raise HTTPException(404, f'Unknown project: {name}')
+        return {'milestones': portfolio.milestones(name)}
+
+    @app.post('/api/autonomy/projects/{name}/pause')
+    def pause_project(name: str):
+        try:
+            return portfolio.pause(name)
+        except ValueError as exc:
+            raise HTTPException(404, str(exc))
+
+    @app.post('/api/autonomy/projects/{name}/resume')
+    def resume_project(name: str):
+        try:
+            return portfolio.resume(name)
+        except ValueError as exc:
+            raise HTTPException(404, str(exc))
+
+    @app.post('/api/autonomy/projects/{name}/cancel')
+    def cancel_project(name: str):
+        try:
+            return portfolio.cancel(name)
+        except ValueError as exc:
+            raise HTTPException(404, str(exc))
+
+    # -- HL-AUTO-001 Phase 5: experience records and bounded retries ------------------
+    @app.get('/api/autonomy/experiences')
+    def list_experiences(project: str | None = None, limit: int = 100):
+        return {'experiences': experience.list(project, limit)}
+
+    @app.post('/api/autonomy/milestones/{ident}/retry')
+    def retry_milestone(ident: str):
+        try:
+            milestone = portfolio.retry_milestone(ident)
+        except ValueError as exc:
+            raise HTTPException(409, str(exc))
+        if milestone is None:
+            raise HTTPException(404, 'Milestone not found')
+        return milestone
 
     @app.get('/api/discoveries')
     def list_discoveries():

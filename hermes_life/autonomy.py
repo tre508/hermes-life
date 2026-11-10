@@ -13,6 +13,9 @@ class Autonomy:
         # Injected by create_app after the planning engine exists (avoids a cycle).
         self.planner = None
         self.study = None
+        # HL-AUTO-001 Phase 4: portfolio selection runs INSIDE this single tick loop;
+        # it never runs its own worker thread.
+        self.portfolio = None
 
     def settings(self):
         with self.store.lock:
@@ -97,6 +100,11 @@ class Autonomy:
         try:
             with self.store.lock:
                 goal=self.store.connection.execute("SELECT * FROM goals WHERE state='pending' ORDER BY priority DESC,created_at ASC LIMIT 1").fetchone()
+                if goal is None and self.portfolio is not None:
+                    # No user/queued goal: let the portfolio offer ONE bounded background
+                    # action (enqueued at background priority in this same queue).
+                    self.portfolio.select_next()
+                    goal=self.store.connection.execute("SELECT * FROM goals WHERE state='pending' ORDER BY priority DESC,created_at ASC LIMIT 1").fetchone()
                 if goal is None:return False
                 goal=dict(goal)
                 # Re-check the flag under the same database lock used for selection.
@@ -116,6 +124,11 @@ class Autonomy:
                     self.update(goal['id'],status,error=outcome['error'] if outcome else 'Task missing')
                     # HL-FLOW-001: advance a completed investigation into planning.
                     self._advance_lifecycle(goal['id'], status)
+                    if self.portfolio is not None:
+                        try:
+                            self.portfolio.on_goal_complete(goal['id'], status)
+                        except Exception as exc:
+                            self.store.emit('portfolio.error', {'error': str(exc)[:300]})
             threading.Thread(target=runner,daemon=True).start()
             handed_off = True
             return True

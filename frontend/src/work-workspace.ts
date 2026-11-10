@@ -903,7 +903,7 @@ function updateWorkHeading(view: string) {
  *  - Does NOT use scrollIntoView for navigation
  *  - Preserves task thread/composer when leaving Tasks (DOM persists) */
 function setWorkView(view: string) {
-    const validViews = ['tasks', 'discover', 'goals', 'planning', 'build'];
+    const validViews = ['tasks', 'discover', 'goals', 'planning', 'build', 'projects'];
     if (!validViews.includes(view)) view = 'tasks';
 
     // Save scroll position of current view before switching

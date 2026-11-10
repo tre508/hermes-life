@@ -43,6 +43,9 @@ interface Ui {
   rows: HTMLElement;
   motion: HTMLButtonElement;
   selection: HTMLElement;
+  /** §11: recent bubble activity viewer (presentation cache). */
+  bubbleHistory: HTMLDetailsElement;
+  bubbleHistoryList: HTMLElement;
   /** The HUD block this module owns, and the third-party banner it borrows while mounted. */
   wrap: HTMLElement;
   banner: HTMLElement | null;
@@ -91,6 +94,11 @@ export function installTown(): void {
   // Initialize bubble controller (UI-VIS-007)
   bubbleController = new BubbleController();
   bubbleController.initialize(host, renderer);
+  // §11: populate the recent-bubble history when the fold is opened.
+  const hud = ui;
+  listen(hud.bubbleHistory, 'toggle', () => {
+    if (hud.bubbleHistory.open) bubbleController?.renderHistoryInto(hud.bubbleHistoryList);
+  });
 
   listen(window, 'hermes:event', event => onEvent((event as CustomEvent).detail));
   listen(window, 'hermes:connection', event => {
@@ -195,6 +203,9 @@ function buildUi(host: HTMLElement): Ui {
     '<p id="town-summary" class="town-summary" role="status" aria-live="polite">Reading backend records…</p>',
     '<details id="town-board" class="town-board"><summary>All roles (text view)</summary>',
     '<div id="town-rows" class="town-rows"></div></details>',
+    '<details id="town-bubble-history" class="town-bubble-history"><summary>Recent bubble activity</summary>',
+    '<div id="town-bubble-history-list" class="town-bubble-history__list"></div>',
+    '</details>',
     '</div>',
     '<div class="town-hud-right"><button id="town-motion" type="button" aria-pressed="false">Motion: on</button></div>',
   ].join('');
@@ -220,6 +231,8 @@ function buildUi(host: HTMLElement): Ui {
     rows: wrap.querySelector('#town-rows')!,
     motion: wrap.querySelector('#town-motion')!,
     selection,
+    bubbleHistory: wrap.querySelector('#town-bubble-history')!,
+    bubbleHistoryList: wrap.querySelector('#town-bubble-history-list')!,
     wrap, banner, bannerHome,
   };
 }
@@ -305,6 +318,8 @@ interface BackendEvent {
   task_id?: string | null;
   payload?: Record<string, unknown>;
   timestamp?: string;
+  /** Tagged by the shell for page-load /api/events replays. */
+  historical?: boolean;
 }
 
 function onEvent(event: BackendEvent | undefined): void {
@@ -314,7 +329,9 @@ function onEvent(event: BackendEvent | undefined): void {
   renderer?.applyState(town);
   renderUi();
 
-  // Process event through bubble controller (UI-VIS-007)
+  // Process event through bubble controller (UI-VIS-007). Historic replays
+  // carry the flag so the controller advances its watermark without
+  // rendering — historic events never replay as new execution (§14).
   if (event.type) {
     bubbleController?.processEvent({
       type: event.type,
@@ -322,7 +339,10 @@ function onEvent(event: BackendEvent | undefined): void {
       task_id: event.task_id,
       sequence: event.sequence,
       timestamp: event.timestamp,
+      historical: event.historical,
     });
+    // §11: keep the recent-bubble history viewer fresh while it is open.
+    if (ui?.bubbleHistory.open) bubbleController?.renderHistoryInto(ui.bubbleHistoryList);
   }
 
   // Terminal events change records too: re-read soon, but not per event (bounded, debounced).
