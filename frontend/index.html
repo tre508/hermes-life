@@ -3,9 +3,10 @@
 <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Hermes Life — Unified AI Development Workspace</title>
+    <title>Hermes Life — Hermesha Command Centre</title>
     <link rel="stylesheet" href="/src/style.css" />
     <link rel="stylesheet" href="/src/unified-layout.css" />
+    <link rel="stylesheet" href="/src/command-centre.css" />
 </head>
 <body>
 <div id="app" class="layout-home">
@@ -14,24 +15,39 @@
     <header class="topbar">
         <div class="brand">
             <h1>HERMES LIFE <span class="pill">AI OPERATIONS LAB / 0.4.0</span></h1>
-            <p>Unified AI Development Workspace</p>
+            <p>Single operations facility</p>
         </div>
+        <div class="hc-header-centre" aria-label="Command centre">Hermesha Command Centre</div>
         <div id="global-status" role="status" aria-live="polite">
             <span id="connection-status" data-state="connecting">Connection: Connecting</span>
             <span id="execution-status" data-state="idle">Execution: idle</span>
             <span id="data-freshness-status"></span>
+            <button id="hc-sync" type="button" class="header-chat-btn" title="Reload synchronized status">Sync</button>
             <button id="header-chat-open" type="button" class="header-chat-btn" title="Open Hermes conversation">Chat ✦</button>
         </div>
     </header>
 
     <!-- ===================== Region B: primary navigation rail ===================== -->
-    <nav id="primary-nav" aria-label="Workspaces">
-        <button data-workspace="home" class="active" type="button" aria-pressed="true">Home</button>
-        <button data-workspace="work" type="button" aria-pressed="false">Work</button>
-        <button data-workspace="activity" type="button" aria-pressed="false">Activity</button>
-        <button data-workspace="results" type="button" aria-pressed="false">Results</button>
+    <nav id="primary-nav" aria-label="Command centre navigation">
+        <span class="hc-nav-caption">Starship</span>
+        <button data-workspace="home" class="active" type="button" aria-pressed="true">◇ World</button>
+        <button data-workspace="work" data-hc-workview="tasks" type="button" aria-pressed="false">▤ Task Board</button>
+        <button data-workspace="home" data-hc-chat="open" type="button" aria-pressed="false">◉ Chat</button>
+        <button data-workspace="work" data-hc-workview="goals" type="button" aria-pressed="false">✧ Goals</button>
+        <button data-workspace="system" type="button" aria-pressed="false">▦ Memory</button>
+        <button data-workspace="work" data-hc-workview="discover" type="button" aria-pressed="false">◈ Knowledge Deck</button>
+        <button data-workspace="results" type="button" aria-pressed="false">♟ Results</button>
+        <button data-workspace="activity" type="button" aria-pressed="false">◷ Activity</button>
         <span class="nav-sep" aria-hidden="true"></span>
-        <button data-workspace="system" type="button" aria-pressed="false" class="nav-secondary">System</button>
+        <span class="hc-nav-caption hc-nav-room-caption">Eight rooms · shared map</span>
+        <button class="hc-room-link" data-workspace="home" data-hc-room="director" type="button">Director Office</button>
+        <button class="hc-room-link" data-workspace="home" data-hc-room="research" type="button">Research Station</button>
+        <button class="hc-room-link" data-workspace="home" data-hc-room="review" type="button">Review Station</button>
+        <button class="hc-room-link" data-workspace="home" data-hc-room="control" type="button">Control Room</button>
+        <button class="hc-room-link" data-workspace="home" data-hc-room="dev" type="button">Dev Station</button>
+        <button class="hc-room-link" data-workspace="home" data-hc-room="lab" type="button">Lab</button>
+        <button class="hc-room-link" data-workspace="home" data-hc-room="archive" type="button">Archive</button>
+        <button class="hc-room-link" data-workspace="home" data-hc-room="break" type="button">Break Room</button>
     </nav>
 
     <!-- Deep-link shims: the phase modules call openTab('Planning'|'Build') and
@@ -49,8 +65,8 @@
         <section id="workspace-home" class="workspace-view" data-layout="world">
             <header class="workspace-heading">
                 <div>
-                    <h2>Home <small>AI Operations Lab</small></h2>
-                    <p>Hermes, the seven operational roles, and the work in flight.</p>
+                    <h2>Hermesha Command Centre <small>Eight shared rooms</small></h2>
+                    <p>One facility. Seven existing operational roles. Live work derived from Hermes events.</p>
                 </div>
                 <p class="hint">Click a resident or workstation for details. The lab moves in real time from backend events.</p>
             </header>
@@ -75,11 +91,11 @@
             </div>
             <section class="home-recent-strip" aria-label="Recent operation">
                 <div>
-                    <p class="hrs-eyebrow">Recent events</p>
+                    <p class="hrs-eyebrow">Recent activity</p>
                     <div id="home-recent-events" class="hrs-events" aria-live="polite"></div>
                 </div>
                 <div class="hrs-current">
-                    <p class="hrs-eyebrow">Current operation</p>
+                    <p class="hrs-eyebrow">Current focus</p>
                     <div class="kv">Active <strong id="home-current-active">No active task</strong></div>
                     <div class="kv">Recent task <strong id="home-current-recent">—</strong></div>
                     <div class="kv">Last outcome <strong id="home-current-outcome">—</strong></div>
@@ -294,6 +310,8 @@
     <aside id="contextual-panel">
         <!-- Home context: compact persona + submit a task + current/recent work -->
         <div id="ctx-home" class="ctx-block">
+            <div class="hc-side-title">Hermes / Director</div>
+            <div id="hc-room-info" class="hc-room-info" hidden aria-live="polite"><strong data-hc-room-title></strong><span data-hc-room-detail></span><button id="hc-room-info-close" type="button">Close room details</button></div>
             <section class="persona-card" id="persona-card">
                 <div class="persona-head">
                     <div class="avatar-mark">H</div>
@@ -324,7 +342,7 @@
                 <p class="persona-narrative" id="persona-narrative">Watching the studio for new work.</p>
             </section>
             <section class="home-current-work">
-                <h2>Current work</h2>
+                <h2>Workspace status · Current work</h2>
                 <div class="kv">Current task <strong id="current-task">None</strong></div>
                 <div class="kv">Recent task <strong id="recent-task">—</strong></div>
                 <div class="kv">Last outcome <strong id="last-outcome">—</strong></div>

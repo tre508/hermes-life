@@ -20,13 +20,14 @@ import './phase41302-workflow';
 import './phase41303-memory';
 import './phase415-review';
 import './work-workspace';
+import './command-centre-ui';
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string): T | null => document.getElementById(id) as T | null;
 const str = (v: unknown): string => (typeof v === 'string' ? v : v == null ? '' : String(v));
 
 // ============================= version =============================
 const versionPill = document.querySelector<HTMLElement>('header .pill');
-if (versionPill) versionPill.textContent = 'AI OPERATIONS LAB / 0.4.0';
+if (versionPill) versionPill.textContent = 'HERMESHA / 0.4.0';
 
 // ============================= workspace & layout =============================
 const app = $('app')!;
@@ -54,7 +55,7 @@ function setWorkspace(id: string) {
         if (view) view.hidden = w !== id;
     });
     document.querySelectorAll<HTMLButtonElement>('#primary-nav button').forEach(btn => {
-        const on = btn.dataset.workspace === id;
+        const on = btn.dataset.workspace === id && !btn.hasAttribute('data-hc-room') && !btn.hasAttribute('data-hc-chat') && (!btn.hasAttribute('data-hc-workview') || btn.dataset.hcWorkview === 'tasks');
         btn.classList.toggle('active', on);
         btn.setAttribute('aria-pressed', String(on));
     });
@@ -119,6 +120,11 @@ window.addEventListener('hermes:workview', ((ev: Event) => {
     const view = (ev as CustomEvent<{ view?: string }>).detail?.view;
     if (view) setWorkspace('work');
 }) as EventListener);
+
+// Phase 4 left-rail Chat uses the same existing chat control, not another chat instance.
+document.querySelector('#primary-nav button[data-hc-chat="open"]')?.addEventListener('click', () => {
+    queueMicrotask(() => document.getElementById('header-chat-open')?.click());
+});
 
 // Open the floating Hermes conversation from anywhere.
 const headerChat = $('header-chat-open');

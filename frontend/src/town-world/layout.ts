@@ -11,9 +11,10 @@
  */
 import { ROLES, ROSTER, TOWN_LOCATIONS, type LocationId, type Role } from '../town-model';
 import { locationLabel } from '../town-vocabulary';
+import { roomForRole, roomToWorld } from './ship-rooms';
 
 /** The room shell, in world units. The department ring is sized against it; the camera is not. */
-export const ROOM = { width: 17, depth: 11, wall: 2.9 } as const;
+export const ROOM = { width: 30, depth: 30, wall: 2.9 } as const;
 
 /**
  * The floor and the backdrop, both deliberately larger than the camera frame.
@@ -33,7 +34,7 @@ export const SHELL = { width: 52, depth: 38, wall: 5.0 } as const;
  * old fit included the wall tops at the far corners, and on a wide panel that pushed the camera back
  * until the facility was a diamond with empty margins either side of it.
  */
-export const CONTENT = { x: 7.7, z: 4.7, y: 2.0 } as const;
+export const CONTENT = { x: 17.5, z: 17.5, y: 3.1 } as const;
 
 /** Where the six working stations sit. An ellipse, so the ring fits the room's proportions. */
 export const RING = { x: 6.4, z: 3.6, startDeg: 30 } as const;
@@ -82,28 +83,21 @@ export interface StationPlan {
  * takes the centre; the six working roles sit evenly on the ring, their position coming from their
  * index in `ROLES` rather than a hand-written coordinate table.
  */
+/** Fixed positions anchored to the screenshot's eight physical rooms.
+ * Physical rooms do not introduce new persisted backend location IDs.
+ */
 export function facilityPlan(): StationPlan[] {
-  const workers = ROLES.filter(role => role !== 'coordinator');
-  const ring = workers.map((role, index): StationPlan => {
-    const radians = (RING.startDeg + (360 / workers.length) * index) * Math.PI / 180;
-    const x = RING.x * Math.cos(radians);
-    const z = RING.z * Math.sin(radians);
+  return ROLES.map((role): StationPlan => {
+    const room = roomForRole(role);
+    const { x, z } = roomToWorld(room.u, room.v);
     const location = ROSTER[role].location;
     return {
-      role, location, x, z, yaw: Math.atan2(-x, -z),
+      role, location, x, z,
+      yaw: role === 'coordinator' ? Math.PI * 0.25 : Math.atan2(-x, -z),
       label: locationLabel(location),
       view: TOWN_LOCATIONS[location].view,
     };
   });
-  const centre = ROSTER.coordinator.location;
-  return [
-    {
-      role: 'coordinator', location: centre, x: 0, z: 0, yaw: Math.PI * 0.25,
-      label: locationLabel(centre),
-      view: TOWN_LOCATIONS[centre].view,
-    },
-    ...ring,
-  ];
 }
 
 /** Where a figure stands. */

@@ -43,6 +43,7 @@ import type { Expression } from './town-world/faces';
 import { mergeStaticGeometry } from './town-world/optimize';
 import { buildStation } from './town-world/workstations';
 import { contactPatch } from './town-world/props';
+import { PHYSICAL_ROOMS, roomToWorld, type PhysicalRoomId } from './town-world/ship-rooms';
 
 /** A 45° azimuth with a low 27° eye: the projection then matches the wide panel, and the viewer looks
  * into the room rather than down onto a model (audit v2 §4, §5). */
@@ -57,7 +58,7 @@ const MAX_FRAME_SECONDS = 0.05;
 const GLOW = { resting: 0.5, working: 1.7, attention: 0.9 } as const;
 
 /** 1.0 would put the room's own corners exactly on the frame edge. */
-const FRAME_MARGIN = 1.02;
+const FRAME_MARGIN = 1.08;
 
 /** How high a chair's seat is, matching `workstations.ts`. */
 const CHAIR = { seat: 0.46, pad: 0.07 };
@@ -244,6 +245,30 @@ export function create3DRenderer(host: HTMLElement, opts: { motion: boolean }): 
   const pickable: THREE.Object3D[] = [];
   const stations: Station[] = [];
 
+  // Invisible selection surfaces for all EIGHT physical rooms (including the
+  // Break Room). These are presentation-only; backend LocationIds are intact.
+  // colorWrite=false prevents an overlay from darkening the scene; the meshes
+  // remain raycastable and are tracked for disposal alongside other resources.
+  const roomPickMaterial = track(new THREE.MeshBasicMaterial({
+    transparent: true, opacity: 0, colorWrite: false, depthWrite: false,
+    side: THREE.DoubleSide,
+  }));
+  const roomPickables: THREE.Mesh[] = [];
+  for (const room of PHYSICAL_ROOMS) {
+    const mesh = new THREE.Mesh(geometry.plane(room.width - 0.34, room.depth - 0.34), roomPickMaterial);
+    const p = roomToWorld(room.u, room.v);
+    mesh.rotation.set(-Math.PI / 2, Math.PI / 4, 0, 'YXZ');
+    mesh.position.set(p.x, 0.067, p.z);
+    mesh.name = `Hermesha room hit area: ${room.label}`;
+    mesh.userData.physicalRoom = room.id;
+    scene.add(mesh);
+    roomPickables.push(mesh);
+    pickable.push(mesh);
+  }
+  // A separate target list keeps the physical-room floor from intercepting
+  // resident and workstation hits: actors/stations always have priority.
+  const detailedPickables: THREE.Object3D[] = [];
+
   const dais = buildCommandCentre(builders, centre, track);
   const centrePanel = taskPanel(track, 2.4);
   // Panels live in world space and are positioned over the resident each frame: anchoring them to the
@@ -253,6 +278,7 @@ export function create3DRenderer(host: HTMLElement, opts: { motion: boolean }): 
   scene.add(dais);
   mergeIn(dais);
   pickable.push(dais);
+  detailedPickables.push(dais);
   stations.push({ location: centre.location, owner: 'coordinator', panel: centrePanel });
 
   for (const entry of plan) {
@@ -266,6 +292,7 @@ export function create3DRenderer(host: HTMLElement, opts: { motion: boolean }): 
     scene.add(station);
     mergeIn(station);
     pickable.push(station);
+    detailedPickables.push(station);
     stations.push({ location: entry.location, owner: entry.role, panel });
   }
 
@@ -323,6 +350,7 @@ export function create3DRenderer(host: HTMLElement, opts: { motion: boolean }): 
 
     scene.add(parts.group);
     pickable.push(parts.group);
+    detailedPickables.push(parts.group);
     return {
       role: entry.role, parts, visual: activityVisual('unknown'), phase: index * 0.9, seated: false,
       console: false, atDesk: false,
@@ -374,6 +402,7 @@ export function create3DRenderer(host: HTMLElement, opts: { motion: boolean }): 
   let previousFrameTime: number | null = null;
 
   const projected = new THREE.Vector3();
+  const headWorld = new THREE.Vector3();
   const activities = new Map<Role, { state: Activity; location: LocationId; label: string }>();
 
   const draw = () => { renderer.render(scene, camera); frames++; };
@@ -669,13 +698,15 @@ export function create3DRenderer(host: HTMLElement, opts: { motion: boolean }): 
    * Picking is raycasting against the real geometry with the pointer mapped through the canvas box,
    * which is why it cannot drift the way an old screen-space transform did.
    */
-  const hitAt = (clientX: number, clientY: number): { role?: Role; location?: LocationId } | null => {
+  const hitAt = (clientX: number, clientY: number): { role?: Role; location?: LocationId; physicalRoom?: PhysicalRoomId } | null => {
     const rect = canvas.getBoundingClientRect();
     if (!rect.width || !rect.height) return null;
     ndc.set(((clientX - rect.left) / rect.width) * 2 - 1, -((clientY - rect.top) / rect.height) * 2 + 1);
     raycaster.setFromCamera(ndc, camera);
     let station: LocationId | null = null;
-    for (const hit of raycaster.intersectObjects(pickable, true)) {
+    // First pick actual residents/workstations, then the room floor. A large
+    // transparent room hit area must never steal a resident's click.
+    for (const hit of raycaster.intersectObjects(detailedPickables, true)) {
       let node: THREE.Object3D | null = hit.object;
       while (node) {
         // A resident always wins over the desk they are standing at.
@@ -684,16 +715,25 @@ export function create3DRenderer(host: HTMLElement, opts: { motion: boolean }): 
         node = node.parent;
       }
     }
-    return station ? { location: station } : null;
+    if (station) return { location: station };
+    const roomHit = raycaster.intersectObjects(roomPickables, false)[0];
+    if (roomHit) {
+      const roomId = roomHit.object.userData.physicalRoom as PhysicalRoomId;
+      const room = PHYSICAL_ROOMS.find(r => r.id === roomId);
+      if (room?.owner) return { location: ROSTER[room.owner].location };
+      if (roomId === 'break_room') return { physicalRoom: roomId };
+    }
+    return null;
   };
 
   /** The tooltip's one line: the model's own words, never an invented status. */
-  const textFor = (hit: { role?: Role; location?: LocationId }): string => {
+  const textFor = (hit: { role?: Role; location?: LocationId; physicalRoom?: PhysicalRoomId }): string => {
     if (hit.role) {
       const info = activities.get(hit.role);
       return `${ROSTER[hit.role].name} · ${ROSTER[hit.role].title} · ${stateWordFor(info?.state ?? 'unknown')}`
         + (info?.label ? ` — ${info.label}` : '');
     }
+    if (hit.physicalRoom === 'break_room') return 'Break Room · Non-operational environment';
     const name = locationLabel(hit.location!);
     const present = ROLES.find(role => activities.get(role)?.location === hit.location);
     const info = present ? activities.get(present) : undefined;
@@ -725,6 +765,7 @@ export function create3DRenderer(host: HTMLElement, opts: { motion: boolean }): 
     // The events the app already listens for: the popovers, deep links and tabs are unchanged.
     if (hit.role) window.dispatchEvent(new CustomEvent('town:select', { detail: { role: hit.role } }));
     else if (hit.location) window.dispatchEvent(new CustomEvent('town:building', { detail: { location: hit.location } }));
+    else if (hit.physicalRoom) window.dispatchEvent(new CustomEvent('hermesha:room:select', { detail: { room: hit.physicalRoom } }));
   };
   canvas.addEventListener('pointermove', onPointerMove);
   canvas.addEventListener('pointerleave', onPointerLeave);
@@ -823,10 +864,18 @@ export function create3DRenderer(host: HTMLElement, opts: { motion: boolean }): 
     positions(): RendererPoint[] {
       return figures.map(figure => {
         projected.copy(figure.parts.group.position).project(camera);
+        const footX = Math.round((projected.x + 1) / 2 * DESIGN.width);
+        const footY = Math.round((1 - projected.y) / 2 * DESIGN.height);
+        // The animated head is the true anchor, including seat/walk offsets;
+        // fixed screen-pixel lifts were incorrect after the Phase 2 camera fit.
+        figure.parts.head.getWorldPosition(headWorld);
+        projected.copy(headWorld).project(camera);
         return {
           role: figure.role,
-          x: Math.round((projected.x + 1) / 2 * DESIGN.width),
-          y: Math.round((1 - projected.y) / 2 * DESIGN.height),
+          x: footX,
+          y: footY,
+          headX: Math.round((projected.x + 1) / 2 * DESIGN.width),
+          headY: Math.round((1 - projected.y) / 2 * DESIGN.height),
           state: activities.get(figure.role)?.state ?? 'unknown',
           location: activities.get(figure.role)?.location ?? ROSTER[figure.role].location,
         };
@@ -845,6 +894,8 @@ export function create3DRenderer(host: HTMLElement, opts: { motion: boolean }): 
       backdrop.dispose();
       scene.clear();
       pickable.length = 0;
+      detailedPickables.length = 0;
+      roomPickables.length = 0;
       stations.length = 0;
       figures.length = 0;
       activities.clear();

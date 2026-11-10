@@ -1,0 +1,2 @@
+frontend/src/command-centre.css
+frontend/src/command-centre-ui.ts

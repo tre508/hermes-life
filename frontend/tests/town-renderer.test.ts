@@ -90,7 +90,7 @@ test('every location has one presentation label, purpose and no leftovers from t
     assert.ok(locationPurpose(location).length > 0, `${location} needs a purpose`);
   }
   // The facility's own name, and no visible wording that still says "town".
-  assert.match(LAB_NAME, /Operations Lab/);
+  assert.match(LAB_NAME, /Hermesha Command Centre/);
   const visible = Object.values(LOCATION_LABEL).join(' ') + ' ' + LAB_NAME;
   assert.doesNotMatch(visible, /\btown\b/i, 'the old town wording must not survive in the UI');
 });

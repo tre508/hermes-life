@@ -26,6 +26,9 @@ export interface RendererPoint {
   role: Role;
   x: number;
   y: number;
+  /** Optional world-projected head position; other renderers may omit. */
+  headX?: number;
+  headY?: number;
   state: string;
   location: LocationId;
 }

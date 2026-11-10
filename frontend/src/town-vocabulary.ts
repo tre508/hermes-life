@@ -15,17 +15,17 @@
 import { ROSTER, type LocationId, type Role } from './town-model';
 
 /** What the facility is called, wherever a title is shown. */
-export const LAB_NAME = 'AI Operations Lab';
+export const LAB_NAME = 'Hermesha Command Centre';
 
 /** Presentation labels. Keys are the model's stable location ids; only the wording is new. */
 export const LOCATION_LABEL: Readonly<Record<LocationId, string>> = Object.freeze({
-  town_square: 'Command Center',
-  library: 'Research Laboratory',
-  planning_house: 'Strategy Room',
-  workshop: 'Development Studio',
-  testing_lab: 'Verification Laboratory',
-  archive: 'Knowledge Archive',
-  review_office: 'Review & Approval',
+  town_square: 'Control Room',
+  library: 'Research Station',
+  planning_house: 'Director Office',
+  workshop: 'Dev Station',
+  testing_lab: 'Lab',
+  archive: 'Archive',
+  review_office: 'Review Station',
 });
 
 /** What happens in each area, in the facility's language rather than the old town's. */

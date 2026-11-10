@@ -18,6 +18,7 @@ import {
 } from './town-model';
 import { locationLabel, locationPurpose } from './town-vocabulary';
 import { BubbleController } from './town-world/bubbles';
+import { roomForRole } from './town-world/ship-rooms';
 import './town-world/bubbles.css';
 
 const REFRESH_MS = 20_000;
@@ -422,7 +423,25 @@ function clock(timestamp: number): string {
 // --------------------------------------------------------------------------- interaction
 
 function openView(view: string): void {
-  document.querySelector<HTMLButtonElement>(`[data-ops-tab="${view}"]`)?.click();
+  // The old [data-ops-tab] rail was replaced by main.v2 in Phase 4.
+  // Route through existing visible controls so their native handlers run.
+  const direct: Record<string, string> = {
+    overview: 'home', activity: 'activity', evidence: 'results',
+    results: 'results', memory: 'system',
+  };
+  const root = direct[view];
+  if (root) {
+    document.querySelector<HTMLButtonElement>(`#primary-nav button[data-workspace="${root}"]:not([data-hc-room]):not([data-hc-chat])`)?.click();
+    return;
+  }
+  const workview: Record<string, string> = {
+    discovery: 'discover', planning: 'planning', build: 'build',
+    goals: 'goals', tasks: 'tasks',
+  };
+  const subview = workview[view];
+  if (subview) {
+    document.querySelector<HTMLButtonElement>(`#work-subnav button[data-workview="${subview}"]`)?.click();
+  }
 }
 
 function showBuilding(location: LocationId): void {
@@ -461,7 +480,7 @@ function showResident(role: Role): void {
   state.textContent = `${ACTIVITY_WORDS[resident.state]} · ${resident.label}`;
   const facts = document.createElement('ul');
   const rows: Array<[string, string]> = [
-    ['Place', place.name],
+    ['Place', roomForRole(role).label],
     ['Project/task', resident.project || resident.taskId || '—'],
     ['Workflow id', resident.workflowId || '—'],
     ['Last event', resident.eventType ? `${resident.eventType} (#${resident.sequence})` : '—'],

@@ -879,18 +879,25 @@ export class BubbleController {
     const scaleX = canvasRect.width / 800;
     const scaleY = canvasRect.height / 425;
 
-    // Head offset: design-space units. Resident figures are on a 45°/27°
-    // projection so the feet point sits well above the canvas mid-line;
-    // lifting by ~58 design units puts the bubble near the nameplate.
-    const headLift = 58;
-    let x = residentPos.x * scaleX + canvasRect.left - overlayRect.left;
-    let y = (residentPos.y - headLift) * scaleY + canvasRect.top - overlayRect.top;
+    // Phase 5: use the animated resident's world-projected head, not a
+    // hard-coded pixel lift (which fails when the eight-room camera changes).
+    // Static renderers and earlier compatible renderers use a bounded fallback.
+    const anchorX = residentPos.headX ?? residentPos.x;
+    const anchorY = residentPos.headY ?? (residentPos.y - 58);
+    let x = anchorX * scaleX + canvasRect.left - overlayRect.left;
+    let y = (anchorY - 8) * scaleY + canvasRect.top - overlayRect.top;
 
     // Clamp so the bubble stays inside the canvas. We allow a small margin
     // so the bubble's own translateX(-50%) doesn't push it past the edge.
     const halfW = 110; // bubble width / 2 ~= 220
     const margin = 8;
-    x = Math.max(halfW + margin, Math.min(canvasRect.width - halfW - margin, x));
+    if (canvasRect.width < halfW * 2 + margin * 2) {
+      element.style.maxWidth = `${Math.max(120, canvasRect.width - margin * 2)}px`;
+      x = canvasRect.width / 2;
+    } else {
+      element.style.maxWidth = '';
+      x = Math.max(halfW + margin, Math.min(canvasRect.width - halfW - margin, x));
+    }
     // y is the bubble's anchor point (after translateY(-100%) the bubble
     // body sits above this y). Keep the anchor inside the canvas so the
     // bubble body never bleeds past the top.
