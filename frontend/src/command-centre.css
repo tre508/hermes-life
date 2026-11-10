@@ -80,3 +80,12 @@
   #app .home-recent-strip { grid-template-columns: minmax(0, 1fr); }
 }
 @media (prefers-reduced-motion: reduce) { #app .hc-header-centre { box-shadow: none; } }
+
+/* VIS-007: visual hierarchy and an explicit [hidden] accessibility contract. */
+#app #contextual-panel .ctx-block[hidden],
+#app #contextual-panel #chat-dock[hidden],
+#app #contextual-panel #ctx-selection[hidden] { display: none !important; }
+#app .home-world { box-shadow: inset 0 0 0 1px rgba(76,153,179,.12); }
+#app .home-world #game { background: radial-gradient(ellipse at 50% 40%, #142434 0%, #0c1521 76%, #09101b 100%); }
+#app #workspace-home .home-recent-strip > div { min-height: 118px; }
+#app #contextual-panel { scrollbar-width: thin; }

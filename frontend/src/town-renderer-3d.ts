@@ -369,26 +369,41 @@ export function create3DRenderer(host: HTMLElement, opts: { motion: boolean }): 
    * both sides (audit v2 §2, §4, §13). Fitting `CONTENT` instead puts those margins to work: the
    * walls, the deck and the floor beyond them are allowed to run past the frame edge.
    */
+  // VIS-007: frame the actual eight-room footprint rather than the obsolete
+  // +/-CONTENT.x,z lab envelope. The old oversized box made the building
+  // occupy less than half of the available canvas on desktop.
   const frameContent = () => {
     const right = new THREE.Vector3().setFromMatrixColumn(camera.matrixWorld, 0);
     const up = new THREE.Vector3().setFromMatrixColumn(camera.matrixWorld, 1);
-    let maxRight = 0;
-    let maxUp = 0;
-    for (const x of [-CONTENT.x, CONTENT.x]) {
-      for (const y of [0, CONTENT.y]) {
-        for (const z of [-CONTENT.z, CONTENT.z]) {
-          const corner = new THREE.Vector3(x, y, z).sub(target);
-          maxRight = Math.max(maxRight, Math.abs(corner.dot(right)));
-          maxUp = Math.max(maxUp, Math.abs(corner.dot(up)));
+    // Calculate a screen-aligned AABB around the real room footprints.
+    // Include wall/room-art height; do not include exterior sky geometry.
+    let minX = Infinity, maxX = -Infinity;
+    let minY = Infinity, maxY = -Infinity;
+    const point = new THREE.Vector3();
+    for (const room of PHYSICAL_ROOMS) {
+      for (const du of [-room.width / 2 - 0.2, room.width / 2 + 0.2]) {
+        for (const dv of [-room.depth / 2 - 0.2, room.depth / 2 + 0.2]) {
+          for (const height of [0, 3.4]) {
+            const pos = roomToWorld(room.u + du, room.v + dv);
+            point.set(pos.x, height, pos.z).sub(target);
+            const sx = point.dot(right), sy = point.dot(up);
+            minX = Math.min(minX, sx); maxX = Math.max(maxX, sx);
+            minY = Math.min(minY, sy); maxY = Math.max(maxY, sy);
+          }
         }
       }
     }
+    const midX = (minX + maxX) / 2;
+    const midY = (minY + maxY) / 2;
+    const width = maxX - minX;
+    const height = maxY - minY;
     const aspect = DESIGN.width / DESIGN.height;
-    const halfHeight = Math.max(maxUp, maxRight / aspect) * FRAME_MARGIN;
-    camera.left = -halfHeight * aspect;
-    camera.right = halfHeight * aspect;
-    camera.top = halfHeight;
-    camera.bottom = -halfHeight;
+    // Allow 5-7% margins at the edges; preserve the whole facility.
+    const halfHeight = Math.max(height / 2 / 0.88, width / 2 / aspect / 0.91);
+    camera.left = -halfHeight * aspect + midX;
+    camera.right = halfHeight * aspect + midX;
+    camera.top = halfHeight + midY;
+    camera.bottom = -halfHeight + midY;
     camera.updateProjectionMatrix();
   };
   frameContent();

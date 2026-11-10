@@ -231,9 +231,9 @@ export function decorateShipCorridor(b: Builders, node: THREE.Group, distance: n
   const n = Math.max(1, Math.floor(distance / 1.6));
   for (let i = 0; i < n; i++) {
     const z = -distance / 2 + ((i + 0.5) / n) * distance;
-    box(b, node, kit.steel, 1.66, 0.015, 0.09, 0, 0.018, z);
+    box(b, node, kit.steel, 2.37, 0.015, 0.09, 0, 0.018, z);
     for (const side of [-1, 1])
       box(b, node, i % 2 ? kit.amber : kit.warm, 0.085, 0.018, 0.5,
-        side * 0.77, 0.065, z);
+        side * 1.13, 0.065, z);
   }
 }

@@ -27,16 +27,18 @@ export interface PhysicalRoom {
   owner: Role | null;
 }
 
+// VIS-007: Wider room footprints create a continuous visual hull, rather
+// than small isolated office modules; backend role anchors stay unchanged.
 // U increases right on screen, V increases toward the camera / bottom of image.
 export const PHYSICAL_ROOMS: readonly PhysicalRoom[] = [
-  { id: 'director_office', label: 'DIRECTOR OFFICE', u: 0, v: -9.2, width: 7.1, depth: 5.4, owner: 'planner' },
-  { id: 'research_station', label: 'RESEARCH STATION', u: -8.8, v: -5.8, width: 6.8, depth: 5.5, owner: 'researcher' },
-  { id: 'review_station', label: 'REVIEW STATION', u: 8.8, v: -5.8, width: 6.8, depth: 5.5, owner: 'reviewer' },
-  { id: 'dev_station', label: 'DEV STATION', u: -9.0, v: 1.2, width: 7.0, depth: 5.6, owner: 'builder' },
-  { id: 'control_room', label: 'CONTROL ROOM', u: 0, v: 0, width: 7.5, depth: 7.0, owner: 'coordinator' },
-  { id: 'lab', label: 'LAB', u: 9.0, v: 1.2, width: 7.0, depth: 5.6, owner: 'tester' },
-  { id: 'archive', label: 'ARCHIVE', u: -8.8, v: 8.4, width: 7.0, depth: 5.3, owner: 'archivist' },
-  { id: 'break_room', label: 'BREAK ROOM', u: 8.8, v: 8.4, width: 7.0, depth: 5.3, owner: null },
+  { id: 'director_office', label: 'DIRECTOR OFFICE', u: 0, v: -9.2, width: 8.1, depth: 6.4, owner: 'planner' },
+  { id: 'research_station', label: 'RESEARCH STATION', u: -8.8, v: -5.8, width: 7.8, depth: 6.5, owner: 'researcher' },
+  { id: 'review_station', label: 'REVIEW STATION', u: 8.8, v: -5.8, width: 7.8, depth: 6.5, owner: 'reviewer' },
+  { id: 'dev_station', label: 'DEV STATION', u: -9.0, v: 1.2, width: 8.0, depth: 6.6, owner: 'builder' },
+  { id: 'control_room', label: 'CONTROL ROOM', u: 0, v: 0, width: 8.5, depth: 8.0, owner: 'coordinator' },
+  { id: 'lab', label: 'LAB', u: 9.0, v: 1.2, width: 8.0, depth: 6.6, owner: 'tester' },
+  { id: 'archive', label: 'ARCHIVE', u: -8.8, v: 8.4, width: 8.0, depth: 6.3, owner: 'archivist' },
+  { id: 'break_room', label: 'BREAK ROOM', u: 8.8, v: 8.4, width: 8.0, depth: 6.3, owner: null },
 ] as const;
 
 export function roomToWorld(u: number, v: number): { x: number; z: number } {
@@ -122,14 +124,17 @@ function corridor(b: Builders, from: PhysicalRoom, to: PhysicalRoom, art: ShipAr
   const z = roomToWorld(to.u, to.v);
   const dx = z.x - a.x, dz = z.z - a.z;
   const distance = Math.hypot(dx, dz);
-  const width = 1.55;
+  // VIS-007: substantial corridor decks and illuminated containment rails.
+  const width = 2.35;
   const yaw = Math.atan2(dx, dz);
   node.position.set((a.x + z.x) / 2, 0, (a.z + z.z) / 2);
   node.rotation.y = yaw;
-  addBox(b, node, b.m.housingLight, width + 0.3, 0.065, distance, 0, -0.042, 0);
-  addBox(b, node, b.m.floor, width, 0.012, distance, 0, 0.002, 0);
+  addBox(b, node, art.hull, width + 0.72, 0.11, distance, 0, -0.09, 0);
+  addBox(b, node, b.m.floor, width, 0.018, distance, 0, -0.018, 0);
   for (const sign of [-1, 1]) {
-    addBox(b, node, b.m.led, 0.075, 0.04, Math.max(0.1, distance - 0.4), sign * width / 2, 0.035, 0);
+    addBox(b, node, art.steel, 0.18, 0.16, distance, sign * (width / 2 + 0.14), -0.014, 0);
+    addBox(b, node, art.warm, 0.09, 0.045, Math.max(0.1, distance - 0.4),
+      sign * (width / 2 + 0.14), 0.082, 0);
   }
   decorateShipCorridor(b, node, distance, art);
   return node;
