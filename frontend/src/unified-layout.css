@@ -377,14 +377,8 @@
     border-color: #2f6f57;
     color: #eef6f0;
 }
-#app .work-grid {
-    display: grid;
-    grid-template-columns: minmax(360px, 5fr) minmax(320px, 6fr);
-    gap: 18px;
-    align-items: start;
-}
-@media (max-width: 1280px) { #app .work-grid { grid-template-columns: 1fr; } }
-#app .work-list, #app .work-management { min-width: 0; }
+/* NOTE: the .work-grid layout lives in the #workview-tasks section below
+   (UUX-004F: one canonical definition, per-panel scroll scoping). */
 
 /* -- task list -- */
 #app #task-list { display: flex; flex-direction: column; gap: 8px; }
@@ -507,21 +501,140 @@
     display: flex;
 }
 
-/* Tasks view uses the existing 3-column grid */
+/* ---- Work workspace scaffolding: heading + subnav fixed, outlet fills ----
+   The Work workspace is a flex column of fixed chrome and one visible
+   panel. Each panel scrolls ONLY its own content (UUX-004F): the page
+   itself does not scroll under Work. */
+#app #workspace-work {
+    height: 100%;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+#app #workspace-work .workspace-heading {
+    flex: 0 0 auto;
+    margin-bottom: 8px;
+}
+#app #workspace-work .work-subnav {
+    flex: 0 0 auto;
+    margin-bottom: 12px;
+}
+#app #workview-outlet {
+    flex: 1 1 auto;
+    min-height: 0;
+}
+
+/* Global Work panels (Discover / Goals / Planning / Build) scroll their
+   own content as a single column of stacked cards. */
+#app #workview-discover:not([hidden]),
+#app #workview-goals:not([hidden]),
+#app #workview-planning:not([hidden]),
+#app #workview-build:not([hidden]) {
+    overflow-y: auto;
+    scrollbar-color: #426574 #10232c;
+    padding-right: 2px;
+}
+
+/* ---- Tasks: three-column workbench with independent scrolling ----
+   The task list, the thread, and the context column each scroll by
+   themselves. The composer sits at the bottom of the center column and
+   never scrolls away, so a half-typed reply stays usable. */
+#app #workview-tasks:not([hidden]) {
+    overflow: hidden;
+}
 #app #workview-tasks .work-grid {
     display: grid;
-    grid-template-columns: minmax(260px, 4fr) minmax(440px, 7fr) minmax(280px, 5fr);
+    grid-template-columns: minmax(240px, 5fr) minmax(440px, 9fr) minmax(260px, 5fr);
     gap: 16px;
-    align-items: start;
-    min-height: 0;
+    align-items: stretch;
     flex: 1 1 auto;
+    min-height: 0;
 }
-@media (max-width: 1280px) {
+#app #workview-tasks .work-list,
+#app #workview-tasks .work-center,
+#app #workview-tasks .work-context {
+    min-width: 0;
+    min-height: 0;
+}
+/* Task list: independently navigable — its own scroll, never drags the page. */
+#app #workview-tasks .work-list {
+    overflow-y: auto;
+    scrollbar-color: #426574 #10232c;
+    padding-right: 2px;
+}
+#app .work-list h2 { margin-top: 0; }
+/* Center: shell fills the column; thread scrolls, composer stays pinned. */
+#app #workview-tasks .work-center {
+    overflow: hidden;
+}
+#app #task-detail-container:not([hidden]) {
+    display: flex;
+    flex-direction: column;
+    flex: 1 1 auto;
+    min-height: 0;
+}
+#app .task-detail-shell {
+    flex: 1 1 auto;
+    min-height: 0;
+}
+#app .task-detail-shell > .task-actions {
+    flex: 0 0 auto;
+}
+#app .task-composer-host {
+    flex: 0 0 auto;
+}
+/* Context column: own scroll so approval cards stay reachable without
+   crushing the task content. */
+#app #workview-tasks .work-context {
+    overflow-y: auto;
+    scrollbar-color: #426574 #10232c;
+    padding-right: 2px;
+}
+
+/* ---- Tasks responsive breakpoints ----
+   1920×1080 / 1600×900: three columns.
+   ≤1500px (1366×768): list + detail; the context column moves BELOW the
+   detail as a capped, independently scrolling strip so approval controls
+   remain accessible instead of being hidden.
+   ≤1100px (narrow / mobile): single column stacked; the panel itself
+   scrolls, the thread is capped so the composer stays reachable. */
+@media (max-width: 1500px) {
     #app #workview-tasks .work-grid {
-        grid-template-columns: minmax(260px, 4fr) minmax(500px, 8fr);
+        grid-template-columns: minmax(220px, 4fr) minmax(0, 10fr);
+        grid-template-rows: minmax(0, 1fr) auto;
+    }
+    #app #workview-tasks .work-list { grid-column: 1; grid-row: 1; }
+    #app #workview-tasks .work-center { grid-column: 2; grid-row: 1; }
+    #app #workview-tasks .work-context {
+        grid-column: 1 / -1;
+        grid-row: 2;
+        max-height: 240px;
+    }
+}
+@media (max-width: 1100px) {
+    #app #workview-tasks:not([hidden]) {
+        overflow-y: auto;
+        scrollbar-color: #426574 #10232c;
+    }
+    #app #workview-tasks .work-grid {
+        display: flex;
+        flex-direction: column;
+    }
+    #app #workview-tasks .work-list {
+        max-height: 40vh;
+    }
+    #app #workview-tasks .work-center {
+        overflow: visible;
+    }
+    #app .task-detail-shell {
+        flex: 0 0 auto;
+    }
+    #app .task-thread-host {
+        max-height: 50vh;
     }
     #app #workview-tasks .work-context {
-        display: none;
+        max-height: none;
     }
 }
 
@@ -663,19 +776,8 @@
 /* Smaller "conv short codes" in the task list. */
 #app .task-entry .task-meta { color: #7f9aa0; font-size: 11px; }
 
-/* ----- Work workspace 3-column layout (P1: Tasks | Active task | Context) ----- */
-#app .work-grid {
-    display: grid;
-    grid-template-columns: minmax(260px, 4fr) minmax(440px, 7fr) minmax(280px, 5fr);
-    gap: 16px;
-    align-items: start;
-    min-height: 0;
-}
-@media (max-width: 1280px) {
-    /* Narrow viewports collapse the contextual panel into the center column. */
-    #app .work-grid { grid-template-columns: minmax(260px, 4fr) minmax(500px, 8fr); }
-    #app .work-context { display: none; }
-}
+/* The 3-column Tasks layout is defined once in the #workview-tasks section
+   (UUX-004F removed the duplicate .work-grid declarations). */
 #app .work-list { min-width: 0; }
 #app .work-list h2 small { color: #7f9aa0; font-weight: 500; }
 
@@ -1157,3 +1259,33 @@
     color: #a8e7d5;
 }
 #app .task-action--secondary:hover { background: #172a32; }
+
+
+/* HERMESHA-UUX-004-SCROLL-FIX */
+/* The Work controller restores #workview-outlet.scrollTop. Give that
+   element a constrained height and its own vertical scrolling area. */
+#app #workspace-work {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    min-height: 0;
+    overflow: hidden;
+}
+#app #workspace-work > .workspace-heading,
+#app #workspace-work > #work-subnav {
+    flex: 0 0 auto;
+}
+#app #workspace-work > #workview-outlet {
+    flex: 1 1 auto;
+    min-height: 0;
+    min-width: 0;
+    overflow-y: auto;
+    overflow-x: hidden;
+    overscroll-behavior-y: contain;
+    scrollbar-width: thin;
+}
+#app #workview-outlet > .workview-panel:not([hidden]) {
+    height: auto;
+    max-height: none;
+    overflow: visible;
+}

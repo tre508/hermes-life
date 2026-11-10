@@ -1,0 +1,1261 @@
+/* Hermes Life — Unified Workspace layout & composition.
+ * Loaded AFTER style.css/town.css. Everything is scoped under #app so the historical
+ * #shell / .ops-view / fixed aside rules in style.css never fight the new grid.
+ * Palette mirrors the existing dark theme: bg #0b1720/#101922, text #dceae7,
+ * accent greens (#a9d2be/#87e7ba), borders #426574/#415a66. */
+
+#app {
+    display: grid;
+    grid-template-areas:
+        "header header header"
+        "nav    main   panel";
+    grid-template-rows: 60px minmax(0, 1fr);
+    height: 100vh;
+    height: 100dvh;
+    overflow: hidden;
+    color: #dceae7;
+    background: #0b1720;
+    font-family: Inter, system-ui, sans-serif;
+}
+
+/* ---- region areas ---- */
+#app .topbar            { grid-area: header; min-width: 0; }
+#app #primary-nav       { grid-area: nav;    min-width: 0; }
+#app #main-workspace    { grid-area: main;   min-width: 0; min-height: 0; overflow: auto; }
+/* style.css lays `main` out as the old 2-col dashboard grid; the unified shell stacks one
+   workspace at a time, so force block or every view is squeezed to a 320px-less column. */
+#app #main-workspace { display: block; }
+#app #contextual-panel  { grid-area: panel;  min-width: 0; min-height: 0; overflow-y: auto; }
+
+/* ---- layout variants: width of the contextual panel, world size ---- */
+#app.layout-home,
+#app.layout-workspace {
+    grid-template-columns: 84px minmax(0, 1fr) 348px;
+}
+#app.layout-focus {
+    grid-template-columns: 84px minmax(0, 1fr) 0;
+}
+#app.layout-focus #contextual-panel {
+    border: 0;
+    padding: 0;
+    overflow: hidden;
+}
+
+/* Override the historical fixed height / grid-column on <aside> and the old #shell sizing. */
+#app #contextual-panel {
+    height: auto;
+    max-height: none;
+    margin: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+    padding: 12px;
+    border-left: 1px solid #16303c;
+    background: #101922;
+    scrollbar-color: #426574 #10232c;
+}
+
+/* ---- header ---- */
+#app .topbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 10px 18px;
+    margin: 0;
+    border-bottom: 1px solid #1c3a47;
+    background: #0e1720;
+}
+#app .topbar .brand h1 { font-size: 17px; letter-spacing: .02em; }
+#app .topbar .brand p { font-size: 11px; margin-top: 2px; }
+#global-status {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 12px;
+    color: #acc2c1;
+}
+#global-status span {
+    padding: 3px 9px;
+    border: 1px solid #2b4856;
+    border-radius: 20px;
+    background: #12212c;
+    white-space: nowrap;
+}
+#connection-status[data-state="live"]     { color: #87e7ba; border-color: #2f6f57; }
+#connection-status[data-state="reconnecting"] { color: #f1ba79; border-color: #7a5c2f; }
+#connection-status[data-state="offline"]  { color: #f2a6a0; border-color: #7a3a38; }
+#execution-status[data-state="running"]   { color: #93c6f2; border-color: #33506e; }
+#execution-status[data-state="completed"] { color: #87e7ba; border-color: #2f6f57; }
+#execution-status[data-state="failed"]    { color: #f2a6a0; border-color: #7a3a38; }
+#app .header-chat-btn {
+    border-radius: 20px;
+    border: 1px solid #2b4856;
+    background: #152633;
+    color: #b9d2ce;
+    padding: 4px 12px;
+    cursor: pointer;
+}
+#app .header-chat-btn:hover { border-color: #3d6b5e; color: #dceae7; }
+
+/* ---- nav rail ---- */
+#app #primary-nav {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: 10px 8px;
+    background: #0d181f;
+    border-right: 1px solid #16303c;
+}
+#app #primary-nav button {
+    display: block;
+    width: 100%;
+    padding: 11px 8px;
+    background: none;
+    border: 1px solid transparent;
+    border-radius: 8px;
+    color: #abc6c2;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    text-align: left;
+}
+#app #primary-nav button:hover { background: #152633; color: #e6efe9; }
+#app #primary-nav button.active {
+    background: #1b3542;
+    border-color: #2b5262;
+    color: #eef6f0;
+    box-shadow: inset 0 0 0 1px #2f6f57;
+}
+#app #primary-nav button.nav-secondary { color: #7f9aa0; font-weight: 500; }
+#app #primary-nav .nav-sep {
+    height: 1px;
+    margin: 6px 2px;
+    background: #1c3a47;
+}
+
+/* ---- workspaces ----
+   `min-height: 100%` makes a hidden view stay tall in flex/grid parents;
+   the override below keeps visually-hidden workspaces from inflating the
+   grid row (acceptance criterion 18: no implicit scrollbars, no empty
+   regions in hidden sections). */
+#app .workspace-view {
+    min-height: 100%;
+    padding: 16px 20px;
+    box-sizing: border-box;
+}
+#app .workspace-view[hidden] { display: none !important; }
+#app #workspace-home {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    padding: 14px 18px 16px;
+    box-sizing: border-box;
+    min-height: 0;
+}
+
+/* Workspace heading — every primary destination opens with one bar so the
+   user knows where they are without guessing from the world alone (§14,
+   unification-audit). It carries the destination name, a one-line secondary
+   description, and a right-aligned area for transient context actions. */
+#app .workspace-heading {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 12px;
+    flex: 0 0 auto;
+}
+#app .workspace-heading h2 {
+    margin: 0;
+    font-size: 16px;
+    font-weight: 700;
+    letter-spacing: .04em;
+    text-transform: uppercase;
+    color: #e1d6bc;
+}
+#app .workspace-heading h2 small {
+    margin-left: 8px;
+    font-size: 11px;
+    font-weight: 500;
+    color: #7f9aa0;
+    text-transform: none;
+    letter-spacing: 0;
+}
+#app .workspace-heading p {
+    margin: 0;
+    font-size: 12px;
+    color: #7f9aa0;
+}
+
+/* Home world: fill the available region without leaving empty dashboard
+   space beneath it (P0 audit §4). `#game` fills the flex area; the renderer
+   computes its own camera frustum from the actual container size. */
+#app .home-status-strip { margin-bottom: 0; flex: 0 0 auto; }
+#app .home-world {
+    flex: 1 1 auto;
+    min-height: 360px;
+    display: flex;
+    flex-direction: column;
+    width: 100%;
+    overflow: hidden;
+}
+#app .home-world > .world-wrap { margin: 0; }
+#app .home-world #game {
+    /* Fill the flex column; renderer adapts to any aspect ratio. */
+    flex: 1 1 auto;
+    width: 100%;
+    min-height: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    box-sizing: border-box;
+}
+/* Legacy `style.css` declared `#game canvas { width:auto!important; height:auto!important }`.
+   `!important` wins regardless of specificity, so the new fill rules must carry
+   their own `!important` to actually take effect on the unified shell. The UI-VIS-003
+   flush-look already strips the metal border and shadow — keep that. */
+#app .home-world #game canvas {
+    width: 100% !important;
+    height: 100% !important;
+    max-width: 100% !important;
+    max-height: 100% !important;
+    display: block;
+    object-fit: contain;
+}
+#app .world-wrap .hint { color: #a9c6c3; font-size: 11px; margin-top: 8px; }
+
+/* Recent activity / current operation strip: lives below the world and
+   absorbs the previously empty main column. The strip renders a compact
+   preview of the most recent backend events and an explicit empty state
+   when there is nothing to show. */
+#app .home-recent-strip {
+    flex: 0 0 auto;
+    display: grid;
+    grid-template-columns: minmax(0, 1.4fr) minmax(180px, 1fr);
+    gap: 12px;
+    padding: 10px 12px;
+    border: 1px solid #223a46;
+    border-radius: 10px;
+    background: #101a23;
+}
+#app .home-recent-strip .hrs-eyebrow {
+    margin: 0 0 4px;
+    font-size: 10.5px;
+    font-weight: 700;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    color: #90d7c8;
+}
+#app .home-recent-strip .hrs-events {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    max-height: 96px;
+    overflow-y: auto;
+    scrollbar-color: #426574 #10232c;
+    margin: 0;
+    padding: 0;
+}
+#app .home-recent-strip .hrs-event {
+    display: flex;
+    gap: 8px;
+    align-items: baseline;
+    font-size: 11.5px;
+    color: #d7e8e2;
+    line-height: 1.35;
+}
+#app .home-recent-strip .hrs-event .hrs-time { color: #7f9aa0; font-size: 10.5px; min-width: 56px; }
+#app .home-recent-strip .hrs-event .hrs-type { color: #a8e7d5; font-weight: 600; }
+#app .home-recent-strip .hrs-empty {
+    margin: 0;
+    font-size: 11.5px;
+    color: #8cafb7;
+}
+#app .home-recent-strip .hrs-current {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding-left: 10px;
+    border-left: 1px solid #223a46;
+}
+#app .home-recent-strip .hrs-current .kv { padding: 1px 0; font-size: 11.5px; }
+#app .home-recent-strip .hrs-current .hrs-cta {
+    align-self: flex-start;
+    margin-top: 4px;
+    padding: 4px 10px;
+    font-size: 10.5px;
+    border-radius: 14px;
+    border: 1px solid #2b5262;
+    background: #1b3542;
+    color: #dceae7;
+    cursor: pointer;
+}
+#app .home-recent-strip .hrs-current .hrs-cta:hover { border-color: #3d6b9e; color: #eef6f0; }
+@media (max-width: 880px) {
+    #app .home-recent-strip { grid-template-columns: 1fr; }
+    #app .home-recent-strip .hrs-current { padding-left: 0; border-left: 0; border-top: 1px solid #223a46; padding-top: 8px; }
+}
+
+/* ---- Home contextual blocks (persona + new task + current work) ----
+   The persona block is intentionally compact: the long foundation prose is
+   hidden behind a disclosure so the operational blocks below it (new task,
+   current work) remain above the fold on a normal desktop viewport (P1
+   audit §7). */
+@media (max-width: 1080px) {
+    #app.layout-home { grid-template-columns: 84px minmax(0, 1fr) 0; }
+    #app.layout-home #contextual-panel { border: 0; padding: 0; overflow: hidden; }
+}
+#app #contextual-panel .ctx-block { display: flex; flex-direction: column; gap: 10px; }
+#app #contextual-panel .ctx-block + .ctx-block { margin-top: 10px; border-top: 1px solid #1c3a47; padding-top: 10px; }
+#app #contextual-panel .ctx-block { border: 1px solid #223a46; border-radius: 10px; padding: 12px 12px 12px; background: #101a23; }
+#app #contextual-panel .ctx-block + .ctx-block { margin-top: 10px; border-top: 0; }
+#app .home-new-task form { display: flex; flex-direction: column; gap: 8px; }
+#app .home-current-work .home-open-work { margin-top: 6px; }
+
+/* Compact persona: small avatar + name + mood on one line; persona counts
+   on a second line; long prose tucked behind a details disclosure. */
+#app #persona-card {
+    padding: 11px 12px 12px;
+}
+#app #persona-card .persona-head { gap: 10px; }
+#app #persona-card .persona-head h2 { font-size: 15px; }
+#app #persona-card .persona-head p { font-size: 11px; color: #8cafb7; }
+#app #persona-card .persona-compact-meta {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 4px;
+    margin-top: 8px;
+    padding-top: 8px;
+    border-top: 1px solid #223a46;
+}
+#app #persona-card .persona-compact-meta .kv { padding: 2px 0; font-size: 11.5px; }
+#app #persona-card details.persona-profile-detail { margin-top: 8px; }
+#app #persona-card details.persona-profile-detail > summary {
+    list-style: none;
+    cursor: pointer;
+    font-size: 11px;
+    font-weight: 600;
+    color: #90d7c8;
+    padding: 4px 0;
+    user-select: none;
+}
+#app #persona-card details.persona-profile-detail > summary::-webkit-details-marker { display: none; }
+#app #persona-card details.persona-profile-detail > summary::before { content: "▸ "; color: #7f9aa0; }
+#app #persona-card details.persona-profile-detail[open] > summary::before { content: "▾ "; }
+#app #persona-card details.persona-profile-detail .persona-profile {
+    font-size: 11.5px;
+    line-height: 1.5;
+    background: transparent;
+    border: 0;
+    margin: 4px 0 0;
+    padding: 0;
+}
+#app #persona-card details.persona-profile-detail .persona-profile p { margin: 6px 0; }
+
+/* ---- Work workspace ---- */
+#app .work-subnav {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-bottom: 14px;
+}
+#app .work-subnav button {
+    padding: 6px 14px;
+    border-radius: 20px;
+    border: 1px solid #2b4856;
+    background: #12212c;
+    color: #abc6c2;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+}
+#app .work-subnav button:hover { border-color: #3d6b5e; }
+#app .work-subnav button.active {
+    background: #1b3542;
+    border-color: #2f6f57;
+    color: #eef6f0;
+}
+/* NOTE: the .work-grid layout lives in the #workview-tasks section below
+   (UUX-004F: one canonical definition, per-panel scroll scoping). */
+
+/* -- task list -- */
+#app #task-list { display: flex; flex-direction: column; gap: 8px; }
+#app .task-entry {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: 10px 12px;
+    border: 1px solid #2b4856;
+    border-radius: 8px;
+    background: #101a23;
+    cursor: pointer;
+}
+#app .task-entry:hover { border-color: #3d6b5e; background: #14222d; }
+#app .task-entry .task-prompt { color: #e6efe9; font-size: 13px; }
+#app .task-entry .task-meta { color: #7f9aa0; font-size: 11px; }
+#app .task-entry .task-state {
+    align-self: flex-start;
+    padding: 1px 8px;
+    border-radius: 20px;
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: .04em;
+    background: #223c4a; color: #bfe0d8;
+}
+#app .task-entry .task-state.queued   { background: #3a3a2e; color: #e2cf9a; }
+#app .task-entry .task-state.running  { background: #233c55; color: #b7d4f2; }
+#app .task-entry .task-state.completed{ background: #1f483a; color: #a8e6c9; }
+#app .task-entry .task-state.failed, #app .task-entry .task-state.cancelled { background: #522b2a; color: #f2b7b1; }
+#app .task-entry.task-selected { border-color: #2f6f57; box-shadow: 0 0 0 1px #2f6f57; }
+
+/* ---- unified task detail / lifecycle ---- */
+#app #task-detail-container { padding-top: 4px; }
+#app .task-detail-shell { display: flex; flex-direction: column; gap: 12px; }
+#app .task-detail-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 14px;
+    border: 1px solid #2b4856;
+    border-radius: 10px;
+    background: #101a23;
+}
+#app .task-detail-head h3 { margin: 0; color: #eef6f0; font-size: 15px; }
+#app .task-detail-head .task-detail-meta { color: #7f9aa0; font-size: 12px; margin-top: 6px; }
+
+/* Lifecycle progress strip: Invest → Plan → Build → Test → Review → Complete */
+#app .lifecycle {
+    display: flex;
+    align-items: stretch;
+    gap: 4px;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+#app .lifecycle li {
+    flex: 1;
+    text-align: center;
+    font-size: 10px;
+    font-weight: 600;
+    color: #7f9aa0;
+    padding: 6px 4px;
+    border: 1px solid #223a46;
+    border-radius: 6px;
+    background: #0f1a22;
+}
+#app .lifecycle li.complete { border-color: #2f6f57; color: #a8e6c9; background: #12301f; }
+#app .lifecycle li.current  { border-color: #3d6b9e; color: #cfe6f7; background: #14293c; box-shadow: 0 0 0 1px #3d6b9e; }
+#app .lifecycle li.blocked  { border-color: #7a3a38; color: #f2b7b1; background: #2c1f20; }
+#app .lifecycle li.failed   { border-color: #7a3a38; color: #f2b7b1; background: #2c1f20; }
+
+#app .task-stage-nav { display: flex; flex-wrap: wrap; gap: 6px; }
+#app .task-stage-nav button {
+    padding: 5px 12px;
+    border-radius: 16px;
+    border: 1px solid #2b4856;
+    background: #12212c;
+    color: #abc6c2;
+    font-size: 11px;
+    font-weight: 600;
+    cursor: pointer;
+}
+#app .task-stage-nav button.active { border-color: #2f6f57; color: #eef6f0; background: #1b3542; }
+
+#app .task-stage-content { display: flex; flex-direction: column; gap: 10px; }
+#app .stage-card {
+    border: 1px solid #223a46;
+    border-radius: 8px;
+    background: #0f1a22;
+    padding: 12px 14px;
+}
+#app .stage-card h4 { margin: 0 0 6px; color: #e1d6bc; font-size: 12px; }
+#app .stage-card .stage-status { font-size: 12px; color: #bfd8d2; }
+#app .stage-card .stage-reason { font-size: 12px; color: #7f9aa0; margin-top: 4px; }
+#app .stage-action {
+    margin-top: 8px;
+    display: inline-block;
+}
+
+/* =====================================================================
+ * Work workspace subview panels
+ * Only one .workview-panel is visible at a time; switching is via
+ * setWorkView() in work-workspace.ts (no scrollIntoView for nav).
+ * ===================================================================== */
+#app #workview-outlet {
+    min-height: 0;
+}
+#app .workview-panel {
+    display: none;
+    flex-direction: column;
+    gap: 16px;
+    min-height: 0;
+}
+#app .workview-panel[hidden] {
+    display: none !important;
+}
+#app .workview-panel:not([hidden]) {
+    display: flex;
+}
+
+/* ---- Work workspace scaffolding: heading + subnav fixed, outlet fills ----
+   The Work workspace is a flex column of fixed chrome and one visible
+   panel. Each panel scrolls ONLY its own content (UUX-004F): the page
+   itself does not scroll under Work. */
+#app #workspace-work {
+    height: 100%;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+#app #workspace-work .workspace-heading {
+    flex: 0 0 auto;
+    margin-bottom: 8px;
+}
+#app #workspace-work .work-subnav {
+    flex: 0 0 auto;
+    margin-bottom: 12px;
+}
+#app #workview-outlet {
+    flex: 1 1 auto;
+    min-height: 0;
+}
+
+/* Global Work panels (Discover / Goals / Planning / Build) scroll their
+   own content as a single column of stacked cards. */
+#app #workview-discover:not([hidden]),
+#app #workview-goals:not([hidden]),
+#app #workview-planning:not([hidden]),
+#app #workview-build:not([hidden]) {
+    overflow-y: auto;
+    scrollbar-color: #426574 #10232c;
+    padding-right: 2px;
+}
+
+/* ---- Tasks: three-column workbench with independent scrolling ----
+   The task list, the thread, and the context column each scroll by
+   themselves. The composer sits at the bottom of the center column and
+   never scrolls away, so a half-typed reply stays usable. */
+#app #workview-tasks:not([hidden]) {
+    overflow: hidden;
+}
+#app #workview-tasks .work-grid {
+    display: grid;
+    grid-template-columns: minmax(240px, 5fr) minmax(440px, 9fr) minmax(260px, 5fr);
+    gap: 16px;
+    align-items: stretch;
+    flex: 1 1 auto;
+    min-height: 0;
+}
+#app #workview-tasks .work-list,
+#app #workview-tasks .work-center,
+#app #workview-tasks .work-context {
+    min-width: 0;
+    min-height: 0;
+}
+/* Task list: independently navigable — its own scroll, never drags the page. */
+#app #workview-tasks .work-list {
+    overflow-y: auto;
+    scrollbar-color: #426574 #10232c;
+    padding-right: 2px;
+}
+#app .work-list h2 { margin-top: 0; }
+/* Center: shell fills the column; thread scrolls, composer stays pinned. */
+#app #workview-tasks .work-center {
+    overflow: hidden;
+}
+#app #task-detail-container:not([hidden]) {
+    display: flex;
+    flex-direction: column;
+    flex: 1 1 auto;
+    min-height: 0;
+}
+#app .task-detail-shell {
+    flex: 1 1 auto;
+    min-height: 0;
+}
+#app .task-detail-shell > .task-actions {
+    flex: 0 0 auto;
+}
+#app .task-composer-host {
+    flex: 0 0 auto;
+}
+/* Context column: own scroll so approval cards stay reachable without
+   crushing the task content. */
+#app #workview-tasks .work-context {
+    overflow-y: auto;
+    scrollbar-color: #426574 #10232c;
+    padding-right: 2px;
+}
+
+/* ---- Tasks responsive breakpoints ----
+   1920×1080 / 1600×900: three columns.
+   ≤1500px (1366×768): list + detail; the context column moves BELOW the
+   detail as a capped, independently scrolling strip so approval controls
+   remain accessible instead of being hidden.
+   ≤1100px (narrow / mobile): single column stacked; the panel itself
+   scrolls, the thread is capped so the composer stays reachable. */
+@media (max-width: 1500px) {
+    #app #workview-tasks .work-grid {
+        grid-template-columns: minmax(220px, 4fr) minmax(0, 10fr);
+        grid-template-rows: minmax(0, 1fr) auto;
+    }
+    #app #workview-tasks .work-list { grid-column: 1; grid-row: 1; }
+    #app #workview-tasks .work-center { grid-column: 2; grid-row: 1; }
+    #app #workview-tasks .work-context {
+        grid-column: 1 / -1;
+        grid-row: 2;
+        max-height: 240px;
+    }
+}
+@media (max-width: 1100px) {
+    #app #workview-tasks:not([hidden]) {
+        overflow-y: auto;
+        scrollbar-color: #426574 #10232c;
+    }
+    #app #workview-tasks .work-grid {
+        display: flex;
+        flex-direction: column;
+    }
+    #app #workview-tasks .work-list {
+        max-height: 40vh;
+    }
+    #app #workview-tasks .work-center {
+        overflow: visible;
+    }
+    #app .task-detail-shell {
+        flex: 0 0 auto;
+    }
+    #app .task-thread-host {
+        max-height: 50vh;
+    }
+    #app #workview-tasks .work-context {
+        max-height: none;
+    }
+}
+
+/* Discover, Goals, Planning, Build views: single-column stacked sections */
+#app #workview-discover,
+#app #workview-goals,
+#app #workview-planning,
+#app #workview-build {
+    max-width: none;
+}
+#app #workview-discover > section,
+#app #workview-goals > section,
+#app #workview-planning > section,
+#app #workview-build > section {
+    border: 1px solid #223a46;
+    border-radius: 10px;
+    background: #101a23;
+    padding: 16px;
+    margin-bottom: 12px;
+}
+#app #workview-discover > section:last-child,
+#app #workview-goals > section:last-child,
+#app #workview-planning > section:last-child,
+#app #workview-build > section:last-child {
+    margin-bottom: 0;
+}
+#app #workview-discover h2,
+#app #workview-goals h2,
+#app #workview-planning h2,
+#app #workview-build h2 {
+    margin: 0 0 10px;
+    color: #e1d6bc;
+    font-size: 14px;
+    font-weight: 700;
+}
+#app #workview-discover .hint,
+#app #workview-goals .hint,
+#app #workview-planning .hint,
+#app #workview-build .hint {
+    margin: 0 0 12px;
+    color: #7f9aa0;
+    font-size: 12px;
+}
+#app #workview-discover button,
+#app #workview-goals button,
+#app #workview-planning button,
+#app #workview-build button {
+    padding: 6px 14px;
+    border-radius: 20px;
+    border: 1px solid #2b4856;
+    background: #12212c;
+    color: #abc6c2;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    margin-right: 8px;
+    margin-bottom: 8px;
+}
+#app #workview-discover button:hover,
+#app #workview-goals button:hover,
+#app #workview-planning button:hover,
+#app #workview-build button:hover {
+    border-color: #3d6b5e;
+}
+
+/* Fold styling for Build view (kept from legacy) */
+#app #workview-build details.fold {
+    border: 1px solid #223a46;
+    border-radius: 10px;
+    background: #101a23;
+    padding: 16px;
+}
+#app #workview-build details.fold > summary {
+    cursor: pointer;
+    font-size: 13px;
+    font-weight: 700;
+    color: #e1d6bc;
+    margin-bottom: 12px;
+}
+#app #workview-build details.fold > summary::-webkit-details-marker {
+    display: none;
+}
+#app #workview-build details.fold > summary::before {
+    content: "▸ ";
+    color: #7f9aa0;
+}
+#app #workview-build details.fold[open] > summary::before {
+    content: "▾ ";
+}
+
+/* Work subnav active state already styled in unified-layout.css */
+/* .work-subnav button.active { background: #1b3542; border-color: #2f6f57; color: #eef6f0; } */
+
+/* Workspace heading for Work */
+#app #workspace-work .workspace-heading {
+    margin-bottom: 8px;
+}
+#app #workspace-work .workspace-heading h2 {
+    color: #e1d6bc;
+}
+#app #workspace-work .workspace-heading p.hint {
+    color: #7f9aa0;
+}
+#app .activity-entry {
+    border: 1px solid #223a46;
+    border-radius: 6px;
+    background: #0f1a22;
+    padding: 7px 10px;
+}
+#app .activity-entry .ae-top { display: flex; align-items: baseline; gap: 10px; }
+#app .activity-entry .ae-title { color: #d9e6e0; font-size: 13px; font-weight: 600; }
+#app .activity-entry .ae-meta { color: #7f9aa0; font-size: 11px; }
+#app .activity-entry .ae-payload {
+    display: none;
+    margin-top: 4px;
+    font-size: 11px;
+    color: #9cb5b9;
+    white-space: pre-wrap;
+    word-break: break-word;
+}
+#app .activity-entry.open .ae-payload { display: block; }
+#app .activity-entry button.ae-expand {
+    background: none; border: none; color: #7f9aa0; font-size: 11px; cursor: pointer; padding: 0;
+}
+#app .activity-entry button.ae-expand:hover { color: #cfe6f7; }
+
+/* =====================================================================
+ * Conversation thread + composer + actionable CTAs (Work workspace)
+ * The unified work task list shows conversation_id short codes so a
+ * user can see, at a glance, which tasks share a thread.
+ *
+ * The conversation thread itself is the new centerpiece: persistent,
+ * chronological, with the composer always rendered below so a half-typed
+ * reply survives navigation. Actionable next-action buttons belt the
+ * top of the thread and dispatch the existing event bus rather than a
+ * silent no-op.
+ * ===================================================================== */
+
+/* Smaller "conv short codes" in the task list. */
+#app .task-entry .task-meta { color: #7f9aa0; font-size: 11px; }
+
+/* The 3-column Tasks layout is defined once in the #workview-tasks section
+   (UUX-004F removed the duplicate .work-grid declarations). */
+#app .work-list { min-width: 0; }
+#app .work-list h2 small { color: #7f9aa0; font-weight: 500; }
+
+/* =====================================================================
+ * Tool activity groups (UI-VIS-007 §8)
+ * Conversation thread renders collapsed tool categories at the top
+ * (n operations); expanding shows each individual call.
+ * ===================================================================== */
+#app .conv-thread__tools {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 4px 4px 10px;
+    border-bottom: 1px dashed #223a46;
+    margin-bottom: 10px;
+}
+#app .tool-group {
+    border: 1px solid #223a46;
+    border-radius: 8px;
+    background: #0d1a22;
+    overflow: hidden;
+}
+#app .tool-group--read { border-color: #2b5262; }
+#app .tool-group--edit { border-color: #6a5e22; }
+#app .tool-group--shell { border-color: #6a4e22; }
+#app .tool-group--test { border-color: #4a512e; }
+#app .tool-group--web { border-color: #33506e; }
+#app .tool-group--memory { border-color: #2b3d4a; }
+#app .tool-group__head {
+    width: 100%;
+    background: none;
+    border: 0;
+    text-align: left;
+    padding: 8px 10px;
+    font-size: 11.5px;
+    color: #dceae7;
+    cursor: pointer;
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+}
+#app .tool-group__label { font-weight: 600; }
+#app .tool-group__status {
+    font-size: 10.5px;
+    padding: 1px 6px;
+    border-radius: 14px;
+    border: 1px solid #2b4856;
+    background: #12212c;
+    color: #cfe6f7;
+}
+#app .tool-group__status--completed { background: #1f483a; border-color: #2f6f57; }
+#app .tool-group__status--failed    { background: #522b2a; border-color: #7a3a38; color: #f2b7b1; }
+#app .tool-group__status--pending   { background: #2c2a14; border-color: #6a5e22; color: #f1d68a; }
+#app .tool-group__chevron {
+    margin-left: auto;
+    color: #7f9aa0;
+    font-size: 12px;
+}
+#app .tool-group--open .tool-group__chevron { color: #cfe6f7; }
+#app .tool-group__list {
+    list-style: none;
+    margin: 0;
+    padding: 4px 10px 8px;
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    background: #0a141a;
+    border-top: 1px solid #223a46;
+}
+#app .tool-group__list[hidden] { display: none; }
+#app .tool-run {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 8px;
+    font-size: 11.5px;
+    padding: 2px 0;
+}
+#app .tool-run__status {
+    color: #cfe6f7;
+    font-size: 10.5px;
+    text-transform: uppercase;
+    letter-spacing: .04em;
+    min-width: 64px;
+}
+#app .tool-run--failed .tool-run__status { color: #f2b7b1; }
+#app .tool-run--pending .tool-run__status { color: #f1d68a; }
+#app .tool-run__name {
+    color: #cfe6f7;
+    font-family: "JetBrains Mono", "Fira Code", monospace;
+    font-size: 11px;
+}
+#app .tool-run__target {
+    color: #a8e7d5;
+    font-family: "JetBrains Mono", "Fira Code", monospace;
+    font-size: 11px;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    flex: 1 1 200px;
+}
+#app .tool-run__summary {
+    width: 100%;
+    color: #8cafb7;
+    font-size: 11px;
+    padding-left: 12px;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+}
+#app .tool-group__empty { color: #8cafb7; padding: 6px 4px; margin: 0; }
+
+/* Wire-up for cross-view sync helper button next to the conversation header. */
+#app .conv-thread__sync {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin: 4px 4px 8px;
+}
+#app .conv-thread__sync a {
+    padding: 4px 9px;
+    border-radius: 14px;
+    background: #12212c;
+    border: 1px solid #2b4856;
+    color: #cfe6f7;
+    font-size: 11px;
+    text-decoration: none;
+    cursor: pointer;
+}
+#app .conv-thread__sync a:hover { background: #1c3340; }
+#app .work-center { min-width: 0; min-height: 0; display: flex; flex-direction: column; }
+#app .work-center__empty {
+    margin: 14px 4px 0;
+    padding: 16px 18px;
+    border: 1px dashed #223a46;
+    border-radius: 10px;
+    color: #8cafb7;
+    font-size: 12.5px;
+    line-height: 1.5;
+    text-align: center;
+}
+#app .work-center__empty .hint { color: #8cafb7; }
+
+/* Contextual right-column panel (P1 contextual task details) */
+#app .work-context {
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+#app .ctx-card {
+    border: 1px solid #223a46;
+    border-radius: 10px;
+    background: #101a23;
+    padding: 10px 12px;
+    font-size: 12px;
+}
+#app .ctx-card__title {
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: .04em;
+    text-transform: uppercase;
+    color: #e1d6bc;
+    margin: 0 0 6px;
+}
+#app .ctx-card .kv { padding: 2px 0; font-size: 11.5px; }
+#app .ctx-card .kv strong { color: #a8e7d5; }
+#app .ctx-card .ctx-card__hint { color: #7f9aa0; font-size: 11px; }
+#app .ctx-card pre {
+    margin: 6px 0 0;
+    background: #081519;
+    border: 1px solid #1c3540;
+    border-radius: 6px;
+    padding: 8px 10px;
+    color: #dceae7;
+    font-size: 11.5px;
+    line-height: 1.4;
+    max-height: 220px;
+    overflow: auto;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+}
+
+/* Inline approval card (P1 approval workflow integration) */
+#app .approval-card {
+    border: 1px solid #2b5262;
+    border-radius: 10px;
+    background: #11212b;
+    padding: 12px 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+#app .approval-card__title { margin: 0; font-size: 13px; font-weight: 700; color: #cfe6f7; }
+#app .approval-card__subtitle { margin: 0; font-size: 11.5px; color: #a8e7d5; }
+#app .approval-card__body {
+    margin: 0;
+    font-size: 12px;
+    color: #dceae7;
+    line-height: 1.5;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+    max-height: 320px;
+    overflow: auto;
+}
+#app .approval-card__criteria {
+    margin: 0 0 4px;
+    padding: 0;
+    list-style: none;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+#app .approval-card__criteria li {
+    border: 1px solid #1c3a47;
+    border-radius: 6px;
+    background: #0d1a22;
+    padding: 6px 8px;
+    font-size: 11.5px;
+    color: #dceae7;
+}
+#app .approval-card__row { display: flex; flex-wrap: wrap; gap: 6px; }
+#app .approval-card__btn {
+    padding: 5px 11px;
+    border-radius: 14px;
+    border: 1px solid #2b4856;
+    background: #12212c;
+    color: #dceae7;
+    font-size: 11.5px;
+    font-weight: 600;
+    cursor: pointer;
+}
+#app .approval-card__btn--approve {
+    background: #1f483a;
+    border-color: #2f6f57;
+    color: #cfe6f7;
+}
+#app .approval-card__btn--approve:hover { background: #2c6a55; }
+#app .approval-card__btn--changes {
+    background: #2c2a14;
+    border-color: #6a5e22;
+    color: #f1d68a;
+}
+#app .approval-card__btn--changes:hover { background: #3a3520; }
+#app .approval-card__btn[disabled] { opacity: 0.55; cursor: not-allowed; }
+
+/* Composer state machine variants (P1 unified composer adapts). The
+   data-mode is set by work-workspace.ts so the same composer shifts
+   variant per task state. */
+#app .task-composer[data-mode="new"]      { border-color: #2b5262; }
+#app .task-composer[data-mode="followup"]  { border-color: #2f6f57; }
+#app .task-composer[data-mode="approval"]  { border-color: #6a5e22; background: #1a1814; }
+#app .task-composer[data-mode="failed"]    { border-color: #7a3a38; background: #1f1614; }
+#app .task-composer[data-mode="completed"] { border-color: #2f6f57; background: #11271d; }
+#app .task-composer[data-mode="followup"]  .task-composer__label-text,
+#app .task-composer[data-mode="completed"] .task-composer__label-text { color: #bfe0d8; }
+#app .task-composer[data-mode="approval"]  .task-composer__label-text { color: #f1d68a; }
+#app .task-composer[data-mode="failed"]    .task-composer__label-text { color: #f7a19b; }
+#app .task-thread-host {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+    padding: 4px 4px 16px;
+    scrollbar-color: #426574 #10232c;
+}
+#app .conv-thread-head {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: 0 4px 10px;
+}
+#app .conv-thread-head h3 {
+    margin: 0;
+    font-size: 14px;
+    font-weight: 600;
+    color: #e1d6bc;
+}
+#app .conv-thread-head small {
+    color: #7f9aa0;
+    font-size: 11px;
+}
+#app .conv-thread {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+#app .conv-turn {
+    border: 1px solid #223a46;
+    border-radius: 10px;
+    padding: 10px 12px;
+    background: #0f1a22;
+    max-width: 92%;
+}
+#app .conv-turn--assistant {
+    align-self: flex-start;
+    border-color: #2b5262;
+}
+#app .conv-turn--user {
+    align-self: flex-end;
+    border-color: #2f6f57;
+    background: #11271d;
+}
+#app .conv-turn--system {
+    border-color: #4a4a2f;
+    background: #1f1f17;
+}
+#app .conv-turn__head {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: baseline;
+    margin-bottom: 6px;
+    font-size: 11px;
+}
+#app .conv-turn__role {
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: .04em;
+    color: #a8e7d5;
+}
+#app .conv-turn--user .conv-turn__role { color: #bfe0d8; }
+#app .conv-turn--assistant .conv-turn__role { color: #93c6f2; }
+#app .conv-turn__head time { color: #7f9aa0; }
+#app .conv-turn__task {
+    margin-left: auto;
+    padding: 1px 6px;
+    border-radius: 14px;
+    background: #192c38;
+    border: 1px solid #2b4856;
+    color: #cfe6f7;
+    font-size: 10.5px;
+    cursor: pointer;
+}
+#app .conv-turn__task:hover { background: #1c3a47; }
+#app .conv-turn__body {
+    color: #dceae7;
+    font-size: 13px;
+    line-height: 1.55;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+}
+#app .conv-turn__more {
+    background: none;
+    border: 0;
+    color: #7f9aa0;
+    font-size: 11px;
+    cursor: pointer;
+    padding: 0;
+    margin-left: 4px;
+}
+#app .conv-turn__more:hover { color: #cfe6f7; }
+#app .conv-turn__full { display: block; margin-top: 6px; }
+#app .conv-thread__empty {
+    margin: 6px 4px 0;
+    padding: 10px 12px;
+    border: 1px dashed #223a46;
+    border-radius: 10px;
+    color: #8cafb7;
+    font-size: 12px;
+}
+
+/* ----- Persistent composer ----- */
+#app .task-composer-host { padding: 8px 4px 12px; }
+#app .task-composer {
+    border: 1px solid #2b4856;
+    border-radius: 10px;
+    background: #101a23;
+    padding: 10px 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+#app .task-composer__label {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 12px;
+    flex-wrap: wrap;
+}
+#app .task-composer__label-text {
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: .04em;
+    color: #a8e7d5;
+    text-transform: uppercase;
+}
+#app .task-composer__label-hint {
+    font-size: 11px;
+    color: #7f9aa0;
+}
+#app .task-composer__feedback {
+    margin: 0;
+    font-size: 11.5px;
+    color: #7f9aa0;
+}
+#app .task-composer__feedback[data-kind="error"] { color: #f7a19b; }
+#app .task-composer__feedback[data-kind="ok"] { color: #87e7ba; }
+#app #task-detail-composer-text {
+    width: 100%;
+    min-height: 72px;
+    resize: vertical;
+    box-sizing: border-box;
+    background: #08161d;
+    color: #e6efe9;
+    border: 1px solid #223a46;
+    border-radius: 6px;
+    padding: 8px 10px;
+    font-family: inherit;
+    font-size: 13px;
+    line-height: 1.45;
+}
+#app .task-composer__row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+}
+#app .task-composer__count {
+    color: #7f9aa0;
+    font-size: 11px;
+}
+#app .task-composer__submit {
+    background: #1b3542;
+    color: #e7f1ed;
+    border: 1px solid #2f6f57;
+    border-radius: 16px;
+    padding: 6px 14px;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+}
+#app .task-composer__submit:hover:not([disabled]) { background: #244658; border-color: #4dac82; }
+#app .task-composer__submit[disabled] { opacity: 0.55; cursor: not-allowed; }
+
+/* ----- Actionable next-action panel ----- */
+#app .task-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    padding: 6px 0 10px;
+}
+#app .task-actions__hint {
+    margin: 0;
+    font-size: 11.5px;
+    color: #7f9aa0;
+}
+#app .task-action {
+    padding: 5px 11px;
+    border-radius: 14px;
+    border: 1px solid #2b4856;
+    background: #12212c;
+    color: #dceae7;
+    font-size: 11.5px;
+    font-weight: 600;
+    cursor: pointer;
+}
+#app .task-action:hover { background: #1c3340; }
+#app .task-action--primary {
+    background: #1b3542;
+    border-color: #2f6f57;
+    color: #cfe6f7;
+}
+#app .task-action--primary:hover { background: #244658; }
+#app .task-action--success {
+    background: #1f483a;
+    border-color: #2f6f57;
+    color: #cfe6f7;
+}
+#app .task-action--success:hover { background: #2c6a55; }
+#app .task-action--secondary {
+    background: transparent;
+    border-color: #2b5262;
+    color: #a8e7d5;
+}
+#app .task-action--secondary:hover { background: #172a32; }

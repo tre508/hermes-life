@@ -21,7 +21,7 @@ import './phase41303-memory';
 import './phase415-review';
 import './work-workspace';
 import './command-centre-ui';
-import { openWorkspace, openWorkView, openTask, openResult, openActivityForTask, onNavigationChange } from './navigation-state.ts';
+import { openWorkspace, openWorkView, openTask, openResult, openActivityForTask, onNavigationChange, initHistory, handleLegacyOpenTask } from './navigation-state.ts';
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string): T | null => document.getElementById(id) as T | null;
 const str = (v: unknown): string => (typeof v === 'string' ? v : v == null ? '' : String(v));
@@ -57,6 +57,12 @@ onNavigationChange((nav) => {
     if (ctxHome) ctxHome.hidden = id !== 'home';
     if (ctxSel) ctxSel.hidden = id === 'home';
     if (id !== 'activity') setActivityTaskFilter(null);
+    // Results deep-link / Back-Forward restore: load the canonical task.
+    // Passive guard — only fetch when the viewed task actually changed.
+    if (id === 'results' && nav.selectedTaskId && viewedTaskId !== nav.selectedTaskId) {
+        setFollowLive(false);
+        void loadTask(nav.selectedTaskId);
+    }
 });
 // P2 sync: Work's "Follow activity for this task" button dispatches
 // `hermes:workspace:activity` with the chosen task id; Activity listens
@@ -580,14 +586,14 @@ async function syncLatestTask() {
     } catch (err) { console.warn('Unable to synchronize latest task', err); }
 }
 
-// Opening a task from the town, Work lifecycle, or goals routes to Results and loads it.
-// This is a legacy event; navigation-state's handleLegacyOpenTask adapter calls openTask with destination 'results'
+// Opening a task from legacy dispatchers routes to Results and loads it.
+// The adapter updates canonical nav state (workspace=results + task id +
+// history entry); the onNavigationChange subscriber above then loads it.
 window.addEventListener('hermes:open-task', ((ev: Event) => {
     const id = (ev as CustomEvent<{ id: string }>).detail?.id;
     if (!id) return;
     setFollowLive(false);
-    // Navigation state updated via adapter; loadTask handles Results view rendering
-    void loadTask(id);
+    handleLegacyOpenTask(id);
 }) as EventListener);
 
 // ============================= persona =============================
@@ -617,7 +623,9 @@ installTown();
 void hydrate();
 void loadPersona();
 
-// Initialize navigation state to home
-openWorkspace('home');
+// History wiring + initial deep-link parse. When the URL already names a
+// workspace/subview/task, respect it; only default to Home on a bare URL.
+const deepLinked = initHistory();
+if (!deepLinked) openWorkspace('home', { replace: true });
 paintStatus();
 console.log('Hermes Life unified workspace initialized.');

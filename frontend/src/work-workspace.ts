@@ -23,7 +23,7 @@
 import { type LifeStage, type Chain, type TaskRec } from './task-lifecycle.ts';
 import { mountComposer, type ComposerOptions } from './conv-composer.ts';
 import { mountThread, type Turn } from './conv-thread.ts';
-import { openWorkView, openTask, onNavigationChange, getCurrentWorkView } from './navigation-state.ts';
+import { openWorkView, openTask, openActivityForTask, onNavigationChange, getCurrentWorkView, registerTaskValidator } from './navigation-state.ts';
 
 /** Composer copy + accent derive from the active task's chain state.
  *  Same composer DOM element is reused; we just re-render the label,
@@ -37,7 +37,7 @@ const str = (v: unknown): string => (typeof v === 'string' ? v : v == null ? '' 
 const node = (tag: string, text = '', cls = ''): HTMLElement => {
     const n = document.createElement(tag); n.textContent = text; if (cls) n.className = cls; return n;
 };
-const esc = (s: string): string => s.replace(/[&<>"\']/g, c => ({ '&': '&', '<': '<', '>': '>', '"': '"', "'": "''" }[c]!));
+const esc = (s: string): string => s.replace(/[&<>\"']/g, c => ({ '&': '&', '<': '<', '>': '>', '"': '"', "'": "''" }[c]!));
 
 type ChainMap = Record<string, Chain>;
 let tasks: TaskRec[] = [];
@@ -52,6 +52,10 @@ type ConvHandles = {
 };
 let convHandles: ConvHandles | null = null;
 
+// Track the currently rendered task's identity to avoid unnecessary rebuilds
+let renderedTaskId: string | null = null;
+let renderedConversationId: string | null = null;
+
 // Per-workview scroll position restoration
 const scrollPositions: Record<string, number> = {};
 let currentWorkView = 'tasks';
@@ -61,6 +65,33 @@ async function api(path: string): Promise<{ [k: string]: unknown } | unknown[]> 
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const text = await res.text();
     return text ? JSON.parse(text) : {};
+}
+
+/** Controlled empty state for a deep-linked task that does not exist
+ *  (deleted, or the id was mistyped). Never a silent disappearance: the
+ *  user sees what happened and a way back. */
+function showTaskNotFound(id: string) {
+    renderedTaskId = null;
+    renderedConversationId = null;
+    if (convHandles) {
+        try { convHandles.thread?.dispose(); } catch { /* noop */ }
+        convHandles = null;
+    }
+    const host = $('task-detail-container');
+    if (host) {
+        host.replaceChildren();
+        const shell = node('div', '', 'task-detail-shell');
+        shell.append(backButton());
+        shell.append(node('p',
+            `Task ${id.slice(0, 8)} does not exist (it may have been removed, or the link is stale). Pick another task from the list.`,
+            'hint'));
+        host.append(shell);
+        host.hidden = false;
+    }
+    const list = $('task-list-container'); if (list) list.hidden = true;
+    const center = document.getElementById('app'); if (center) center.classList.add('work-detail-open');
+    const empty = $('task-center-empty'); if (empty) empty.style.display = 'none';
+    renderContext(null);
 }
 
 async function loadData() {
@@ -78,7 +109,15 @@ async function loadData() {
         }
     }
     renderList();
-    if (selectedId) renderDetail(selectedId);
+    if (selectedId) {
+        // A selected task that vanished between refreshes gets the
+        // controlled empty state — never a silent disappearance.
+        if (tasks.length && !tasks.some(t => str(t.id) === selectedId)) {
+            showTaskNotFound(selectedId);
+            return;
+        }
+        reconcileDetail(selectedId);
+    }
 }
 
 function stateClass(s: string): string {
@@ -114,7 +153,10 @@ function renderList() {
 }
 
 function selectTask(id: string) {
+    const changed = selectedId !== id;
     selectedId = id;
+    renderedTaskId = null; // Force fresh render on selection change
+    renderedConversationId = null;
     renderList();
     renderDetail(id);
     renderContext(id);
@@ -125,10 +167,16 @@ function selectTask(id: string) {
     if (detail) detail.hidden = false;
     if (center) center.classList.add('work-detail-open');
     if (empty) empty.style.display = 'none';
+    // A real selection change is a navigation gesture: it updates the
+    // canonical state (and pushes a history entry). Same-task re-selection
+    // (background refresh) replaces the URL instead.
+    if (changed) openTask(id, { destination: 'work' });
 }
 
 function backToList() {
     selectedId = null;
+    renderedTaskId = null;
+    renderedConversationId = null;
     const list = $('task-list-container'), detail = $('task-detail-container');
     const center = document.getElementById('app');
     const empty = $('task-center-empty');
@@ -143,6 +191,7 @@ function backToList() {
         convHandles = null;
     }
     renderContext(null);
+    openTask(null, { destination: 'work' });
 }
 
 const STAGE_ORDER = ['overview', 'investigate', 'plan', 'build', 'test', 'review', 'outcome'];
@@ -164,7 +213,7 @@ function backButton(): HTMLElement {
 }
 
 function openResults(id: string) {
-    window.dispatchEvent(new CustomEvent('hermes:open-task', { detail: { id } }));
+    openTask(id, { destination: 'results' });
 }
 
 function jumpTo(stageKey: string) {
@@ -172,7 +221,7 @@ function jumpTo(stageKey: string) {
         plan: 'planning', build: 'build', investigate: 'discover', review: 'build',
     };
     const view = targets[stageKey];
-    window.dispatchEvent(new CustomEvent('hermes:workview', { detail: { view } }));
+    openWorkView(view as 'tasks' | 'discover' | 'goals' | 'planning' | 'build');
 }
 
 // Legacy per-stage renderer kept so the Work subnav (Discover / Planning /
@@ -197,7 +246,7 @@ function renderStage(key: string, t: TaskRec, c: Chain | null) {
         const reason = c ? esc(str(c.reason || '')) : '';
         body.push(card('Investigation', `<p class="stage-status">${note}</p>${reason ? `<p class="stage-reason">${reason}</p>` : ''}`));
         if (c) body[0].insertAdjacentHTML('beforeend', `<button type="button" class="stage-action" data-jump="discover">Open Discover →</button>`);
-        body[0].querySelector('[data-jump="discover"]')?.addEventListener('click', () => { window.dispatchEvent(new CustomEvent('hermes:workview', { detail: { view: 'discover' } })); });
+        body[0].querySelector('[data-jump="discover"]')?.addEventListener('click', () => { openWorkView('discover'); });
         return body;
     }
     if (key === 'plan' || key === 'build' || key === 'test' || key === 'review') {
@@ -210,7 +259,7 @@ function renderStage(key: string, t: TaskRec, c: Chain | null) {
             `<button type="button" class="stage-action" data-open-rel="${actionView}">Manage in Work →</button>`));
         body[0].querySelector('[data-open-rel]')?.addEventListener('click', (e) => {
             const view = (e.currentTarget as HTMLElement).dataset.openRel || 'work';
-            window.dispatchEvent(new CustomEvent('hermes:workview', { detail: { view } }));
+            openWorkView(view as 'tasks' | 'discover' | 'goals' | 'planning' | 'build');
         });
         if (s?.state === 'current') body[0].insertAdjacentHTML('beforeend', `<button type="button" class="stage-action" data-open-live="1">Open this task in Results →</button>`);
         body[0].querySelector('[data-open-live]')?.addEventListener('click', () => openResults(str(t.id)));
@@ -223,6 +272,41 @@ function renderStage(key: string, t: TaskRec, c: Chain | null) {
         `<button type="button" class="stage-action" data-outcome="results">Open full answer in Results →</button>`));
     body[body.length - 1].querySelector('[data-outcome]')?.addEventListener('click', () => openResults(str(t.id)));
     return body;
+}
+
+/** Reconcile the task detail in place — only rebuild if task/conversation identity changed. */
+function reconcileDetail(id: string) {
+    const t = tasks.find(x => x.id === id); if (!t) return;
+    const c = chainByTask[id] ?? null;
+    const convId = t.conversation_id ? String(t.conversation_id) : '';
+
+    // If same task and same conversation, just update dynamic parts
+    if (renderedTaskId === id && renderedConversationId === convId) {
+        updateDynamicParts(t, c);
+        return;
+    }
+
+    // Otherwise full rebuild (task or conversation changed)
+    renderDetail(id);
+    renderedTaskId = id;
+    renderedConversationId = convId;
+}
+
+/** Update only dynamic parts of the detail view (action panel, context) without rebuilding thread/composer. */
+function updateDynamicParts(t: TaskRec, c: Chain | null) {
+    // Update action panel
+    const actionPanelHost = $('task-detail-container')?.querySelector('.task-actions');
+    if (actionPanelHost) {
+        actionPanelHost.replaceChildren(renderActionPanel(t, c));
+    }
+
+    // Update composer copy (label, placeholder, submit text, mode)
+    const copy = composerCopyFor(t, c);
+    applyComposerCopy(copy);
+    markComposerMode(copy.mode);
+
+    // Update context panel
+    renderContext(str(t.id));
 }
 
 function renderDetail(id: string) {
@@ -283,6 +367,9 @@ function renderDetail(id: string) {
         const composerOpts: ComposerOptions = composerOptsFor(null, copy);
         convHandles = { composer: mountComposer(composerOpts), thread: null };
     }
+
+    renderedTaskId = id;
+    renderedConversationId = convId;
 }
 
 /** Compute the composer's label/placeholder/hint and which accent
@@ -405,7 +492,7 @@ function renderActionPanel(t: TaskRec, c: Chain | null): HTMLElement {
     // hand-rolled because we can't yet add a follow-on workflow call.
     if (next === 'review_investigation') {
         buttons.push({ label: 'Review plan →', kind: 'primary',
-            action: () => window.dispatchEvent(new CustomEvent('hermes:workview', { detail: { view: 'planning' } })) });
+            action: () => openWorkView('planning') });
         if (planId) {
             buttons.push({ label: 'Approve plan', kind: 'success',
                 action: () => postPlanApproval(planId) });
@@ -417,7 +504,7 @@ function renderActionPanel(t: TaskRec, c: Chain | null): HTMLElement {
     // (already mounted center). Stage them as buttons so the user never
     // has to guess which view holds what.
     buttons.push({ label: 'Follow activity for this task →', kind: 'secondary',
-        action: () => openActivityFiltered(String(t.id)) });
+        action: () => openActivityForTask(String(t.id)) });
     buttons.push({ label: 'Open in Results →', kind: 'secondary',
         action: () => openResults(String(t.id)) });
     if (next === 'approve_plan' && planId) {
@@ -437,7 +524,7 @@ function renderActionPanel(t: TaskRec, c: Chain | null): HTMLElement {
         buttons.push({ label: 'Request additional investigation', kind: 'primary',
             action: () => prefillInvestigateCta(String(t.id), c) });
         buttons.push({ label: 'Plan follow-up', kind: 'secondary',
-            action: () => window.dispatchEvent(new CustomEvent('hermes:workview', { detail: { view: 'planning' } })) });
+            action: () => openWorkView('planning') });
         buttons.push({ label: 'Discuss findings', kind: 'secondary',
             action: () => prefillComposer('Discuss findings about this task — what should I dig into next?') });
     }
@@ -449,7 +536,7 @@ function renderActionPanel(t: TaskRec, c: Chain | null): HTMLElement {
     }
     if (stage && stage !== 'idle' && stage !== 'history') {
         buttons.push({ label: 'Lifecycle →', kind: 'secondary',
-            action: () => window.dispatchEvent(new CustomEvent('hermes:workview', { detail: { view: stage === 'review' ? 'build' : stage === 'in_progress' ? 'discover' : stage } })) });
+            action: () => openWorkView(stage === 'review' ? 'build' : stage === 'in_progress' ? 'discover' : stage as 'tasks' | 'discover' | 'goals' | 'planning' | 'build') });
     }
 
     if (!buttons.length) {
@@ -505,21 +592,9 @@ async function postPlanApproval(planId: string) {
     }
 }
 
-/** P2 sync: hop from Work into Activity, focused on this task's events.
- *
- *  The backend exposes `/api/events?correlation_id=<task_id>` which the
- *  Activity workspace already reads; we encode the focus into the URL
- *  fragment so a future reload keeps the filter, and dispatch the same
- *  taskFocus event Work listens to so the task list scrolls to and
- *  selects it. One dispatcher, two facts (filter + selection). */
+/** Open Activity workspace filtered to this task's events. */
 function openActivityFiltered(taskId: string) {
-    history.replaceState(null, '', `#task=${encodeURIComponent(taskId)}`);
-    window.dispatchEvent(new CustomEvent('hermes:workspace:activity', {
-        detail: { task_id: taskId },
-    }));
-    window.document.getElementById('primary-nav')?.querySelector<HTMLButtonElement>(
-        'button[data-workspace="activity"]',
-    )?.click();
+    openActivityForTask(taskId);
 }
 
 /** Pre-fill the composer with a pre-canned follow-up prompt and focus it.
@@ -872,10 +947,26 @@ function wireSubnav() {
     });
 }
 
-// React to canonical workView changes from navigation-state
+// Deep-link validation: the Work workspace owns the loaded task list.
+// Returning null (list not yet loaded) lets the deep link through
+// optimistically; a nonexistent id is caught after loadData lands.
+registerTaskValidator(() => (tasks.length ? tasks.map(t => str(t.id)) : null));
+
+// React to canonical workspace/workview/task changes from navigation-state.
+// Covers deep links, Back/Forward restores, and cross-module openTask calls.
 onNavigationChange((nav) => {
-    if (nav.workspace === 'work') {
-        setWorkView(nav.workView);
+    if (nav.workspace !== 'work') return;
+    setWorkView(nav.workView);
+    if (nav.selectedTaskId && nav.selectedTaskId !== selectedId) {
+        // Deep link / Back-Forward restore: select the task. A missing id
+        // gets the controlled empty state instead of silence.
+        if (tasks.length && !tasks.some(t => str(t.id) === nav.selectedTaskId)) {
+            showTaskNotFound(nav.selectedTaskId);
+            return;
+        }
+        selectTask(nav.selectedTaskId);
+    } else if (!nav.selectedTaskId && selectedId) {
+        backToList();
     }
 });
 
