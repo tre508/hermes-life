@@ -260,7 +260,9 @@ test('tool activity only animates the coordinator while a task is really running
   assert.equal(town.residents.coordinator.state, 'working');
   town = applyEvent(town, evt(42, 'hermes.tool_use', { tool_name: 'read_file', input: 'x' }), false, now + 300);
   assert.equal(town.residents.coordinator.location, 'library');
-  assert.match(town.residents.coordinator.label, /read_file/);
+  // Resident label is now a minimal operational indicator; activity narration
+  // (what Hermes is actually doing) is handled by the bubble system (UI-VIS-007).
+  assert.equal(town.residents.coordinator.label, 'Working');
   town = applyEvent(town, evt(43, 'hermes.tool_use', { tool_name: 'write_file' }), false, now + 400);
   assert.equal(town.residents.coordinator.location, 'workshop');
 

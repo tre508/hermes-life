@@ -135,6 +135,18 @@ export function installTown(): void {
   // resize event: re-measure a few times so the viewport matches the real box.
   const remeasure = () => renderer?.resize();
   listen(window, 'resize', remeasure);
+  // The world panel changes size without a window resize event — a wrapped HUD line, a layout switch,
+  // the scroll container settling after hydration. A stale frame is exactly what let the world drift
+  // out of its box, so watch the canvas host itself and coalesce bursts into one re-measure.
+  if (typeof ResizeObserver !== 'undefined') {
+    let pending = 0;
+    const observer = new ResizeObserver(() => {
+      if (pending) return;
+      pending = window.requestAnimationFrame(() => { pending = 0; remeasure(); });
+    });
+    observer.observe(host);
+    undo.push(() => { observer.disconnect(); if (pending) window.cancelAnimationFrame(pending); });
+  }
   const raf = window.requestAnimationFrame(remeasure);
   undo.push(() => window.cancelAnimationFrame(raf));
   after(150, remeasure);

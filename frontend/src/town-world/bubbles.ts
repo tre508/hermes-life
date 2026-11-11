@@ -42,6 +42,8 @@ export interface BubbleContent {
   taskId?: string;
   /** Event sequence number */
   sequence?: number;
+  /** Internal: streaming text fragment for accumulation (not persisted) */
+  _streamFragment?: string;
 }
 
 export interface BubbleState {
@@ -123,6 +125,86 @@ function toolTargetFrom(payload: Record<string, unknown>): string {
   return interesting ? String(interesting).slice(0, 140) : '';
 }
 
+/** Generate a meaningful, deterministic headline for a tool call from its
+ *  payload. Never invents intent or reasoning — only formats what the
+ *  runtime actually provided. */
+function toolHeadlineFrom(toolName: string, payload: Record<string, unknown>): string {
+  const target = toolTargetFrom(payload);
+  const lower = toolName.toLowerCase();
+  const input = (payload.input as Record<string, unknown>) || {};
+
+  // Terminal/shell: show the actual command
+  if (lower === 'terminal' || lower === 'bash' || lower === 'shell' || lower === 'exec') {
+    const cmd = (payload.command as string) ?? (input.command as string) ?? '';
+    if (cmd) {
+      const short = cmd.trim().split(/\s+/)[0]; // first word (e.g., pytest, git, npm)
+      const rest = cmd.trim().slice(short.length).trim();
+      return `Running: ${short}${rest ? ' ' + rest.slice(0, 80) : ''}`;
+    }
+    return `Running terminal`;
+  }
+
+  // File reads: "Reading <path>"
+  if (lower === 'read_file' || lower === 'cat' || lower === 'read') {
+    const path = (payload.path as string) ?? (input.path as string) ?? target;
+    return path ? `Reading ${path}` : 'Reading file';
+  }
+
+  // File writes/edits: "Writing <path>" / "Editing <path>"
+  if (lower === 'write_file' || lower === 'write') {
+    const path = (payload.path as string) ?? (input.path as string) ?? target;
+    return path ? `Writing ${path}` : 'Writing file';
+  }
+  if (lower === 'edit_file' || lower === 'edit' || lower === 'patch') {
+    const path = (payload.path as string) ?? (input.path as string) ?? target;
+    return path ? `Editing ${path}` : 'Editing file';
+  }
+
+  // Search/grep: "Searching for <pattern>"
+  if (lower === 'grep' || lower === 'search' || lower === 'glob' || lower === 'find') {
+    const pattern = (payload.pattern as string) ?? (input.pattern as string) ?? target;
+    return pattern ? `Searching for ${pattern}` : `Running ${toolName}`;
+  }
+
+  // List/ls: "Listing <path>"
+  if (lower === 'ls' || lower === 'list' || lower === 'dir') {
+    const path = (payload.path as string) ?? (input.path as string) ?? target;
+    return path ? `Listing ${path}` : 'Listing directory';
+  }
+
+  // Test tools: "Testing <target>"
+  if (lower === 'pytest' || lower === 'test' || lower === 'verify' || lower === 'lint' || lower === 'check') {
+    const args = (payload.args as string[]) ?? (input.args as string[]) ?? [];
+    const targetStr = Array.isArray(args) && args.length ? args.join(' ') : target;
+    return targetStr ? `Testing ${targetStr}` : `Running ${toolName}`;
+  }
+
+  // Git: "Git <subcommand>"
+  if (lower === 'git') {
+    const sub = (payload.subcommand as string) ?? (input.subcommand as string) ?? ((payload.args as string[]) ?? [])[0] ?? '';
+    return sub ? `Git ${sub}` : 'Running git';
+  }
+
+  // Web/browser: "Browsing <url>" or "Fetching <url>"
+  if (lower === 'browse' || lower === 'web' || lower === 'fetch' || lower === 'http' || lower === 'web_search') {
+    const url = (payload.url as string) ?? (input.url as string) ?? target;
+    return url ? `Browsing ${url}` : `Running ${toolName}`;
+  }
+
+  // Memory/vault: "Recalling <query>" or "Storing memory"
+  if (lower === 'memory' || lower === 'recall' || lower === 'vault' || lower === 'archive') {
+    const query = (payload.query as string) ?? (input.query as string) ?? target;
+    return query ? `Recalling ${query}` : `Running ${toolName}`;
+  }
+
+  // Generic fallback: use the tool target if available
+  if (target) {
+    return `${toolName} ${target}`.slice(0, 120);
+  }
+
+  return `Using ${toolName}`;
+}
+
 function resultSummaryFrom(payload: Record<string, unknown>): string {
   // Payload conventions, in observed order: `output` (string), `result`
   // (object or string), `content`, `error`/`is_error`.
@@ -175,7 +257,7 @@ export function categorizeEvent(event: {
       category: 'tool',
       content: {
         id,
-        headline: `Using ${toolName}`,
+        headline: toolHeadlineFrom(toolName, payload),
         details: toolTarget || undefined,
         toolName,
         toolTarget,
@@ -195,16 +277,21 @@ export function categorizeEvent(event: {
     const isError = payload.is_error === true || payload.error || payload.failed === true;
     const id = typeof payload.tool_call_id === 'string' ? payload.tool_call_id : undefined;
 
+    // For results, show the outcome. If we have a tool_call_id, the controller
+    // will merge this with the original tool_use bubble, preserving the original
+    // headline and target. The result's own headline summarizes the outcome.
+    const resultSummary = resultSummaryFrom(payload);
+    const headline = isError
+      ? `Failed: ${toolName}`
+      : (id ? `${toolName} returned` : `Completed: ${toolName}`);
+
     return {
       role,
       category: isError ? 'error' : 'success',
       content: {
         id,
-        // If the live wire records the tool_call_id, treat the result as a
-        // continuation of the in-flight bubble: surface the result summary
-        // up front so the operator sees the actual outcome.
-        headline: isError ? `Failed: ${toolName}` : (id ? `${toolName} returned` : `Completed: ${toolName}`),
-        details: resultSummaryFrom(payload),
+        headline,
+        details: resultSummary,
         toolName,
         toolTarget,
         status: isError ? 'failed' : 'completed',
@@ -222,16 +309,22 @@ export function categorizeEvent(event: {
     const text = typeof payload.text === 'string' ? payload.text.trim() : '';
     if (!text) return null;
 
+    // For streaming, we return the fragment. The controller merges fragments
+    // for the same task by appending to the existing bubble's details.
+    // The headline shows the latest fragment (truncated), details hold the
+    // accumulated full text.
     return {
       role: 'coordinator',
       category: 'thought',
       content: {
         headline: text.length > 120 ? text.slice(0, 117) + '…' : text,
-        details: text,
+        details: text, // Single fragment; controller will accumulate
         status: 'running',
         startTime: now,
         taskId,
         sequence,
+        // Mark this as a streaming fragment for accumulation
+        _streamFragment: text,
       },
     };
   }
@@ -359,13 +452,71 @@ export function categorizeEvent(event: {
  *  payload doesn't carry — a result event usually lacks the input arguments
  *  the original tool_use provided, so the file path / command would otherwise
  *  disappear from the result bubble. Empty strings count as "absent", not
- *  "set to empty", so they never clobber prior context.  */
+ *  "set to empty", so they never clobber prior context.
+ *
+ *  For streaming hermes.text fragments, append the new fragment to the
+ *  accumulated details so the full commentary builds up coherently.
+ *
+ *  For tool_result merging into tool_use (same tool_call_id), preserve the
+ *  original meaningful headline and toolTarget from the tool_use bubble. */
 function mergeContent(oldC: BubbleContent, fresh: BubbleContent): BubbleContent {
   const merged: Record<string, unknown> = { ...oldC };
   for (const k of Object.keys(fresh) as (keyof BubbleContent)[]) {
     const v = fresh[k];
     if (v === undefined || v === null) continue;
     if (typeof v === 'string' && v === '') continue;
+
+    // Special handling for streaming text fragments: append to accumulated details
+    if (k === 'details' && typeof v === 'string' && fresh._streamFragment) {
+      const existing = merged.details as string | undefined;
+      const fragment = fresh._streamFragment as string;
+      // Avoid duplicating in several cases:
+      // 1. Fragment already at the end (incremental delta already applied)
+      // 2. Existing content is a prefix of fragment (cumulative snapshot)
+      // 3. Fragment is a prefix of existing (redundant delta)
+      // 4. Fragment equals existing (duplicate)
+      let shouldAppend = true;
+      if (existing) {
+        if (existing.endsWith(fragment) ||
+            fragment.startsWith(existing) ||
+            existing.startsWith(fragment) ||
+            existing === fragment) {
+          shouldAppend = false;
+        }
+      }
+      if (shouldAppend) {
+        merged[k] = (existing ? existing + fragment : fragment).slice(0, 4000); // Cap at 4KB
+      } else {
+        // For cumulative snapshots, use the full fragment as it's more complete
+        merged[k] = fragment.startsWith(existing || '') ? fragment : (existing || fragment);
+      }
+      // Update headline to show the latest fragment (truncated)
+      merged.headline = fragment.length > 120 ? fragment.slice(0, 117) + '…' : fragment;
+      continue;
+    }
+
+    // Special handling for tool_result merging into tool_use: preserve original
+    // headline and toolTarget from the tool_use bubble. The tool_result brings
+    // status, endTime, and result details, but should not overwrite the
+    // meaningful headline (e.g., "Reading backend/research.py") with a generic
+    // one (e.g., "read_file returned").
+    if (k === 'headline' && fresh.status && (fresh.status === 'completed' || fresh.status === 'failed')) {
+      // This is a tool_result updating a tool_use bubble - keep the original headline
+      continue;
+    }
+    if (k === 'toolTarget' && fresh.status && (fresh.status === 'completed' || fresh.status === 'failed')) {
+      // Preserve original toolTarget from tool_use
+      continue;
+    }
+    if (k === 'toolName' && fresh.status && (fresh.status === 'completed' || fresh.status === 'failed')) {
+      // Preserve original toolName from tool_use
+      continue;
+    }
+    if (k === 'startTime' && fresh.status && (fresh.status === 'completed' || fresh.status === 'failed')) {
+      // Preserve original startTime from tool_use
+      continue;
+    }
+
     merged[k] = v;
   }
   return merged as unknown as BubbleContent;

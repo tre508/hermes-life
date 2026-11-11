@@ -7,6 +7,7 @@
     <link rel="stylesheet" href="/src/style.css" />
     <link rel="stylesheet" href="/src/unified-layout.css" />
     <link rel="stylesheet" href="/src/command-centre.css" />
+    <link rel="stylesheet" href="/src/knowledge-workspace.css" />
 </head>
 <body>
 <div id="app" class="layout-home">
@@ -35,7 +36,7 @@
         <button data-workspace="home" data-hc-chat="open" type="button" aria-pressed="false">◉ Chat</button>
         <button data-workspace="work" data-hc-workview="goals" type="button" aria-pressed="false">✧ Goals</button>
         <button data-workspace="system" type="button" aria-pressed="false">▦ Memory</button>
-        <button data-workspace="work" data-hc-workview="discover" type="button" aria-pressed="false">◈ Knowledge Deck</button>
+        <button data-workspace="knowledge" type="button" aria-pressed="false">◈ Knowledge Deck</button>
         <button data-workspace="results" type="button" aria-pressed="false">♟ Results</button>
         <button data-workspace="activity" type="button" aria-pressed="false">◷ Activity</button>
         <span class="nav-sep" aria-hidden="true"></span>
@@ -249,6 +250,39 @@
 
                     </div>
                 </section>
+
+        <!-- ---------- KNOWLEDGE DECK · indexed research reference library ---------- -->
+        <section id="workspace-knowledge" class="workspace-view" data-layout="focus" hidden>
+            <header class="knowledge-header">
+                <div>
+                    <h2>Knowledge Deck</h2>
+                    <p>Browse and search indexed references available to Hermes. Separate from Discover and Memory.</p>
+                </div>
+                <button id="knowledge-refresh" type="button">Refresh sources</button>
+            </header>
+            <form id="knowledge-search-form" class="knowledge-search" role="search">
+                <label for="knowledge-query" class="sr-only">Search indexed knowledge</label>
+                <input id="knowledge-query" type="search" placeholder="Search indexed document text…" autocomplete="off" />
+                <button type="submit">Search</button>
+                <button id="knowledge-clear" type="button">Clear</button>
+            </form>
+            <p id="knowledge-status" role="status" aria-live="polite">Open Knowledge Deck to load registered sources.</p>
+            <div class="knowledge-grid">
+                <div class="knowledge-panel knowledge-panel--sources">
+                    <h3>Registered sources</h3>
+                    <p id="knowledge-source-count" class="knowledge-note"></p>
+                    <div id="knowledge-source-list"></div>
+                </div>
+                <div class="knowledge-panel knowledge-panel--results">
+                    <h3 id="knowledge-results-title">Indexed content search</h3>
+                    <div id="knowledge-results"></div>
+                </div>
+                <div class="knowledge-panel knowledge-panel--detail">
+                    <h3>Source details</h3>
+                    <div id="knowledge-detail"><p class="knowledge-empty">Select a source or search result.</p></div>
+                </div>
+            </div>
+        </section>
 
         <!-- ---------- ACTIVITY · full-width execution timeline ---------- -->
         <section id="workspace-activity" class="workspace-view" data-layout="focus" hidden>

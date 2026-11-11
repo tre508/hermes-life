@@ -9,7 +9,7 @@
  */
 import { test, describe } from 'node:test';
 import assert from 'node:assert';
-import { categorizeEvent } from '../src/town-world/bubbles.ts';
+import { categorizeEvent, BubbleController } from '../src/town-world/bubbles.ts';
 
 describe('Bubble System - Event Categorization', () => {
   test('categorizes hermes.tool_use as tool bubble for researcher (read_file is research tool)', () => {
@@ -270,7 +270,9 @@ describe('Bubble System - Live wire payload shapes (UI-VIS-007 §6)', () => {
     assert.strictEqual(result!.content.toolName, 'terminal');
     assert.strictEqual(result!.content.id, 'chatcmpl-tool-9abbdaf7b18d803e');
     assert.ok(result!.content.status === 'running');
-    assert.strictEqual(result!.content.headline, 'Using terminal');
+    // Meaningful headline from actual command (HL-TELEM-001)
+    assert.ok(result!.content.headline.startsWith('Running:'));
+    assert.ok(result!.content.headline.includes('git fetch origin'));
     assert.ok(result!.content.toolTarget!.includes('git fetch origin'));
   });
 
@@ -478,5 +480,282 @@ describe('Bubble System - Workflow event role mapping (live)', () => {
     assert.ok(r);
     assert.strictEqual(r!.role, 'archivist');
     assert.strictEqual(r!.category, 'success');
+  });
+});
+
+describe('Bubble System - Meaningful tool headlines (HL-TELEM-001)', () => {
+  test('read_file shows "Reading <path>"', () => {
+    const r = categorizeEvent({
+      type: 'hermes.tool_use',
+      payload: { name: 'read_file', input: { path: 'backend/research.py' } },
+      task_id: 't1',
+      sequence: 1,
+      timestamp: new Date().toISOString(),
+    });
+    assert.ok(r);
+    assert.strictEqual(r!.content.headline, 'Reading backend/research.py');
+  });
+
+  test('write_file shows "Writing <path>"', () => {
+    const r = categorizeEvent({
+      type: 'hermes.tool_use',
+      payload: { name: 'write_file', input: { path: 'src/main.ts', content: 'x' } },
+      task_id: 't1',
+      sequence: 1,
+      timestamp: new Date().toISOString(),
+    });
+    assert.ok(r);
+    assert.strictEqual(r!.content.headline, 'Writing src/main.ts');
+  });
+
+  test('edit_file shows "Editing <path>"', () => {
+    const r = categorizeEvent({
+      type: 'hermes.tool_use',
+      payload: { name: 'edit_file', input: { path: 'src/main.ts' } },
+      task_id: 't1',
+      sequence: 1,
+      timestamp: new Date().toISOString(),
+    });
+    assert.ok(r);
+    assert.strictEqual(r!.content.headline, 'Editing src/main.ts');
+  });
+
+  test('terminal shows "Running: <command>"', () => {
+    const r = categorizeEvent({
+      type: 'hermes.tool_use',
+      payload: { name: 'terminal', input: { command: 'pytest tests/test_research.py' } },
+      task_id: 't1',
+      sequence: 1,
+      timestamp: new Date().toISOString(),
+    });
+    assert.ok(r);
+    assert.ok(r!.content.headline.startsWith('Running:'));
+    assert.ok(r!.content.headline.includes('pytest tests/test_research.py'));
+  });
+
+  test('pytest shows "Testing <target>"', () => {
+    const r = categorizeEvent({
+      type: 'hermes.tool_use',
+      payload: { name: 'pytest', input: { args: ['tests/'] } },
+      task_id: 't1',
+      sequence: 1,
+      timestamp: new Date().toISOString(),
+    });
+    assert.ok(r);
+    assert.strictEqual(r!.content.headline, 'Testing tests/');
+  });
+
+  test('grep shows "Searching for <pattern>"', () => {
+    const r = categorizeEvent({
+      type: 'hermes.tool_use',
+      payload: { name: 'grep', input: { pattern: 'TODO' } },
+      task_id: 't1',
+      sequence: 1,
+      timestamp: new Date().toISOString(),
+    });
+    assert.ok(r);
+    assert.strictEqual(r!.content.headline, 'Searching for TODO');
+  });
+
+  test('ls shows "Listing <path>"', () => {
+    const r = categorizeEvent({
+      type: 'hermes.tool_use',
+      payload: { name: 'ls', input: { path: '/home/user' } },
+      task_id: 't1',
+      sequence: 1,
+      timestamp: new Date().toISOString(),
+    });
+    assert.ok(r);
+    assert.strictEqual(r!.content.headline, 'Listing /home/user');
+  });
+
+  test('git shows "Git <subcommand>"', () => {
+    const r = categorizeEvent({
+      type: 'hermes.tool_use',
+      payload: { name: 'git', input: { subcommand: 'status' } },
+      task_id: 't1',
+      sequence: 1,
+      timestamp: new Date().toISOString(),
+    });
+    assert.ok(r);
+    assert.strictEqual(r!.content.headline, 'Git status');
+  });
+
+  test('browse shows "Browsing <url>"', () => {
+    const r = categorizeEvent({
+      type: 'hermes.tool_use',
+      payload: { name: 'browse', input: { url: 'https://example.com' } },
+      task_id: 't1',
+      sequence: 1,
+      timestamp: new Date().toISOString(),
+    });
+    assert.ok(r);
+    assert.strictEqual(r!.content.headline, 'Browsing https://example.com');
+  });
+
+  test('memory shows "Recalling <query>"', () => {
+    const r = categorizeEvent({
+      type: 'hermes.tool_use',
+      payload: { name: 'memory', input: { query: 'project config' } },
+      task_id: 't1',
+      sequence: 1,
+      timestamp: new Date().toISOString(),
+    });
+    assert.ok(r);
+    assert.strictEqual(r!.content.headline, 'Recalling project config');
+  });
+});
+
+describe('Bubble System - Streaming text accumulation (HL-TELEM-001)', () => {
+  test('multiple hermes.text fragments accumulate in details', () => {
+    const c = new BubbleController();
+
+    // First fragment
+    c.processEvent({
+      type: 'hermes.text',
+      sequence: 1,
+      task_id: 't1',
+      payload: { text: 'Analyzing the code...' },
+      historical: false,
+    });
+
+    // Second fragment
+    c.processEvent({
+      type: 'hermes.text',
+      sequence: 2,
+      task_id: 't1',
+      payload: { text: ' Found the issue in line 42.' },
+      historical: false,
+    });
+
+    // Third fragment
+    c.processEvent({
+      type: 'hermes.text',
+      sequence: 3,
+      task_id: 't1',
+      payload: { text: ' Fixing it now.' },
+      historical: false,
+    });
+
+    const bubbles = c.getBubbles();
+    assert.strictEqual(bubbles.length, 1);
+    const bubble = bubbles[0];
+    assert.strictEqual(bubble.category, 'thought');
+    assert.strictEqual(bubble.content.taskId, 't1');
+    // Details should accumulate all fragments
+    assert.ok(bubble.content.details!.includes('Analyzing the code...'));
+    assert.ok(bubble.content.details!.includes('Found the issue in line 42.'));
+    assert.ok(bubble.content.details!.includes('Fixing it now.'));
+    // Headline shows latest fragment
+    assert.strictEqual(bubble.content.headline, 'Fixing it now.');
+  });
+
+  test('duplicate fragments are not double-counted', () => {
+    const c = new BubbleController();
+
+    c.processEvent({
+      type: 'hermes.text',
+      sequence: 1,
+      task_id: 't1',
+      payload: { text: 'Hello' },
+      historical: false,
+    });
+
+    // Same fragment again (simulating cumulative snapshot)
+    c.processEvent({
+      type: 'hermes.text',
+      sequence: 2,
+      task_id: 't1',
+      payload: { text: 'Hello world' },
+      historical: false,
+    });
+
+    const bubbles = c.getBubbles();
+    assert.strictEqual(bubbles.length, 1);
+    // Should not have "HelloHello world"
+    assert.ok(!bubbles[0].content.details!.includes('HelloHello'));
+    assert.ok(bubbles[0].content.details!.includes('Hello world'));
+  });
+});
+
+describe('Bubble System - Tool result correlation (HL-TELEM-001)', () => {
+  test('tool_result updates tool_use bubble with outcome, preserving original headline', () => {
+    const c = new BubbleController();
+
+    // Tool use
+    c.processEvent({
+      type: 'hermes.tool_use',
+      sequence: 1,
+      task_id: 't1',
+      payload: {
+        name: 'read_file',
+        tool_call_id: 'tc-1',
+        input: { path: 'backend/research.py' },
+      },
+      historical: false,
+    });
+
+    // Tool result
+    c.processEvent({
+      type: 'hermes.tool_result',
+      sequence: 2,
+      task_id: 't1',
+      payload: {
+        name: 'read_file',
+        tool_call_id: 'tc-1',
+        output: 'file content here',
+      },
+      historical: false,
+    });
+
+    const bubbles = c.getBubbles();
+    assert.strictEqual(bubbles.length, 1);
+    const bubble = bubbles[0];
+    // Original meaningful headline preserved
+    assert.strictEqual(bubble.content.headline, 'Reading backend/research.py');
+    // Status updated to completed
+    assert.strictEqual(bubble.content.status, 'completed');
+    // Details show result summary
+    assert.ok(bubble.content.details!.includes('file content here'));
+    // Tool name and target preserved
+    assert.strictEqual(bubble.content.toolName, 'read_file');
+    assert.ok(bubble.content.toolTarget!.includes('backend/research.py'));
+  });
+
+  test('failed tool_result shows error status and message', () => {
+    const c = new BubbleController();
+
+    c.processEvent({
+      type: 'hermes.tool_use',
+      sequence: 1,
+      task_id: 't1',
+      payload: {
+        name: 'write_file',
+        tool_call_id: 'tc-1',
+        input: { path: 'src/test.ts' },
+      },
+      historical: false,
+    });
+
+    c.processEvent({
+      type: 'hermes.tool_result',
+      sequence: 2,
+      task_id: 't1',
+      payload: {
+        name: 'write_file',
+        tool_call_id: 'tc-1',
+        is_error: true,
+        error: 'Permission denied',
+      },
+      historical: false,
+    });
+
+    const bubbles = c.getBubbles();
+    assert.strictEqual(bubbles.length, 1);
+    const bubble = bubbles[0];
+    assert.strictEqual(bubble.content.headline, 'Writing src/test.ts');
+    assert.strictEqual(bubble.content.status, 'failed');
+    assert.ok(bubble.content.details!.startsWith('Error:'));
+    assert.ok(bubble.content.details!.includes('Permission denied'));
   });
 });

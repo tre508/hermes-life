@@ -370,52 +370,68 @@ export function create3DRenderer(host: HTMLElement, opts: { motion: boolean }): 
 
   // --- framing --------------------------------------------------------------------------------------
   /**
-   * Fit the facility to the canvas: all eight rooms, their walls, labels, and resident head height.
-   * Target ~95% width utilization (2.5% margin each side) so the facility fills the box naturally.
-   * The camera target is the actual facility center (computed from room geometry), so framing
-   * centers on real content, not a fixed point.
+   * Fit the facility to the canvas.
+   *
+   * The bounds are the room footprints at their real drawn height: floor to wall top (1.75u, measured
+   * off the render — the rooms top out at the wall cap). Three earlier mistakes are deliberately gone:
+   *   - corners were listed at a fictional 4.6u "resident head" height, which added ~3u of empty air
+   *     above the rooms, inflated the frame by a third and pushed the visible world off centre (that is
+   *     why the grey band above the world was twice the one below it);
+   *   - the camera was framed at `95% of the width` only, so it never used the box it was given;
+   *   - the hull/deck is *meant* to run out of frame into the fog, so fitting the whole scene bounds
+   *     (46.6 x 22.8 incl. the ship shell) shrinks the rooms to two thirds of the canvas.
    */
-  // VIS-010: responsive fit using actual facility bounds and 95% width target
-  const frameContent = (aspect: number) => {
-    camera.updateMatrixWorld(true);
-    const right = new THREE.Vector3().setFromMatrixColumn(camera.matrixWorld, 0);
-    const up = new THREE.Vector3().setFromMatrixColumn(camera.matrixWorld, 1);
+  const FIT = 0.98; // 1% margin per side: the world nearly touches the frame without clipping.
+  const camRight = new THREE.Vector3().setFromMatrixColumn(camera.matrixWorld, 0);
+  const camUp = new THREE.Vector3().setFromMatrixColumn(camera.matrixWorld, 1);
+  const worldPoint = new THREE.Vector3();
+  let lastFrameSignature = '';
+
+  /** Screen-space bounds of the room architecture on the camera's fixed right/up axes. */
+  const measureContent = () => {
     let minX = Infinity, maxX = -Infinity;
     let minY = Infinity, maxY = -Infinity;
-    const world = new THREE.Vector3();
-
+    // Floor slab bottom, floor decals, wall caps, and the tallest resident/label above a wall.
+    const heights = [-0.2, 0.045, 1.75];
     for (const room of PHYSICAL_ROOMS) {
       const halfW = room.width / 2;
       const halfD = room.depth / 2;
-      // Room floor corners (with small padding for wall thickness)
       const floorPadding = 0.2;
-      // Heights to include: floor, wall tops (1.65), label height (0.045), resident head (4.6)
-      const heights = [-0.2, 0.045, 1.65, 4.6];
-      // Depth extension to include front label (at halfD - 0.68) and rear wall
-      const labelOffset = 0.68;
-      const depthExtents = [-halfD - floorPadding, halfD - labelOffset + 1.8]; // label width ~3.6, half ~1.8
-
+      // Depth runs past the rear wall and past the front label strip (label width ~3.6, half 1.8).
       for (const du of [-halfW - floorPadding, halfW + floorPadding]) {
-        for (const dv of depthExtents) {
+        for (const dv of [-halfD - floorPadding, halfD + 1.12]) {
           for (const h of heights) {
             const pos = roomToWorld(room.u + du, room.v + dv);
-            world.set(pos.x, h, pos.z).sub(target);
-            const x = world.dot(right), y = world.dot(up);
-            minX = Math.min(minX, x); maxX = Math.max(maxX, x);
-            minY = Math.min(minY, y); maxY = Math.max(maxY, y);
+            worldPoint.set(pos.x, h, pos.z).sub(target);
+            const x = worldPoint.dot(camRight);
+            const y = worldPoint.dot(camUp);
+            if (x < minX) minX = x;
+            if (x > maxX) maxX = x;
+            if (y < minY) minY = y;
+            if (y > maxY) maxY = y;
           }
         }
       }
     }
+    return { minX, maxX, minY, maxY };
+  };
 
+  const frameContent = (aspect: number) => {
+    if (!Number.isFinite(aspect) || aspect <= 0) return;
+    const { minX, maxX, minY, maxY } = measureContent();
+    if (!Number.isFinite(minX) || !Number.isFinite(minY)) return;
     const midX = (minX + maxX) / 2;
     const midY = (minY + maxY) / 2;
     const width = maxX - minX;
     const height = maxY - minY;
 
-    // 95% utilization = 2.5% margin each side. Use the limiting dimension.
-    const FIT = 0.95;
+    // Fill the box: whichever dimension binds, the content occupies FIT of it, centred on itself.
     const halfHeight = Math.max(height / (2 * FIT), width / (2 * aspect * FIT));
+    const signature = `${width.toFixed(1)}x${height.toFixed(1)}@${aspect.toFixed(2)}`;
+    if (signature !== lastFrameSignature) {
+      lastFrameSignature = signature;
+      console.info(`town: framing ${width.toFixed(1)} x ${height.toFixed(1)} world units at aspect ${aspect.toFixed(2)}`);
+    }
 
     camera.left = midX - halfHeight * aspect;
     camera.right = midX + halfHeight * aspect;
@@ -707,18 +723,17 @@ export function create3DRenderer(host: HTMLElement, opts: { motion: boolean }): 
   };
 
   const resize = () => {
+    // The canvas is displayed at exactly `#game`'s box (CSS forces 100% x 100%), so that box — not the
+    // parent panel, which also contains the hint line and the live HUD — is the only honest aspect.
+    // Reading `parent.clientHeight` here framed the camera for a taller, squarer box than the canvas
+    // occupied: the scene was stretched vertically and left grey bands above and below it.
     const rect = host.getBoundingClientRect();
     const width = Math.round(rect.width);
-    if (width < 2) return;            // layout has not settled yet
-    // VIS-008: CSS may limit the world to a shorter, wider rectangle. Use
-    // actual visible container height, not the legacy 800:425 design ratio.
-    const parent = host.parentElement;
-    const visibleHeight = parent?.clientHeight || 0;
-    const fallbackHeight = Math.round(width * DESIGN.height / DESIGN.width);
-    const height = Math.max(1, Math.round(visibleHeight > 2 ? visibleHeight : (rect.height > 2 ? rect.height : fallbackHeight)));
+    const height = Math.round(rect.height);
+    if (width < 2 || height < 2) return; // layout has not settled yet
     frameContent(width / height);
-    renderer.setSize(width, height, true);
     renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.5));
+    renderer.setSize(width, height, true);
     if (!motion) draw();
   };
 

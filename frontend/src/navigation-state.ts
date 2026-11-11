@@ -19,12 +19,12 @@
  *     same-URL navigation) so back/forward stay deterministic
  */
 
-export type Workspace = 'home' | 'work' | 'activity' | 'results' | 'system';
+export type Workspace = 'home' | 'work' | 'activity' | 'results' | 'system' | 'knowledge';
 export type WorkView = 'tasks' | 'discover' | 'goals' | 'planning' | 'build' | 'projects';
 export type TaskView = 'overview' | 'investigation' | 'plan' | 'changes' | 'tests' | 'evidence';
 export type ActivityFilter = 'selected' | 'all';
 
-export const WORKSPACES: readonly Workspace[] = ['home', 'work', 'activity', 'results', 'system'] as const;
+export const WORKSPACES: readonly Workspace[] = ['home', 'work', 'activity', 'results', 'system', 'knowledge'] as const;
 export const WORK_VIEWS: readonly WorkView[] = ['tasks', 'discover', 'goals', 'planning', 'build', 'projects'] as const;
 export const TASK_VIEWS: readonly TaskView[] = ['overview', 'investigation', 'plan', 'changes', 'tests', 'evidence'] as const;
 

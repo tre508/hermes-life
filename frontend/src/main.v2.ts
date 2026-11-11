@@ -22,6 +22,7 @@ import './phase415-review';
 import './work-workspace';
 import './portfolio-view';
 import './command-centre-ui';
+import './knowledge-workspace';
 import { openWorkspace, openWorkView, openTask, openResult, openActivityForTask, onNavigationChange, initHistory, handleLegacyOpenTask } from './navigation-state.ts';
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string): T | null => document.getElementById(id) as T | null;
@@ -33,7 +34,7 @@ if (versionPill) versionPill.textContent = 'HERMESHA / 0.4.0';
 
 // ============================= workspace & layout =============================
 const app = $('app')!;
-const workspaces = ['home', 'work', 'activity', 'results', 'system'];
+const workspaces = ['home', 'work', 'activity', 'results', 'system', 'knowledge'];
 
 // Single source of truth for workspace/layout — driven by navigation-state
 function setLayout(layout: 'world' | 'workspace' | 'focus') {
@@ -106,7 +107,7 @@ async function refetchActivityForTask(taskId: string) {
 document.querySelectorAll<HTMLButtonElement>('#primary-nav button').forEach(btn => {
     btn.addEventListener('click', () => {
         const ws = btn.dataset.workspace;
-        if (ws) openWorkspace(ws as 'home' | 'work' | 'activity' | 'results' | 'system');
+        if (ws) openWorkspace(ws as 'home' | 'work' | 'activity' | 'results' | 'system' | 'knowledge');
     });
 });
 // Any activation of a Work sub-view (phase deep links included) brings the user to Work.

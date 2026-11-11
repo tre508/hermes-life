@@ -483,7 +483,10 @@ export function applyEvent(state: TownState, event: BackendEvent, autonomousTask
       next.residents.coordinator = {
         ...state.residents.coordinator,
         state: 'working',
-        label: name ? `Using ${name}` : 'Running a tool',
+        // Don't set a generic label here — the bubble system (UI-VIS-007) owns activity
+        // narration with meaningful, event-derived descriptions. The resident label stays
+        // as a minimal operational indicator (e.g., "Working").
+        label: 'Working',
         location,
         eventType: event.type, sequence: event.sequence, observedAt: now, source: 'event',
         taskId: event.task_id ?? state.residents.coordinator.taskId,

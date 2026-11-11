@@ -105,3 +105,36 @@
   height: 100% !important;
   object-fit: fill;
 }
+
+/* HERMESHA-WORLD-HEIGHT-001 BEGIN */
+/* Restore the vertically usable 3D viewport. The world panel is no longer
+   allowed to shrink merely to fit the live HUD and recent activity above fold.
+   #main-workspace already owns scrolling in unified-layout.css. */
+#app.layout-home #workspace-home {
+    height: auto;
+    min-height: 100%;
+}
+#app.layout-home #workspace-home > .home-world {
+    flex: 0 0 auto;
+    height: max(620px, 72dvh);
+    min-height: 620px;
+    max-height: none;
+}
+#app.layout-home #workspace-home > .home-world > #game {
+    flex: 1 1 auto;
+    min-height: 0;
+    height: auto;
+}
+/* Preserve natural document height: the recent-activity strip can be reached
+   by scrolling the main region rather than collapsing the world to 300px. */
+#app.layout-home #main-workspace {
+    overflow-y: auto;
+    overscroll-behavior-y: contain;
+}
+@media (max-height: 700px) {
+    #app.layout-home #workspace-home > .home-world {
+        height: 580px;
+        min-height: 580px;
+    }
+}
+/* HERMESHA-WORLD-HEIGHT-001 END */
