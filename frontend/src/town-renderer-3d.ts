@@ -45,9 +45,11 @@ import { buildStation } from './town-world/workstations';
 import { contactPatch } from './town-world/props';
 import { PHYSICAL_ROOMS, roomToWorld, type PhysicalRoomId } from './town-world/ship-rooms';
 
-/** A 45° azimuth with a low 27° eye: the projection then matches the wide panel, and the viewer looks
- * into the room rather than down onto a model (audit v2 §4, §5). */
-const ISO = { azimuthDeg: 45, elevationDeg: 27, distance: 70 } as const;
+/** A 45° azimuth with a low 30° eye: the projection then matches the wide panel, and the viewer looks
+ * into the room rather than down onto a model (audit v2 §4, §5). 27° left the facility projecting to
+ * 3.07:1 against a 2.85:1 world box; 30° closes that gap and is still low enough that resident faces
+ * — which carry the state contract — stay legible. Anything past ~33° starts costing the faces. */
+const ISO = { azimuthDeg: 45, elevationDeg: 30, distance: 70 } as const;
 
 /** Compute the facility center from the actual room geometry so the camera tracks the real layout. */
 function computeFacilityCenter(): THREE.Vector3 {
