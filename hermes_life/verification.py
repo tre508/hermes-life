@@ -2,7 +2,7 @@
 
 The evaluator already runs the project's tests. This module answers the *other* question:
 does the candidate satisfy the approved plan's acceptance criteria? It does that by
-executing its own checks in the VM and recording raw evidence (command, exit code, output
+executing its own checks on the work machine and recording raw evidence (command, exit code, output
 hash, environment) for every criterion.
 
 Two rules hold throughout:
@@ -36,7 +36,7 @@ DELIVERABLE_CLASSES = ('code_change', 'evidence_report', 'docs_only')
 VERDICTS = ('passed', 'failed', 'unverified', 'not_applicable')
 DISPOSITIONS = ('verified', 'failed', 'insufficient_evidence', 'blocked')
 
-#: Runs inside the VM. Read-only apart from the fixed pytest invocation.
+#: Runs inside the work machine. Read-only apart from the fixed pytest invocation.
 VERIFY_GUEST = for_worker(ENV_RESOLVER + r'''
 import hashlib,json,pathlib,re,subprocess,sys,time
 
@@ -404,7 +404,7 @@ class VerificationEngine:
         if not criteria:
             note = 'plan declares no acceptance criteria'
         elif adapter is None or getattr(adapter, 'transport', None) != 'ssh':
-            note = 'criteria were not compiled: isolated VM transport unavailable'
+            note = 'criteria were not compiled: isolated work-machine transport unavailable'
         else:
             context = {'summary': report.get('summary'), 'steps': report.get('steps'),
                        'acceptance_criteria': criteria, 'test_approach': report.get('test_approach'),
@@ -482,7 +482,7 @@ class VerificationEngine:
     def _guest(self, payload):
         adapter = self.runtime.adapter
         if getattr(adapter, 'transport', None) != 'ssh':
-            raise ValueError('VM SSH execution is required')
+            raise ValueError('Work-machine SSH execution is required')
         command = adapter._ssh_base() + ['python3 -c ' + shlex.quote(VERIFY_GUEST)]
         process = subprocess.run(command, input=json.dumps(payload), text=True,
                                  capture_output=True, timeout=420)

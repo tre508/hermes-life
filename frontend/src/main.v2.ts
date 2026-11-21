@@ -23,6 +23,7 @@ import './work-workspace';
 import './portfolio-view';
 import './command-centre-ui';
 import './knowledge-workspace';
+import { initContextInspector } from './context-inspector';
 import { openWorkspace, openWorkView, openTask, openResult, openActivityForTask, onNavigationChange, initHistory, handleLegacyOpenTask } from './navigation-state.ts';
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string): T | null => document.getElementById(id) as T | null;
@@ -55,9 +56,9 @@ onNavigationChange((nav) => {
         btn.setAttribute('aria-pressed', String(on));
     });
     setLayout(id === 'home' ? 'world' : id === 'work' ? 'workspace' : 'focus');
-    const ctxHome = $('ctx-home'), ctxSel = $('ctx-selection');
+    const ctxHome = $('ctx-home');
     if (ctxHome) ctxHome.hidden = id !== 'home';
-    if (ctxSel) ctxSel.hidden = id === 'home';
+    // #ctx-inspector visibility/render is owned by context-inspector.
     if (id !== 'activity') setActivityTaskFilter(null);
     // Results deep-link / Back-Forward restore: load the canonical task.
     // Passive guard — only fetch when the viewed task actually changed.
@@ -630,6 +631,8 @@ void loadPersona();
 
 // History wiring + initial deep-link parse. When the URL already names a
 // workspace/subview/task, respect it; only default to Home on a bare URL.
+// Inspector first so its listeners exist before the initial history parse notifies.
+initContextInspector();
 const deepLinked = initHistory();
 if (!deepLinked) openWorkspace('home', { replace: true });
 paintStatus();

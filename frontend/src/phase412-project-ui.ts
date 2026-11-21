@@ -1,6 +1,6 @@
 /** Phase 4.15: compact project picker, isolated workspace drawer, unchanged approval API. */
 import './phase415-workspace.css';
-type Project = {name:string;host_path:string;vm_path:string|null;commit_hash:string|null};
+type Project = {name:string;host_path:string;remote_path:string|null;commit_hash:string|null};
 type Review = {review_id:string;project:string;base_commit:string;sha256:string;diff:string;confirmation_required:string};
 const key='hermes-life-active-project';
 const errText=(e:unknown)=>e instanceof Error?e.message:String(e);
@@ -29,7 +29,7 @@ function setup():boolean{
   const close=button('✕ Close','hc415-close');head.append(title,close);
   const info=document.createElement('p');info.id='hc415-info';
   const actions=document.createElement('div');actions.className='hc415-actions';
-  const refresh=button('Refresh projects');const sync=button('Sync to VM');const reviewBtn=button('Review changes');
+  const refresh=button('Refresh projects');const sync=button('Sync to work machine');const reviewBtn=button('Review changes');
   actions.append(refresh,sync,reviewBtn);
   const status=document.createElement('div');status.id='hc415-status';status.setAttribute('role','status');status.setAttribute('aria-live','polite');
   const reviewPanel=document.createElement('section');reviewPanel.id='hc415-review';reviewPanel.hidden=true;
@@ -55,7 +55,7 @@ function setup():boolean{
   function current(){return projects.find(p=>p.name===choice())}
   function clearReview(){activeReview=null;confirmation.value='';reviewPanel.hidden=true;reviewMeta.textContent='';diff.textContent=''}
   function setStatus(s:string){status.textContent=s}
-  function renderHint(){const p=current();hint.textContent=!p?'General chat':p.vm_path?'Synced':'Not synced';info.textContent=p?`${p.name} · ${p.vm_path||'VM workspace not synchronized'}`:'Select a registered project to synchronize or review changes.'}
+  function renderHint(){const p=current();hint.textContent=!p?'General chat':p.remote_path?'Synced':'Not synced';info.textContent=p?`${p.name} · ${p.remote_path||'Work-machine workspace not synchronized'}`:'Select a registered project to synchronize or review changes.'}
   function setBusy(value:boolean){busy=value;refresh.disabled=value;sync.disabled=value;reviewBtn.disabled=value;applyBtn.disabled=value}
   function openDrawer(){drawer.hidden=false;renderHint();workspaceButton.setAttribute('aria-expanded','true');close.focus()}
   function closeDrawer(){drawer.hidden=true;workspaceButton.setAttribute('aria-expanded','false');workspaceButton.focus()}
@@ -77,7 +77,7 @@ function setup():boolean{
   picker.onchange=()=>{selected=choice();localStorage.setItem(key,selected);clearReview();renderHint();setStatus(selected?'Selected '+selected:'General chat')};
   refresh.onclick=()=>{if(!busy)void load()};
   sync.onclick=async()=>{const name=choice();if(!name)return setStatus('Select a project first');setBusy(true);clearReview();setStatus('Synchronizing committed Git contents…');try{
-    await post(`/api/projects/${encodeURIComponent(name)}/sync`);setStatus('Synchronized VM workspace: '+name);await load();
+    await post(`/api/projects/${encodeURIComponent(name)}/sync`);setStatus('Synchronized work-machine workspace: '+name);await load();
   }catch(e){setStatus(errText(e))}finally{setBusy(false)}};
   reviewBtn.onclick=async()=>{const name=choice();if(!name)return setStatus('Select a project first');setBusy(true);clearReview();setStatus('Loading the exact proposed diff…');try{
     const r=await post<Review>(`/api/projects/${encodeURIComponent(name)}/review`);activeReview=r;
@@ -95,7 +95,7 @@ function setup():boolean{
   };
   // Capture runs before the original Hermes chat submit handler. An explicit @project wins.
   form.addEventListener('submit',(ev)=>{const name=choice();if(!name)return;const value=input.value.trim();if(!value||/^@project\s+\S+/i.test(value))return;
-    if(!current()?.vm_path){ev.preventDefault();ev.stopImmediatePropagation();setStatus('Project not synced. Open Workspace and click Sync to VM.');openDrawer();return}
+    if(!current()?.remote_path){ev.preventDefault();ev.stopImmediatePropagation();setStatus('Project not synced. Open Workspace and click Sync to work machine.');openDrawer();return}
     input.value=`@project ${name}\n${input.value}`;
   },{capture:true});
   void load();return true;

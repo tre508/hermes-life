@@ -1,7 +1,7 @@
-"""HL-AUTO-001 Phase 3 (§26.10): approved proposal -> isolated VM project bootstrap.
+"""HL-AUTO-001 Phase 3 (§26.10): approved proposal -> isolated work-machine project bootstrap.
 
 Gate order (§26.7): the proposal must be approved, the policy must authorize
-create_project_repo for this project, and the target VM path must sit inside the configured
+create_project_repo for this project, and the target work-machine path must sit inside the configured
 workspace allowlist. A denied proposal or denied policy check performs NO write anywhere —
 the SSH transport is never even invoked. Partial initialization is rolled back: a directory
 this bootstrap created is removed, and ambiguous outcomes become recovery_required.
@@ -22,10 +22,10 @@ def _quoted_file(path, content):
     return f"printf '%s' {shlex.quote(content)} > {shlex.quote(path)}"
 
 
-def _bootstrap_script(name, vm_path, spec, manifest):
+def _bootstrap_script(name, remote_path, spec, manifest):
     """Idempotent-safe: refuses to touch an existing path; returns the new base commit."""
     return f'''set -eu
-TARGET={shlex.quote(vm_path)}
+TARGET={shlex.quote(remote_path)}
 if [ -e "$TARGET" ]; then echo "EXISTS"; exit 3; fi
 mkdir -p "$TARGET"
 cd "$TARGET"
@@ -50,22 +50,22 @@ class ProjectBootstrapper:
         if self._ssh_override is not None:
             return self._ssh_override(script)
         if self._workspaces is None:
-            raise BootstrapError('No VM transport available for bootstrap')
+            raise BootstrapError('No work-machine transport available for bootstrap')
         return self._workspaces._ssh(script)
 
     # -- validation ---------------------------------------------------------------
-    def _check_allowlist(self, vm_path):
+    def _check_allowlist(self, remote_path):
         allowlist = self.policy.settings()['allowlist']
         if not allowlist:
             raise BootstrapError(
                 'No workspace allowlist is configured; autonomous repository creation'
                 ' is not authorized anywhere')
-        normalized = vm_path.rstrip('/') or '/'
+        normalized = remote_path.rstrip('/') or '/'
         for entry in allowlist:
             if normalized == entry or normalized.startswith(entry.rstrip('/') + '/'):
                 return
         raise BootstrapError(
-            f'Target path {vm_path} is outside the configured workspace allowlist')
+            f'Target path {remote_path} is outside the configured workspace allowlist')
 
     def _record(self, bootstrap_id):
         with self.lock:
@@ -98,9 +98,9 @@ class ProjectBootstrapper:
         return self._record(bootstrap_id)
 
     # -- bootstrap ----------------------------------------------------------------
-    def bootstrap(self, proposal_id, project_name, vm_path, specification=None,
+    def bootstrap(self, proposal_id, project_name, remote_path, specification=None,
                   manifest=None):
-        """Bootstrap an approved proposal into a fresh, isolated VM repository."""
+        """Bootstrap an approved proposal into a fresh, isolated work-machine repository."""
         if not SLUG.fullmatch(project_name or ''):
             raise BootstrapError('Invalid project name (lowercase letters, digits, hyphens)')
         proposal = None
@@ -112,7 +112,7 @@ class ProjectBootstrapper:
         if proposal is None:
             return None
         if proposal['status'] != 'approved':
-            # Denied/unapproved proposal: no VM write, no registration — fail closed.
+            # Denied/unapproved proposal: no work-machine write, no registration — fail closed.
             raise BootstrapError(
                 f"Proposal is '{proposal['status']}'; only an approved proposal may"
                 ' bootstrap a project')
@@ -127,7 +127,7 @@ class ProjectBootstrapper:
                 return record
             if existing['status'] == 'recovery_required':
                 raise BootstrapError(
-                    'Bootstrap is in recovery_required; resolve the ambiguous VM state'
+                    'Bootstrap is in recovery_required; resolve the ambiguous work-machine state'
                     ' before any retry')
             # A rolled_back or failed attempt left no project behind: supersede it so the
             # proposal is not deadlocked, and keep the ledger auditable via events.
@@ -138,10 +138,10 @@ class ProjectBootstrapper:
             self.store.emit('project.bootstrap_superseded',
                             {'bootstrap_id': existing['id'],
                              'previous_status': existing['status']})
-        # Policy gate — evaluated BEFORE any VM write.
+        # Policy gate — evaluated BEFORE any work-machine write.
         self.policy.require('create_project_repo', project_id=project_name)
-        # Scope gate — also before any VM write.
-        self._check_allowlist(vm_path)
+        # Scope gate — also before any work-machine write.
+        self._check_allowlist(remote_path)
         spec = (specification or proposal['specification'])
         manifest = manifest or json.dumps({'specs': [], 'inputs': {}, 'files': [],
                                            'includes': []})
@@ -150,16 +150,16 @@ class ProjectBootstrapper:
         stamp = now()
         with self.lock:
             self.store.connection.execute(
-                'INSERT INTO project_bootstraps (id, proposal_id, project_name, vm_path,'
+                'INSERT INTO project_bootstraps (id, proposal_id, project_name, remote_path,'
                 ' status, steps_done, spec_sha256, created_at, updated_at)'
                 ' VALUES (?,?,?,?,?,?,?,?,?)',
-                (bootstrap_id, proposal_id, project_name, vm_path, 'initializing', '[]',
+                (bootstrap_id, proposal_id, project_name, remote_path, 'initializing', '[]',
                  spec_sha, stamp, stamp))
             self.store.connection.commit()
         self.store.emit('project.bootstrap_started',
                         {'bootstrap_id': bootstrap_id, 'proposal_id': proposal_id,
-                         'project_name': project_name, 'vm_path': vm_path})
-        script = _bootstrap_script(project_name, vm_path, spec, manifest)
+                         'project_name': project_name, 'remote_path': remote_path})
+        script = _bootstrap_script(project_name, remote_path, spec, manifest)
         try:
             output = self._ssh(script)
         except Exception as exc:  # noqa: BLE001 — every failure path must be classified
@@ -174,9 +174,9 @@ class ProjectBootstrapper:
                 rolled_back = 'unknown'
                 try:
                     probe = self._ssh(
-                        f'if [ -d {shlex.quote(vm_path)} ] && [ ! -e {shlex.quote(vm_path)}/.git ];'
-                        f' then rm -rf {shlex.quote(vm_path)}; echo cleaned;'
-                        f' elif [ -e {shlex.quote(vm_path)} ]; then echo ambiguous;'
+                        f'if [ -d {shlex.quote(remote_path)} ] && [ ! -e {shlex.quote(remote_path)}/.git ];'
+                        f' then rm -rf {shlex.quote(remote_path)}; echo cleaned;'
+                        f' elif [ -e {shlex.quote(remote_path)} ]; then echo ambiguous;'
                         f' else echo absent; fi')
                     rolled_back = probe.strip().splitlines()[-1] if probe.strip() else 'unknown'
                 except Exception:
@@ -208,10 +208,10 @@ class ProjectBootstrapper:
         project_id = str(uuid4())
         with self.lock:
             self.store.connection.execute(
-                'INSERT INTO autonomy_projects (id, name, origin, proposal_id, vm_path,'
+                'INSERT INTO autonomy_projects (id, name, origin, proposal_id, remote_path,'
                 ' spec_sha256, status, created_at, updated_at)'
                 ' VALUES (?,?,?,?,?,?,?,?,?)',
-                (project_id, project_name, 'autonomous', proposal_id, vm_path, spec_sha,
+                (project_id, project_name, 'autonomous', proposal_id, remote_path, spec_sha,
                  'active', now(), now()))
             self.store.connection.commit()
         self.store.emit('project.bootstrap_completed',

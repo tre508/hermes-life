@@ -30,7 +30,7 @@ MODE_ALLOWED = {
 #: Actions a mode can NEVER authorize implicitly — a separate grant is mandatory, and some
 #: are forbidden outright regardless of grants (§26.7 last sentence).
 #: Actions a mode can NEVER authorize implicitly — a separate, bounded grant (with a
-#: recorded rationale) is mandatory. Repo creation belongs here too: it is a VM write.
+#: recorded rationale) is mandatory. Repo creation belongs here too: it is a work-machine write.
 GRANT_ONLY = {'host_apply', 'network_download', 'package_install', 'publish',
               'external_message', 'spend', 'secrets_access', 'create_project_repo'}
 NEVER = {'modify_core'}
@@ -114,7 +114,7 @@ class AutonomyPolicy:
             return {'allowed': True, 'reason': 'explicit grant', 'grant_id': grant['id']}
         if action in MODE_ALLOWED.get(self.settings()['mode'], ()):
             # Scope for create_project_repo is path-based (workspace allowlist) and is
-            # enforced by the bootstrapper BEFORE any VM write; project_id here is the new
+            # enforced by the bootstrapper BEFORE any work-machine write; project_id here is the new
             # project's name, not a registry reference.
             return {'allowed': True, 'reason': f"mode '{self.settings()['mode']}'"}
         grant_id = self._audit(action, project_id, 'denied',

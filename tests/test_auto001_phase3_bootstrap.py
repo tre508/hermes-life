@@ -217,7 +217,7 @@ def test_phase3_api_surface_and_restart(tmp_path):
         registry.decide_proposal(proposal['id'], True, rationale='Useful')
         denied = client.post(f"/api/proposals/{proposal['id']}/bootstrap", json={
             'project_name': 'export-tool',
-            'vm_path': '/home/hermes/experiments/export-tool'})
+            'remote_path': '/home/hermes/experiments/export-tool'})
         assert denied.status_code == 403
         assert client.get('/api/autonomy/projects').json()['projects'] == []
         # Approve the action explicitly with a bounded grant; with the FakeAdapter there is
@@ -228,7 +228,7 @@ def test_phase3_api_surface_and_restart(tmp_path):
             'rationale': 'Test bootstrap within the experiments allowlist'})
         no_transport = client.post(f"/api/proposals/{proposal['id']}/bootstrap", json={
             'project_name': 'export-tool',
-            'vm_path': '/home/hermes/experiments/export-tool'})
+            'remote_path': '/home/hermes/experiments/export-tool'})
         assert no_transport.status_code == 409, no_transport.text
     with TestClient(create_app(database=db, adapter=FakeAdapter())) as restored:
         assert restored.get('/api/bootstraps').json()['bootstraps']

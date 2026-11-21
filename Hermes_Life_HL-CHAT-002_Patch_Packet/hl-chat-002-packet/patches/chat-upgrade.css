@@ -1,0 +1,24 @@
+/* HL-CHAT-002: readable conversation formatting and verified model controls. */
+#hc-panel .hc-bubble.assistant { max-width: 97%; }
+#hc-panel .hc-bubble.assistant .hc-body { background: transparent; border-color: transparent; box-shadow: none; padding: 10px 3px; color: #e7f2f5; font-size: 15px; line-height: 1.66; white-space: normal; }
+#hc-panel .hc-bubble.user .hc-body { font-size: 15px; line-height: 1.55; }
+#hc-panel .hc-body p { margin: .4em 0 .95em; }
+#hc-panel .hc-body h2, #hc-panel .hc-body h3, #hc-panel .hc-body h4, #hc-panel .hc-body h5, #hc-panel .hc-body h6 { margin: 1.35em 0 .5em; line-height: 1.25; color: #f6fcff; letter-spacing: -.01em; }
+#hc-panel .hc-body h2 { font-size: 1.29em; } #hc-panel .hc-body h3 { font-size: 1.17em; } #hc-panel .hc-body h4 { font-size: 1.08em; }
+#hc-panel .hc-body ul, #hc-panel .hc-body ol { padding-left: 1.5em; margin: .55em 0 1.05em; } #hc-panel .hc-body li { margin: .35em 0; }
+#hc-panel .hc-body blockquote { border-left: 3px solid #77d4c6; padding: .3em 1em; margin: .8em 0; color: #bed6dc; background: #17323b; border-radius: 0 7px 7px 0; }
+#hc-panel .hc-body :not(pre) > code { font: .91em ui-monospace, SFMono-Regular, Consolas, monospace; padding: .13em .32em; background: #243d49; border-radius: 4px; overflow-wrap: anywhere; }
+#hc-panel .hc-body a { color: #86e1d1; text-decoration: underline; text-underline-offset: 2px; }
+#hc-panel .hc-code { margin: .85em 0 1.05em; border: 1px solid #416274; border-radius: 10px; overflow: hidden; background: #0c1928; }
+#hc-panel .hc-code-head { display: flex; justify-content: space-between; align-items: center; padding: .35rem .75rem; background: #20313e; color: #c3dbe0; font-size: .82rem; }
+#hc-panel .hc-code-head button { background: transparent; border: 1px solid #4a6d77; border-radius: 5px; color: #baf4e4; cursor: pointer; padding: .22em .65em; }
+#hc-panel .hc-code pre { margin: 0; overflow: auto; padding: 1em; font: .88em/1.6 ui-monospace, SFMono-Regular, Consolas, monospace; white-space: pre; tab-size: 2; }
+#hc-panel .hc-table-scroll { overflow-x: auto; margin: 1em 0; }
+#hc-panel .hc-body table { border-collapse: collapse; min-width: 100%; font-size: .9em; }
+#hc-panel .hc-body td, #hc-panel .hc-body th { border: 1px solid #385667; padding: .5em .7em; text-align: left; }
+#hc-panel .hc-body th { background: #243846; }
+#hc-model-controls { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; padding: 8px 13px; background: #0f2833; border-bottom: 1px solid #29444f; color: #bddadf; font-size: 12px; }
+#hc-model-controls select { min-width: 110px; max-width: 230px; background: #142d39; color: #e3f6f7; padding: 5px 7px; border: 1px solid #48636b; border-radius: 6px; }
+#hc-model-controls select:disabled { opacity: .55; }
+#hc-model-controls .hc-metric { white-space: nowrap; }
+#hc-context-bar { width: 76px; height: 5px; vertical-align: middle; accent-color: #6fd7bf; }

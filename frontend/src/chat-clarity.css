@@ -1,0 +1,47 @@
+/* HL-CHAT-002B: high-contrast, differentiated readable output. */
+#hc-panel .hc-bubble.assistant { max-width:100%; width:100%; align-self:stretch; }
+#hc-panel .hc-bubble.assistant .hc-body { font-family:Inter,ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif; font-size:17px; line-height:1.76; letter-spacing:.004em; color:#eff9ff; max-width:76ch; padding:12px 16px; background:rgba(16,39,53,.54); border:1px solid rgba(115,173,190,.20); border-radius:11px; overflow-wrap:break-word; }
+#hc-panel .hc-message-role { display:flex; align-items:center; gap:9px; margin:19px 0 6px; font-family:Inter,ui-sans-serif,system-ui,sans-serif; font-size:15px; font-weight:750; letter-spacing:.02em; }
+#hc-panel .hc-message-role--response { color:#82F0D0; }
+#hc-panel .hc-message-role--thought { color:#C4A7FF; }
+#hc-panel .hc-bubble.hc-thought .hc-body { font-size:15.5px; font-style:italic; line-height:1.65; color:#C9B8E8; background:rgba(62,39,86,.21); border-left:3px solid #bb91f2; max-width:76ch; }
+/* HL-CHAT-003 typography variants — thoughts (violet) vs response (mint/cyan). */
+#hc-panel .hc-bubble.hc-thought .hc-body strong { color:#E2D6FF; font-weight:640; }
+#hc-panel .hc-bubble.assistant:not(.hc-thought) .hc-body strong { color:#fff; }
+#hc-panel .hc-bubble.hc-thought .hc-body a { color:#C4A7FF; }
+#hc-panel .hc-bubble.hc-thought .hc-body :not(pre) > code { color:#dcc8ff; background:#33254d; }
+#hc-panel .hc-bubble.hc-thought .hc-body ul li::marker, #hc-panel .hc-bubble.hc-thought .hc-body ol li::marker { color:#C4A7FF; }
+#hc-panel .hc-bubble.assistant:not(.hc-thought) .hc-body ul li::marker, #hc-panel .hc-bubble.assistant:not(.hc-thought) .hc-body ol li::marker { color:#82F0D0; }
+#hc-panel .hc-bubble.hc-thought .hc-body blockquote { border-left-color:#bb91f2; color:#d3c2ee; background:rgba(62,39,86,.30); }
+#hc-panel .hc-bubble.assistant:not(.hc-thought) .hc-body blockquote { border-left-color:#77d4c6; color:#bed6dc; background:#17323b; }
+#hc-panel .hc-bubble.hc-thought .hc-body h2, #hc-panel .hc-bubble.hc-thought .hc-body h3, #hc-panel .hc-bubble.hc-thought .hc-body h4 { color:#C4A7FF; }
+/* HL-CHAT-004 §2.7 stacked header layout. */
+#hc-model-controls { display:flex; flex-direction:column; gap:6px; padding:10px 14px; }
+#hc-model-controls .hc-model-row, #hc-model-controls .hc-usage-row { display:flex; align-items:center; flex-wrap:wrap; gap:10px 14px; }
+#hc-model-controls .hc-context-row { display:flex; align-items:center; gap:10px; cursor:pointer; }
+#hc-model-controls .hc-context-row #hc-context-bar { flex:1 1 auto; width:auto; min-width:0; }
+/* Responsive: stack provider/model vertically on narrow panels. */
+@media (max-width: 640px) {
+  #hc-model-controls .hc-model-row { flex-direction:column; align-items:stretch; gap:6px; }
+  #hc-model-controls .hc-usage-row { gap:8px 10px; }
+}
+/* HL-CHAT-004 §2.4 expanded context details — only measured values, explicit unavailable otherwise. */
+#hc-panel .hc-context-details { padding:6px 14px 8px; background:#0b2530; border-bottom:1px solid #29444f; }
+#hc-panel .hc-context-details-row { display:flex; justify-content:space-between; gap:12px; font-size:12px; color:#bddadf; padding:2px 0; }
+#hc-panel .hc-context-details-row:first-child { font-weight:700; color:#cfe9ec; border-bottom:1px solid #29444f; padding-bottom:4px; }
+#hc-panel .hc-context-details-row .hc-unavailable { color:#7fa3ab; font-style:italic; }
+#hc-panel .hc-context-details-note { color:#7fa3ab; font-style:italic; border-top:1px solid #29444f; margin-top:4px; padding-top:4px; }
+/* HL-CHAT-004 context pressure states on the meter. */
+#hc-context-bar.ok { accent-color:#6fd7bf; }
+#hc-context-bar.warn { accent-color:#e8b563; }
+#hc-context-bar.crit { accent-color:#f27a6c; }
+#hc-panel .hc-bubble.hc-thought .hc-body code,#hc-panel .hc-bubble.hc-thought .hc-body pre { font-style:normal; }
+#hc-panel .hc-bubble.assistant .hc-body p { margin:.25em 0 1em; }
+#hc-panel .hc-bubble.assistant:not(.hc-thought) .hc-body h2,#hc-panel .hc-bubble.assistant:not(.hc-thought) .hc-body h3,#hc-panel .hc-bubble.assistant:not(.hc-thought) .hc-body h4 { color:#fff; font-weight:750; letter-spacing:-.015em; margin:1.25em 0 .55em; }
+#hc-panel .hc-bubble.assistant .hc-body h2 { font-size:1.32em; } #hc-panel .hc-bubble.assistant .hc-body h3 { font-size:1.18em; }
+#hc-panel .hc-bubble.assistant .hc-body li { margin:.4em 0; }
+#hc-panel .hc-bubble.assistant .hc-body :not(pre)>code { color:#a9e8ee; background:#213e51; font-size:.88em; }
+#hc-panel .hc-bubble.user .hc-body { font-size:16px; line-height:1.65; }
+#hc-model-controls { font-size:13px; gap:10px; }
+#hc-retry-models { border:1px solid #557986; border-radius:6px; padding:4px 9px; background:#14313f; color:#bde9ed; cursor:pointer; }
+#hc-context-label { white-space:normal !important; }

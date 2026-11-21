@@ -36,7 +36,7 @@ class Store:
           CREATE TABLE implementation_reviews(run_id TEXT PRIMARY KEY, decision TEXT,
               evidence_sha256 TEXT, criteria_json TEXT, feedback TEXT, decided_at TEXT);
           CREATE TABLE hl_projects(name TEXT PRIMARY KEY, host_path TEXT, spec_path TEXT,
-              vm_path TEXT, commit_hash TEXT, synced_at TEXT);
+              remote_path TEXT, commit_hash TEXT, synced_at TEXT);
           CREATE TABLE investigation_plans(id TEXT PRIMARY KEY, formulation_id TEXT,
               task_id TEXT, report TEXT, state TEXT, created_at TEXT, approved_at TEXT);
         ''')
@@ -61,9 +61,9 @@ def engine_for(store, allowed_root, project=None):
     if project is not None:
         with store.lock:
             store.connection.execute(
-                'INSERT INTO hl_projects(name,host_path,spec_path,vm_path,commit_hash,synced_at)'
+                'INSERT INTO hl_projects(name,host_path,spec_path,remote_path,commit_hash,synced_at)'
                 ' VALUES (?,?,?,?,?,?)',
-                (project['name'], project['host_path'], None, project.get('vm_path'),
+                (project['name'], project['host_path'], None, project.get('remote_path'),
                  project.get('commit_hash'), project.get('synced_at')))
             store.connection.commit()
     return engine

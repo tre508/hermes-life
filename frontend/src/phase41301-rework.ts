@@ -159,7 +159,7 @@ function render(){
  const schedule=node('p','hl413r-muted',`Scheduled discovery controls remain configured in the existing backend${interval?' · Interval: '+interval.value+' seconds':''}.`);
  const raw=node('pre','',scanResult?JSON.stringify(scanResult,null,2):'No scan result captured by this browser.');advBody.append(schedule,raw);
 }
-function scanButton_(){return btn('Scan VM projects',()=>void scan())}
+function scanButton_(){return btn('Scan work-machine projects',()=>void scan())}
 async function mutate(kind:string,r:R,action:string){notice=`Updating ${action}…`;render();try{await endpoint(`/${kind}/${encodeURIComponent(val(r.id))}/${action}`,'POST');notice=`${action} saved`;await refresh.run()}catch(e){notice=val(e);render()}}
 async function investigate(r:R){
  if(!window.confirm('Approve a read-only investigation for this question?'))return;
@@ -168,7 +168,7 @@ async function investigate(r:R){
      notice='Investigation requested · Goal '+val(result.goal_id).slice(0,8);await refresh.run();}
  catch(e){notice='Investigation rejected: '+val(e);render()}
 }
-async function scan(){notice='Scanning VM projects…';render();try{const x=await endpoint('/discoveries/scan','POST') as R;scanResult=x;scanTime=new Date().toISOString();notice='Scan complete';await refresh.run()}catch(e){notice='Scan failed: '+val(e);render()}}
+async function scan(){notice='Scanning work-machine projects…';render();try{const x=await endpoint('/discoveries/scan','POST') as R;scanResult=x;scanTime=new Date().toISOString();notice='Scan complete';await refresh.run()}catch(e){notice='Scan failed: '+val(e);render()}}
 async function decision(){notice='Running independent decision…';render();try{const x=await endpoint('/decisions/scan','POST') as R;scanResult=x;scanTime=new Date().toISOString();notice='Decision completed';await refresh.run()}catch(e){notice='Decision failed: '+val(e);render()}}
 render();void refresh.run();window.setInterval(()=>{if(!document.contains(wrapper))return;void refresh.run()},30000);
 return true;

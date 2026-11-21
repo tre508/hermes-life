@@ -233,6 +233,21 @@
                             <p class="hint">Autonomous and user projects with real milestone state, proposals awaiting your decision, ranked opportunities, and outcome records. Pause, resume, cancel and bounded retries act on the backend directly.</p>
                             <button id="portfolio-refresh" type="button">Refresh portfolio</button>
                             <p id="portfolio-status" role="status"></p>
+                            <div id="registered-projects">
+                                <h3>Registered projects</h3>
+                                <p class="hint">Every repository registered with Hermes Life, autonomous activity or not. Sync state and actions act on the backend directly; changes are reviewable as diffs before anything is applied.</p>
+                                <div id="registered-list"></div>
+                                <details id="registered-register">
+                                    <summary>Register a project…</summary>
+                                    <form id="registered-form">
+                                        <label>Name <input id="registered-name" name="name" required minlength="2" maxlength="48" pattern="[a-z][a-z0-9-]{1,47}" autocomplete="off"></label>
+                                        <label>Host repository path <input id="registered-host-path" name="host_path" required autocomplete="off" spellcheck="false"></label>
+                                        <label>Spec path (optional, inside the repository) <input id="registered-spec-path" name="spec_path" autocomplete="off" spellcheck="false"></label>
+                                        <p id="registered-error" role="alert" hidden></p>
+                                        <button id="registered-submit" type="submit">Register project</button>
+                                    </form>
+                                </details>
+                            </div>
                             <div id="portfolio-proposals">
                                 <h3>Proposals awaiting decision</h3>
                             </div>
@@ -418,9 +433,9 @@
         </div>
 
         <!-- Work/selection context: current selection summary -->
-        <div id="ctx-selection" class="ctx-block" hidden>
-            <h2>Selection</h2>
-            <div id="ctx-selection-body">Select a task in Work to see it here.</div>
+        <div id="ctx-inspector" class="ctx-block" hidden>
+            <h2>Inspector</h2>
+            <div id="ctx-inspector-body"></div>
         </div>
 
         <!-- Chat is docked here by main.v2 (moved from the floating corner). -->

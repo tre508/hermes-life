@@ -1,7 +1,7 @@
 """HL-FLOW-006 — queued, bounded, isolated candidate revision attempts.
 
 A revision request is an explicit human decision. Its queued execution is automatic.
-Changes remain in the experiment VM. Nothing applies to original projects or host.
+Changes remain on the experiment work machine. Nothing applies to original projects or host.
 """
 from __future__ import annotations
 import json
@@ -15,7 +15,7 @@ from uuid import uuid4
 from .guest_env import ENV_RESOLVER, for_worker
 from .store import now
 
-# Fixed operations executed by the VM's Python; model text never becomes shell source.
+# Fixed operations executed by the work machine's Python; model text never becomes shell source.
 # FLOW-007A: interpreter resolution comes from guest_env, so a revision tests with the
 # run's platform environment and never with a workspace the agent just created.
 REVISION_GUEST = for_worker(ENV_RESOLVER + r'''
@@ -238,7 +238,7 @@ class ImplementationRevision:
 
     def _guest(self, payload):
         adapter=self.runtime.adapter
-        if getattr(adapter,'transport',None)!='ssh':raise ValueError('SSH VM transport required')
+        if getattr(adapter,'transport',None)!='ssh':raise ValueError('Work-machine SSH transport required')
         proc=subprocess.run(adapter._ssh_base()+['python3 -c '+shlex.quote(REVISION_GUEST)],
             input=json.dumps(payload),capture_output=True,text=True,timeout=150)
         if proc.returncode:raise RuntimeError('Guest operation failed: '+proc.stderr[-1000:])
@@ -271,7 +271,7 @@ class ImplementationRevision:
             self.store.connection.commit()
 
     def _recover(self, item, explanation):
-        # Restore VM candidate and pre-promotion run state on recoverable faults.
+        # Restore work-machine candidate and pre-promotion run state on recoverable faults.
         ident=item['id']
         self._update(ident,'rollback_pending',error=explanation[:2000])
         try:

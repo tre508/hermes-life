@@ -1,7 +1,7 @@
 """Explicit, versioned schema setup and single-owner restart recovery."""
 from .store import now
 
-SCHEMA_VERSION = 38
+SCHEMA_VERSION = 40
 DDL = r'''
 
             CREATE TABLE IF NOT EXISTS tasks (
@@ -83,80 +83,17 @@ def migrate(connection):
         connection.executescript(DDL)
         connection.execute('PRAGMA user_version=1')
         connection.commit()
-    if version < 2:
-        _upgrade_to_v2(connection)
-    if version < 3:
-        _upgrade_to_v3(connection)
-    if version < 4:
-        _upgrade_to_v4(connection)
-    if version < 5:
-        _upgrade_to_v5(connection)
-    if version < 6:
-        _upgrade_to_v6(connection)
-    if version < 7:
-        _upgrade_to_v7(connection)
-    if version < 8:
-        _upgrade_to_v8(connection)
-    if version < 9:
-        _upgrade_to_v9(connection)
-    if version < 10:
-        _upgrade_to_v10(connection)
-    if version < 11:
-        _upgrade_to_v11(connection)
-    if version < 12:
-        _upgrade_to_v12(connection)
-    if version < 13:
-        _upgrade_to_v13(connection)
-    if version < 14:
-        _upgrade_to_v14(connection)
-    if version < 15:
-        _upgrade_to_v15(connection)
-    if version < 16:
-        _upgrade_to_v16(connection)
-    if version < 17:
-        _upgrade_to_v17(connection)
-    if version < 18:
-        _upgrade_to_v18(connection)
-    if version < 19:
-        _upgrade_to_v19(connection)
-    if version < 20:
-        _upgrade_to_v20(connection)
-    if version < 21:
-        _upgrade_to_v21(connection)
-    if version < 22:
-        _upgrade_to_v22(connection)
-    if version < 23:
-        _upgrade_to_v23(connection)
-    if version < 24:
-        _upgrade_to_v24(connection)
-    if version < 25:
-        _upgrade_to_v25(connection)
-    if version < 26:
-        _upgrade_to_v26(connection)
-    if version < 27:
-        _upgrade_to_v27(connection)
-    if version < 28:
-        _upgrade_to_v28(connection)
-    if version < 29:
-        _upgrade_to_v29(connection)
-    if version < 30:
-        _upgrade_to_v30(connection)
-    if version < 31:
-        _upgrade_to_v31(connection)
-    if version < 32:
-        _upgrade_to_v32(connection)
-    if version < 33:
-        _upgrade_to_v33(connection)
-    if version < 34:
-        _upgrade_to_v34(connection)
-    if version < 35:
-        _upgrade_to_v35(connection)
-    if version < 36:
-        _upgrade_to_v36(connection)
-    if version < 37:
-        _upgrade_to_v37(connection)
-    if version < 38:
-        _upgrade_to_v38(connection)
+    # Registry-driven ladder (see _build_registry at the bottom of this file):
+    # each upgrade runs at most once, in ascending target order. A database left
+    # behind by an upgrade that forgot its own PRAGMA is corrected by the safety
+    # net below rather than silently skipped.
+    for target, upgrade in sorted(_MIGRATIONS.items()):
+        if version < target:
+            upgrade(connection)
+            current = connection.execute('PRAGMA user_version').fetchone()[0]
+            if current < target:
+                connection.execute(f'PRAGMA user_version={target}')
+                connection.commit()
     # Repair partially-applied v4 installations without touching earlier data.
     has_personality = connection.execute(
         "SELECT 1 FROM sqlite_master WHERE type='table' AND name='agent_personality'"
@@ -173,14 +110,14 @@ def migrate(connection):
         connection.commit()
 
 def _upgrade_to_v2(connection):
+    pass
     connection.execute("""CREATE TABLE IF NOT EXISTS investigation_plans (
       id TEXT PRIMARY KEY, formulation_id TEXT NOT NULL UNIQUE,
       task_id TEXT NOT NULL, report TEXT NOT NULL, created_at TEXT NOT NULL
     )""")
-    connection.execute('PRAGMA user_version=2')
-    connection.commit()
 
 def _upgrade_to_v3(connection):
+    pass
     connection.execute("""CREATE TABLE IF NOT EXISTS implementation_runs (
       id TEXT PRIMARY KEY, plan_id TEXT NOT NULL UNIQUE, project TEXT NOT NULL,
       state TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
@@ -188,10 +125,9 @@ def _upgrade_to_v3(connection):
       candidate_json TEXT, response TEXT, error TEXT,
       applied_at TEXT, apply_sha256 TEXT
     )""")
-    connection.execute('PRAGMA user_version=3')
-    connection.commit()
 
 def _upgrade_to_v4(connection):
+    pass
     connection.execute("""CREATE TABLE IF NOT EXISTS agent_personality (
         id INTEGER PRIMARY KEY CHECK(id=1), name TEXT NOT NULL,
         temperament TEXT NOT NULL, curiosity INTEGER NOT NULL,
@@ -200,20 +136,18 @@ def _upgrade_to_v4(connection):
     )""")
     connection.execute("""INSERT OR IGNORE INTO agent_personality
         VALUES (1, 'Hermes', 'curious', 80, 75, 60, 'concise', '')""")
-    connection.execute('PRAGMA user_version=4')
-    connection.commit()
 
 def _upgrade_to_v5(connection):
+    pass
     connection.execute("""CREATE TABLE IF NOT EXISTS persona_experiences (
         id INTEGER PRIMARY KEY AUTOINCREMENT, task_id TEXT, goal_id TEXT,
         state TEXT NOT NULL, note TEXT NOT NULL, created_at TEXT NOT NULL
     )""")
     connection.execute('CREATE UNIQUE INDEX IF NOT EXISTS idx_persona_experiences_task'
                        ' ON persona_experiences(task_id)')
-    connection.execute('PRAGMA user_version=5')
-    connection.commit()
 
 def _upgrade_to_v6(connection):
+    pass
     connection.execute("""CREATE TABLE IF NOT EXISTS reflective_runs (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         created_at TEXT NOT NULL, category TEXT NOT NULL,
@@ -222,8 +156,6 @@ def _upgrade_to_v6(connection):
         lesson TEXT NOT NULL
     )""")
     connection.execute('CREATE INDEX IF NOT EXISTS idx_reflective_runs_category ON reflective_runs(category, id)')
-    connection.execute('PRAGMA user_version=6')
-    connection.commit()
 
 def recover_interrupted(connection):
     stamp = now()
@@ -234,6 +166,7 @@ def recover_interrupted(connection):
 
 
 def _upgrade_to_v7(connection):
+    pass
     connection.execute("""CREATE TABLE IF NOT EXISTS technical_lessons (
         id INTEGER PRIMARY KEY AUTOINCREMENT, run_id INTEGER, created_at TEXT NOT NULL,
         category TEXT NOT NULL, topic TEXT NOT NULL, lesson TEXT NOT NULL,
@@ -248,11 +181,10 @@ def _upgrade_to_v7(connection):
         lesson_id INTEGER NOT NULL, run_id INTEGER NOT NULL, outcome TEXT NOT NULL,
         created_at TEXT NOT NULL, PRIMARY KEY(lesson_id, run_id)
     )""")
-    connection.execute('PRAGMA user_version=7')
-    connection.commit()
 
 
 def _upgrade_to_v8(connection):
+    pass
     connection.execute("""CREATE TABLE IF NOT EXISTS technical_lesson_evidence (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         lesson_id INTEGER NOT NULL REFERENCES technical_lessons(id),
@@ -294,11 +226,10 @@ def _upgrade_to_v8(connection):
         connection.execute('DELETE FROM lesson_reuse WHERE lesson_id=?',(remove,))
         connection.execute('DELETE FROM technical_lessons WHERE id=?',(remove,))
         connection.execute("UPDATE technical_lessons SET reuse_count=(SELECT COUNT(*) FROM lesson_reuse WHERE lesson_id=?) WHERE id=?",(keep,keep))
-    connection.execute('PRAGMA user_version=8')
-    connection.commit()
 
 
 def _upgrade_to_v9(connection):
+    pass
     """Consolidate existing equivalent findings and preserve every evidence trail."""
     from .technical_memory import equivalent
     rows = connection.execute(
@@ -328,8 +259,6 @@ def _upgrade_to_v9(connection):
         connection.execute('DELETE FROM technical_lessons WHERE id=?',(remove,))
         connection.execute("""UPDATE technical_lessons SET reuse_count=(
             SELECT COUNT(*) FROM lesson_reuse WHERE lesson_id=?) WHERE id=?""",(keep,keep))
-    connection.execute('PRAGMA user_version=9')
-    connection.commit()
 
 
 def _upgrade_to_v10(connection):
@@ -344,11 +273,10 @@ def _upgrade_to_v10(connection):
         UNIQUE(lesson_id,run_id,evidence_sha256)
     )""")
     connection.execute("CREATE INDEX IF NOT EXISTS idx_lesson_challenges_lesson ON technical_lesson_challenges(lesson_id)")
-    connection.execute('PRAGMA user_version=10')
-    connection.commit()
 
 
 def _upgrade_to_v11(connection):
+    pass
     connection.execute("""CREATE TABLE IF NOT EXISTS technical_lesson_resolutions (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         lesson_id INTEGER NOT NULL REFERENCES technical_lessons(id),
@@ -360,8 +288,6 @@ def _upgrade_to_v11(connection):
         created_at TEXT NOT NULL,
         UNIQUE(lesson_id,challenge_max_id)
     )""")
-    connection.execute('PRAGMA user_version=11')
-    connection.commit()
 
 
 def _upgrade_to_v12(connection):
@@ -380,8 +306,6 @@ def _upgrade_to_v12(connection):
     if 'approved_at' not in columns:
         connection.execute("ALTER TABLE investigation_plans ADD COLUMN approved_at TEXT")
     connection.execute("UPDATE investigation_plans SET state='proposed' WHERE state IS NULL OR state=''")
-    connection.execute('PRAGMA user_version=12')
-    connection.commit()
 
 
 def _upgrade_to_v13(connection):
@@ -391,26 +315,21 @@ def _upgrade_to_v13(connection):
         connection.execute("ALTER TABLE implementation_runs ADD COLUMN applied_at TEXT")
     if 'apply_sha256' not in columns:
         connection.execute("ALTER TABLE implementation_runs ADD COLUMN apply_sha256 TEXT")
-    connection.execute('PRAGMA user_version=13')
-    connection.commit()
 
 
 def _upgrade_to_v14(connection):
     # No new tables; v13 added applied_at and apply_sha256 to implementation_runs
-    connection.execute('PRAGMA user_version=14')
-    connection.commit()
+    pass
 
 
 def _upgrade_to_v15(connection):
     # FIX-001 scope enforcement: no schema change, just version bump for tracking
-    connection.execute('PRAGMA user_version=15')
-    connection.commit()
+    pass
 
 
 def _upgrade_to_v16(connection):
     # FIX-002 apply_to_host: no schema change beyond v13, version bump for tracking
-    connection.execute('PRAGMA user_version=16')
-    connection.commit()
+    pass
 
 
 def _upgrade_to_v17(connection):
@@ -443,8 +362,6 @@ def _upgrade_to_v17(connection):
         UNIQUE(source_id, ordinal)
     )""")
     connection.execute('CREATE INDEX IF NOT EXISTS idx_study_units_source_state ON study_units(source_id, state)')
-    connection.execute('PRAGMA user_version=17')
-    connection.commit()
 
 
 def _upgrade_to_v18(connection):
@@ -472,8 +389,6 @@ def _upgrade_to_v18(connection):
     connection.execute('CREATE INDEX IF NOT EXISTS idx_events_plan_id ON events(plan_id)')
     connection.execute('CREATE INDEX IF NOT EXISTS idx_events_project_id ON events(project_id)')
     connection.execute('CREATE INDEX IF NOT EXISTS idx_events_correlation_id ON events(correlation_id)')
-    connection.execute('PRAGMA user_version=18')
-    connection.commit()
 
 
 def _upgrade_to_v19(connection):
@@ -504,8 +419,6 @@ def _upgrade_to_v19(connection):
         for col_name, col_type in new_columns:
             if col_name not in columns:
                 connection.execute(f'ALTER TABLE implementation_evaluations ADD COLUMN {col_name} {col_type}')
-    connection.execute('PRAGMA user_version=19')
-    connection.commit()
 
 
 def _upgrade_to_v20(connection):
@@ -519,8 +432,6 @@ def _upgrade_to_v20(connection):
         decided_at TEXT NOT NULL,
         FOREIGN KEY(run_id) REFERENCES implementation_runs(id)
     )""")
-    connection.execute('PRAGMA user_version=20')
-    connection.commit()
 
 
 def _upgrade_to_v21(connection):
@@ -538,18 +449,14 @@ def _upgrade_to_v21(connection):
         criteria_json TEXT NOT NULL, feedback TEXT NOT NULL,
         decided_at TEXT NOT NULL, archived_at TEXT NOT NULL
     )""")
-    connection.execute('PRAGMA user_version=21')
-    connection.commit()
 
 
 def _upgrade_to_v22(connection):
     # FIX-013: hl_projects table (from project_workspaces.py)
     connection.execute("""CREATE TABLE IF NOT EXISTS hl_projects (
         name TEXT PRIMARY KEY, host_path TEXT NOT NULL, spec_path TEXT,
-        vm_path TEXT, commit_hash TEXT, synced_at TEXT
+        remote_path TEXT, commit_hash TEXT, synced_at TEXT
     )""")
-    connection.execute('PRAGMA user_version=22')
-    connection.commit()
 
 
 def _upgrade_to_v23(connection):
@@ -566,8 +473,6 @@ def _upgrade_to_v23(connection):
     )""")
     connection.execute('CREATE INDEX IF NOT EXISTS idx_hl_turns_conversation ON hl_conversation_turns(conversation_id,id)')
     connection.execute('CREATE INDEX IF NOT EXISTS idx_hl_turns_task ON hl_conversation_turns(task_id)')
-    connection.execute('PRAGMA user_version=23')
-    connection.commit()
 
 
 def _upgrade_to_v24(connection):
@@ -598,8 +503,6 @@ def _upgrade_to_v24(connection):
         status TEXT NOT NULL DEFAULT 'pending', created_at TEXT DEFAULT CURRENT_TIMESTAMP,
         evidence_excerpt TEXT, origin TEXT, resolution_rationale TEXT, resolved_by TEXT
     )""")
-    connection.execute('PRAGMA user_version=24')
-    connection.commit()
 
 
 def _upgrade_to_v25(connection):
@@ -619,8 +522,6 @@ def _upgrade_to_v25(connection):
         UNIQUE(source_id,page,ordinal)
     )""")
     connection.execute('CREATE INDEX IF NOT EXISTS idx_library_chunks_source ON library_chunks(source_id,page)')
-    connection.execute('PRAGMA user_version=25')
-    connection.commit()
 
 
 def _upgrade_to_v26(connection):
@@ -638,8 +539,6 @@ def _upgrade_to_v26(connection):
         updated_at TEXT NOT NULL,
         FOREIGN KEY (run_id) REFERENCES implementation_runs(id)
     )""")
-    connection.execute('PRAGMA user_version=26')
-    connection.commit()
 
 
 def _upgrade_to_v27(connection):
@@ -653,8 +552,6 @@ def _upgrade_to_v27(connection):
         decided_at TEXT NOT NULL,
         FOREIGN KEY(run_id) REFERENCES implementation_runs(id)
     )""")
-    connection.execute('PRAGMA user_version=27')
-    connection.commit()
 
 
 def _upgrade_to_v28(connection):
@@ -677,8 +574,6 @@ def _upgrade_to_v28(connection):
         id INTEGER PRIMARY KEY AUTOINCREMENT, verification_id TEXT NOT NULL, ordinal INTEGER NOT NULL,
         kind TEXT NOT NULL, status TEXT NOT NULL, command TEXT, cwd TEXT, exit_code INTEGER,
         output TEXT, output_sha256 TEXT, detail TEXT, duration_ms INTEGER, created_at TEXT NOT NULL)""")
-    connection.execute('PRAGMA user_version=28')
-    connection.commit()
 
 
 def _upgrade_to_v29(connection):
@@ -696,8 +591,6 @@ def _upgrade_to_v29(connection):
     connection.execute('''CREATE TABLE IF NOT EXISTS verification_settings (
         id INTEGER PRIMARY KEY CHECK(id=1), auto_revision INTEGER NOT NULL DEFAULT 1)''')
     connection.execute('INSERT OR IGNORE INTO verification_settings(id,auto_revision) VALUES(1,1)')
-    connection.execute('PRAGMA user_version=29')
-    connection.commit()
 
 
 def _upgrade_to_v30(connection):
@@ -710,8 +603,6 @@ def _upgrade_to_v30(connection):
                       ('expires_at', 'TEXT'), ('rationale', 'TEXT'), ('decided_by', 'TEXT')):
         if columns and name not in columns:
             connection.execute(f'ALTER TABLE hl_memories ADD COLUMN {name} {ddl}')
-    connection.execute('PRAGMA user_version=30')
-    connection.commit()
 
 
 def _upgrade_to_v31(connection):
@@ -730,8 +621,6 @@ def _upgrade_to_v31(connection):
                       ('resolution_rationale', 'TEXT'), ('resolved_by', 'TEXT')):
         if columns and name not in columns:
             connection.execute(f'ALTER TABLE hl_memory_reviews ADD COLUMN {name} {ddl}')
-    connection.execute('PRAGMA user_version=31')
-    connection.commit()
 
 
 def _upgrade_to_v32(connection):
@@ -742,8 +631,6 @@ def _upgrade_to_v32(connection):
     for name in ('applied_persona_sha256', 'applied_memory_ids', 'applied_lesson_ids'):
         if columns and name not in columns:
             connection.execute(f'ALTER TABLE tasks ADD COLUMN {name} TEXT')
-    connection.execute('PRAGMA user_version=32')
-    connection.commit()
 
 
 def _upgrade_to_v33(connection):
@@ -761,8 +648,6 @@ def _upgrade_to_v33(connection):
             state TEXT NOT NULL, note TEXT NOT NULL, created_at TEXT NOT NULL)""")
     connection.execute('CREATE UNIQUE INDEX IF NOT EXISTS idx_persona_experiences_task'
                        ' ON persona_experiences(task_id)')
-    connection.execute('PRAGMA user_version=33')
-    connection.commit()
 
 
 def _upgrade_to_v34(connection):
@@ -842,8 +727,6 @@ def _upgrade_to_v34(connection):
     connection.execute("""INSERT INTO autonomy_policy_settings (id, updated_at)
         SELECT 1, ? WHERE NOT EXISTS (SELECT 1 FROM autonomy_policy_settings WHERE id=1)""",
         (now(),))
-    connection.execute('PRAGMA user_version=34')
-    connection.commit()
 
 
 def _upgrade_to_v35(connection):
@@ -879,19 +762,17 @@ def _upgrade_to_v35(connection):
         evidence TEXT,
         created_at TEXT NOT NULL,
         UNIQUE(objective_id, task_id))""")
-    connection.execute('PRAGMA user_version=35')
-    connection.commit()
 
 
 def _upgrade_to_v36(connection):
     # HL-AUTO-001 Phase 3 (§26.10): proposals -> project bootstrap. Autonomous projects are
-    # VM identities; host registration/apply stays a separate authorization (§26.7).
+    # work-machine identities; host registration/apply stays a separate authorization (§26.7).
     connection.execute("""CREATE TABLE IF NOT EXISTS autonomy_projects (
         id TEXT PRIMARY KEY,
         name TEXT NOT NULL UNIQUE,
         origin TEXT NOT NULL CHECK(origin IN ('user','autonomous')),
         proposal_id TEXT REFERENCES project_proposals(id),
-        vm_path TEXT NOT NULL,
+        remote_path TEXT NOT NULL,
         spec_sha256 TEXT,
         status TEXT NOT NULL DEFAULT 'initializing'
             CHECK(status IN ('initializing','active','paused','blocked','failed',
@@ -901,7 +782,7 @@ def _upgrade_to_v36(connection):
         id TEXT PRIMARY KEY,
         proposal_id TEXT NOT NULL REFERENCES project_proposals(id),
         project_name TEXT NOT NULL,
-        vm_path TEXT NOT NULL,
+        remote_path TEXT NOT NULL,
         status TEXT NOT NULL CHECK(status IN
             ('initializing','active','rolled_back','failed','recovery_required')),
         steps_done TEXT NOT NULL DEFAULT '[]',
@@ -910,8 +791,6 @@ def _upgrade_to_v36(connection):
         UNIQUE(proposal_id))""")
     connection.execute('CREATE INDEX IF NOT EXISTS idx_project_bootstraps_status'
                        ' ON project_bootstraps(status)')
-    connection.execute('PRAGMA user_version=36')
-    connection.commit()
 
 
 def _upgrade_to_v37(connection):
@@ -935,8 +814,37 @@ def _upgrade_to_v37(connection):
         created_at TEXT NOT NULL, updated_at TEXT NOT NULL)""")
     connection.execute('CREATE INDEX IF NOT EXISTS idx_project_milestones_project'
                        ' ON project_milestones(project_name, state, order_index)')
-    connection.execute('PRAGMA user_version=37')
-    connection.commit()
+
+
+def _upgrade_to_v39(connection):
+    # HL-LIB-001 M2: embedding retrieval metadata on library_chunks. BLOB holds raw
+    # float32 little-endian vector bytes; embed_model stamps the producing model so
+    # backfill() can re-embed mismatched rows. Purely additive — chunk identity
+    # (sha256, ordinal, page) is untouched.
+    has_chunks = connection.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='library_chunks'").fetchone()
+    if has_chunks:
+        connection.execute('ALTER TABLE library_chunks ADD COLUMN embedding BLOB')
+        connection.execute('ALTER TABLE library_chunks ADD COLUMN embed_model TEXT')
+    else:
+        # Minimal legacy installs (e.g. a v33 DB that never received the v25 gate)
+        # have no library tables at all — create them complete, with the new columns.
+        connection.execute("""CREATE TABLE IF NOT EXISTS library_sources (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            url TEXT NOT NULL UNIQUE, title TEXT NOT NULL,
+            kind TEXT NOT NULL DEFAULT 'document', sha256 TEXT,
+            revision TEXT, status TEXT NOT NULL DEFAULT 'registered',
+            created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+        )""")
+        connection.execute("""CREATE TABLE IF NOT EXISTS library_chunks (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            source_id INTEGER NOT NULL REFERENCES library_sources(id),
+            page INTEGER NOT NULL CHECK(page>0), ordinal INTEGER NOT NULL,
+            content TEXT NOT NULL, sha256 TEXT NOT NULL,
+            embedding BLOB, embed_model TEXT,
+            UNIQUE(source_id,page,ordinal)
+        )""")
+        connection.execute('CREATE INDEX IF NOT EXISTS idx_library_chunks_source ON library_chunks(source_id,page)')
 
 
 def _upgrade_to_v38(connection):
@@ -959,5 +867,46 @@ def _upgrade_to_v38(connection):
         UNIQUE(project_name, milestone_id, task_id))""")
     connection.execute('CREATE INDEX IF NOT EXISTS idx_experience_records_project'
                        ' ON experience_records(project_name, created_at)')
-    connection.execute('PRAGMA user_version=38')
-    connection.commit()
+
+
+def _upgrade_to_v40(connection):
+    # VM -> work machine terminology: the "VM" is a real laptop (the work
+    # machine), not a virtual machine. Rename the column everywhere it
+    # recorded a remote workspace path. Guarded so fresh installs (whose
+    # v22/v36 already created remote_path) are a no-op.
+    for table in ('hl_projects', 'autonomy_projects', 'project_bootstraps'):
+        cols = {r[1] for r in connection.execute(f'PRAGMA table_info({table})').fetchall()}
+        if 'vm_path' in cols:
+            connection.execute(f'ALTER TABLE {table} RENAME COLUMN vm_path TO remote_path')
+
+
+def _build_registry():
+    """Map target version -> upgrade function, failing loudly on drift.
+
+    The ladder used to be 38 hand-maintained `if version < N` gates: adding
+    _upgrade_to_vN without its gate left the upgrade as dead code and every
+    real database silently behind. This registry is built once at import, so
+    the failure surfaces in the first test run instead of on a user database:
+      - SCHEMA_VERSION mentions a version with no _upgrade_to_vN -> RuntimeError
+      - an _upgrade_to_vN exists beyond SCHEMA_VERSION           -> RuntimeError
+    """
+    registry = {}
+    for target in range(2, SCHEMA_VERSION + 1):
+        upgrade = globals().get(f'_upgrade_to_v{target}')
+        if upgrade is None:
+            raise RuntimeError(
+                f'schema migration function _upgrade_to_v{target} is missing '
+                f'but SCHEMA_VERSION={SCHEMA_VERSION}')
+        registry[target] = upgrade
+    stray = sorted(
+        int(name[len('_upgrade_to_v'):]) for name in globals()
+        if name.startswith('_upgrade_to_v') and name[len('_upgrade_to_v'):].isdigit()
+        and int(name[len('_upgrade_to_v'):]) not in registry)
+    if stray:
+        raise RuntimeError(
+            f'schema migration function(s) _upgrade_to_v{stray[0] if len(stray)==1 else stray} '
+            f'defined beyond SCHEMA_VERSION={SCHEMA_VERSION}')
+    return registry
+
+
+_MIGRATIONS = _build_registry()

@@ -56,7 +56,7 @@ class DecisionEngine:
    last=datetime.fromisoformat(cfg['last_scan']) if cfg['last_scan'] else None
    if not force and last and datetime.now(timezone.utc)-last<timedelta(seconds=cfg['scan_interval_seconds']):
     return {'action':'rest','reason':'Waiting for next discovery interval'}
-   self.store.emit('decision.selected',{'action':'discover','reason':'Scheduled read-only VM repository scan'})
+   self.store.emit('decision.selected',{'action':'discover','reason':'Scheduled read-only work-machine repository scan'})
    outcome=self.discovery.scan()
    new=self._sync_questions()
    with self.store.lock:

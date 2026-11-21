@@ -22,7 +22,8 @@
  */
 import { type LifeStage, type Chain, type TaskRec } from './task-lifecycle.ts';
 import { mountThread, type Turn } from './conv-thread.ts';
-import { openWorkView, openTask, openActivityForTask, onNavigationChange, getCurrentWorkView, registerTaskValidator } from './navigation-state.ts';
+import { openWorkView, openTask, openActivityForTask, onNavigationChange, getCurrentWorkView, registerTaskValidator, setSelection } from './navigation-state.ts';
+import { registerKindRenderer, registerSummaryProvider } from './context-inspector.ts';
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string): T | null => document.getElementById(id) as T | null;
 const str = (v: unknown): string => (typeof v === 'string' ? v : v == null ? '' : String(v));
@@ -520,18 +521,34 @@ function prefillInvestigateCta(taskId: string, c: Chain | null) {
 }
 
 function updateSelection(t: TaskRec | null) {
-    const ctx = $('ctx-selection'), body = $('ctx-selection-body');
-    if (!ctx || !body) return;
-    if (!t) { ctx.hidden = true; body.textContent = ''; return; }
-    ctx.hidden = false;
-    const c = chainByTask[str(t.id)];
-    body.replaceChildren();
-    const h = node('strong', str(t.prompt) || 'Task'); body.append(h);
+    // HL-WORK-001 M1: the panel is owned by context-inspector; this view
+    // only declares its (typed) selection. A task selection therefore
+    // cannot leak into other workviews.
+    setSelection('tasks', t ? { kind: 'task', id: str(t.id) } : null);
+}
+
+// Tasks-view inspector card (registered once; reads live module state so
+// refreshes keep the card current without re-registering).
+registerKindRenderer('task', (sel, body) => {
+    const t = tasks.find(x => str(x.id) === sel.id);
+    if (!t) {
+        body.append(node('p', 'This task is not loaded right now.', 'hint'));
+        return;
+    }
+    const c = chainByTask[sel.id];
+    body.append(node('strong', str(t.prompt) || 'Task'));
     body.append(node('p', `${str(t.state)} · ${c ? str(c.status) : 'manual task'}`));
     body.append(node('p', `Created ${new Date(str(t.created_at)).toLocaleString()}`));
-    const open = node('button', 'Open in Results →', '') as HTMLButtonElement; open.type = 'button';
-    open.addEventListener('click', () => openResults(str(t.id))); body.append(open);
-}
+    const open = node('button', 'Open in Results →', '') as HTMLButtonElement;
+    open.type = 'button';
+    open.addEventListener('click', () => openResults(sel.id));
+    body.append(open);
+});
+
+registerSummaryProvider('tasks', () => ({
+    line: 'Select a task in the list to see it here.',
+    chips: tasks.length ? [{ label: 'tasks', count: tasks.length }] : undefined,
+}));
 
 /* =====================================================================
  * Contextual right-column panel (P1: actionable investigation results

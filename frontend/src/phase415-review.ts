@@ -110,8 +110,8 @@ function renderPlanning(){const root=$('hl415-planning');if(!root)return;root.re
     }
     const b=btn(derived?`Start isolated implementation in ${derived}`:'Start isolated implementation',()=>{
       const target=derived||(manual?manual.value.trim():'');
-      if(!target)return alert('Enter a VM project name.');
-      if(!confirm(`Start approved implementation in VM project ${target}?`))return;
+      if(!target)return alert('Enter a work-machine project name.');
+      if(!confirm(`Start approved implementation in work-machine project ${target}?`))return;
       b.disabled=true;void api(`/implementations/from-plan/${encodeURIComponent(planId)}`,'POST',{project:target}).then(()=>void refresh()).catch(e=>{error=s(e);renderAll()}).finally(()=>{b.disabled=false});
     });
     wrap.append(b);
@@ -167,7 +167,7 @@ function renderReview(){let root=$('hl415-review');if(!root){root=node('section'
  root.replaceChildren();if(!reviewRun){root.hidden=true;return}root.hidden=false;
  const head=node('div','','hl415-head');head.append(node('h2','Candidate review — '+s(reviewRun.project)),btn('Close review',()=>{reviewRun=null;renderReview()}));root.append(head);
  if(reviewError)root.append(node('p',reviewError,'hl415-error'));
- if(!reviewData){root.append(node('p','Loading live VM snapshot and approval criteria…','hl415-status'));return}
+ if(!reviewData){root.append(node('p','Loading live work-machine snapshot and approval criteria…','hl415-status'));return}
  const data=reviewData;const run=data.run as Rec;const candidate=data.candidate as Rec;const baseline=data.baseline as Rec;const plan=data.plan as Rec;const snapshot=data.snapshot as Rec|null;const previous=data.decision as Rec|null;
  root.append(node('p',`Candidate tests: ${s(candidate?.status||run?.state)} · Baseline: ${s(baseline?.status||'unknown')} · ${s(snapshot?.changed_files??0)} changed files`,'hl415-status'));
  if(s(baseline?.status)!=='passed')root.append(node('p','Baseline test evaluation did not pass. Confirm behavioral equivalence separately before acceptance.','hl415-error'));

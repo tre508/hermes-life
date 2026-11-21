@@ -138,7 +138,8 @@ address and `HERMES_LIFE_GUEST_HOME` to that machine's home. No code change and 
   `PUT /api/verification/settings`.
 - No local inference runtime (Janas/Qwen3-0.6B) exists on the Lenovo. Agent inference continues to
   use Hermes Agent's configured provider, unchanged by this migration.
-- `hl_projects.vm_path` (and the workspace directory recorded for `hermes-life`) still use the old
+- `hl_projects.remote_path` (schema v40 renamed the old `vm_path` column; the "VM" is the real
+  work machine) and the workspace directory recorded for `hermes-life` still use the old
   `/home/hermes/...` spelling and disagree about the commit (see above). A re-sync rewrites both; the
   worker's symlink keeps the recorded path resolvable until then.
 - Historical documents (`README_PHASE3_*`, `README_VM_BRIDGE.md`, `FIX.md`) describe the VM-era setup.

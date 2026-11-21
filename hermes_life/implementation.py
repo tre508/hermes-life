@@ -1,6 +1,6 @@
 """Approved plan -> isolated candidate -> independent tests and reevaluation.
 
-Never edits original VM projects or applies changes to the host.
+Never edits original work-machine projects or applies changes to the host.
 """
 import json
 import re
@@ -17,7 +17,7 @@ if TYPE_CHECKING:
 from .guest_env import ENV_PROVISION, ENV_RESOLVER, PROJECTS_ROOT, for_worker
 from .store import now
 
-# Runs inside the VM. A fixed command is selected by the evaluator, never by
+# Runs inside the work machine. A fixed command is selected by the evaluator, never by
 # untrusted plan/agent output. Only prepared experiment directories are tested.
 # FLOW-007A: interpreter resolution and environment provisioning are owned by
 # guest_env so the revision worker cannot drift away from this path.
@@ -224,7 +224,7 @@ class ImplementationEngine:
     def _guest(self, payload):
         adapter = self.runtime.adapter
         if getattr(adapter, 'transport', None) != 'ssh':
-            raise ValueError('VM SSH execution is required')
+            raise ValueError('Work-machine SSH execution is required')
         command = adapter._ssh_base() + ['python3 -c ' + shlex.quote(GUEST)]
         p = subprocess.run(command, input=json.dumps(payload), text=True,
                            capture_output=True, timeout=150)
@@ -275,7 +275,7 @@ class ImplementationEngine:
                 and re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_.-]{0,79}', project) is not None)
 
     def resolve_project(self, plan_id, plan=None):
-        """Derive a plan's VM project name from its lineage.
+        """Derive a plan's work-machine project name from its lineage.
 
         A plan knows its project through an exact join, not a guess:
         plan.formulation_id -> formulated_goals.discovery_id -> discoveries.project.
@@ -525,7 +525,7 @@ class ImplementationEngine:
             import shlex, subprocess, json
             adapter = self.runtime.adapter
             if getattr(adapter, 'transport', None) != 'ssh':
-                raise ValueError('VM SSH transport required for apply')
+                raise ValueError('Work-machine SSH transport required for apply')
             command = adapter._ssh_base() + ['python3 -c ' + shlex.quote(SNAPSHOT_GUEST)]
             p = subprocess.run(command, input=json.dumps({'id': ident}), text=True,
                                capture_output=True, timeout=60)
@@ -633,7 +633,7 @@ class ImplementationEngine:
         import shlex, subprocess, json
         adapter = self.runtime.adapter
         if getattr(adapter, 'transport', None) != 'ssh':
-            raise ValueError('VM SSH transport required')
+            raise ValueError('Work-machine SSH transport required')
         command = adapter._ssh_base() + ['python3 -c ' + shlex.quote(SNAPSHOT_GUEST)]
         p = subprocess.run(command, input=json.dumps({'id': ident}), text=True,
                            capture_output=True, timeout=60)
@@ -649,7 +649,7 @@ class ImplementationEngine:
             'SELECT * FROM hl_projects WHERE name=?', (project,)
         ).fetchone()
         # Host application targets a REGISTERED host repository with a recorded base
-        # commit. A VM source project (/home/hermes/projects/<name>) usually has no host
+        # commit. A work-machine source project (/home/hermes/projects/<name>) usually has no host
         # repository at all, so say exactly which blocker applies instead of refusing
         # without an explanation (spec failure categories: project_not_registered,
         # project_unsynced). The reviewed diff is still returned for the reviewer.

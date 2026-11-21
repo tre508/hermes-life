@@ -22,7 +22,7 @@ class KnowledgeTests(unittest.TestCase):
             (repo/'HERMES_LIFE_DEV_SPEC.md').write_text('# Source of truth\nUse test-driven validation')
             vault=home/'vault'; issues=vault/'Hermes-Life/Projects/Hermes-Life/CURRENT_ISSUES_01.md'
             issues.parent.mkdir(parents=True); issues.write_text('# Current issues\nDuplicate discoveries')
-            proj={'name':'hermes-life','host_path':str(repo),'spec_path':'HERMES_LIFE_DEV_SPEC.md','vm_path':'/home/hermes/workspaces/hermes-life/commit'}
+            proj={'name':'hermes-life','host_path':str(repo),'spec_path':'HERMES_LIFE_DEV_SPEC.md','remote_path':'/home/hermes/workspaces/hermes-life/commit'}
             wm=SimpleNamespace(_read=lambda name:proj)
             memory=SimpleNamespace(retrieve_notes=lambda query,limit:'[Curated memory]')
             manager=module.ProjectKnowledge(SimpleNamespace(project_workspaces=wm,vault_memory=memory))

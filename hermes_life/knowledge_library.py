@@ -6,6 +6,7 @@ import re
 import sqlite3
 from datetime import datetime, timezone
 from urllib.parse import urlparse
+from . import embedding as _embedding
 
 MAX_PAGE_CHARS = 30000
 MAX_PAGES_REQUEST = 100
@@ -111,19 +112,64 @@ class KnowledgeLibrary:
             # Replace a page as a transaction; never leave stale chunks from a revised page.
             for number in {p['page'] for p in pages}:
                 db.execute('DELETE FROM library_chunks WHERE source_id=? AND page=?',(source_id,number))
-            db.executemany('INSERT INTO library_chunks(source_id,page,ordinal,content,sha256) VALUES(?,?,?,?,?)',
-                           ((source_id,*p) for p in prepared))
+            # HL-LIB-001 §4.3: embed at ingest. A chunk whose embedding fails still
+            # lands keyword-searchable with embedding=NULL (degraded mode is fine —
+            # backfill() picks it up later).
+            embedder=_embedding.get_embedder()
+            vectors=None
+            if embedder is not None and embedder.available():
+                vectors=embedder.embed([p[2] for p in prepared])
+            rows=[]
+            embedded=0
+            for p,vec in zip(prepared,vectors if vectors is not None else [None]*len(prepared)):
+                rows.append((source_id,*p,vec,embedder.model_name if vec is not None else None))
+                embedded+=1 if vec is not None else 0
+            db.executemany('INSERT INTO library_chunks(source_id,page,ordinal,content,sha256,embedding,embed_model) VALUES(?,?,?,?,?,?,?)',
+                           rows)
             db.execute("UPDATE library_sources SET status='indexed',updated_at=? WHERE id=?",(now(),source_id))
             db.commit()
-        return {'source_id':source_id,'pages_received':len(pages),'chunks_written':len(prepared)}
+        return {'source_id':source_id,'pages_received':len(pages),'chunks_written':len(prepared),
+                'embedded':embedded,'unembedded':len(prepared)-embedded}
 
     def sources(self):
         with self.store.lock:
             rows=self.store.connection.execute('''SELECT s.id,s.url,s.title,s.kind,s.status,s.sha256,s.revision,
-                COUNT(DISTINCT c.page) as indexed_pages,COUNT(c.id) as chunks
+                COUNT(DISTINCT c.page) as indexed_pages,COUNT(c.id) as chunks,
+                COALESCE(SUM(CASE WHEN c.embedding IS NOT NULL THEN 1 ELSE 0 END),0) as embedded_chunks
                 FROM library_sources s LEFT JOIN library_chunks c ON c.source_id=s.id
                 GROUP BY s.id ORDER BY s.id DESC''').fetchall()
         return [dict(x) for x in rows]
+
+    def backfill(self, batch=64):
+        """HL-LIB-001 §4.4: embed chunks with no usable embedding, in batches.
+
+        Targets rows where embedding IS NULL (never embedded, or an ingest-time
+        failure) or embed_model != current (model changed — stale vectors must be
+        re-embedded, decision 4). Runs under store.lock in batches; returns progress
+        counts. Safe to call repeatedly — idempotent by construction.
+        """
+        embedder=_embedding.get_embedder()
+        if embedder is None or not embedder.available():
+            return {'embedded':0,'pending':None,'reason':'embedder_unavailable'}
+        with self.store.lock:
+            rows=self.store.connection.execute(
+                '''SELECT id,content FROM library_chunks
+                   WHERE embedding IS NULL OR embed_model IS NULL OR embed_model != ?''',
+                (embedder.model_name,)).fetchall()
+        pending=len(rows)
+        done=0
+        for i in range(0,pending,batch):
+            window=rows[i:i+batch]
+            vectors=embedder.embed([r['content'] for r in window])
+            if vectors is None:
+                break  # model call failed mid-run; leave the rest for the next attempt
+            with self.store.lock:
+                db=self.store.connection
+                db.executemany('UPDATE library_chunks SET embedding=?,embed_model=? WHERE id=?',
+                    ((v,embedder.model_name,r['id']) for r,v in zip(window,vectors) if v is not None))
+                db.commit()
+            done+=sum(1 for v in vectors if v is not None)
+        return {'embedded':done,'pending':pending-done}
 
     def search(self, query, limit=5):
         """Rank chunks for a query by IDF-weighted term overlap plus verbatim bigram boost.

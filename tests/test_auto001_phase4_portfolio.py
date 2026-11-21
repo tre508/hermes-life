@@ -56,7 +56,7 @@ def _engine(tmp_path, projects=('alpha', 'beta')):
     for name in projects:
         with store.lock:
             store.connection.execute(
-                'INSERT INTO autonomy_projects (id, name, origin, vm_path, status,'
+                'INSERT INTO autonomy_projects (id, name, origin, remote_path, status,'
                 ' created_at, updated_at) VALUES (?,?,?,?,?,?,?)',
                 (f'id-{name}', name, 'autonomous', f'/home/hermes/experiments/{name}',
                  'active', '2026-01-01', '2026-01-01'))
@@ -164,7 +164,7 @@ def test_phase4_api_full_restart_no_duplicate_jobs(tmp_path):
         with runtime.store.lock:
             for name in ('alpha', 'beta'):
                 runtime.store.connection.execute(
-                    'INSERT INTO autonomy_projects (id, name, origin, vm_path, status,'
+                    'INSERT INTO autonomy_projects (id, name, origin, remote_path, status,'
                     ' created_at, updated_at) VALUES (?,?,?,?,?,?,?)',
                     (f'id-{name}', name, 'autonomous', f'/home/hermes/experiments/{name}',
                      'active', '2026-01-01', '2026-01-01'))

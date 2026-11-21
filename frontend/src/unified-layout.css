@@ -1344,3 +1344,18 @@
 .milestone-blocked, .milestone-failed { border-left-color: #a33; }
 .portfolio-proposal { border: 1px dashed var(--border, #555); border-radius: 6px; padding: .5rem .7rem; margin: .4rem 0; }
 #portfolio-detail { margin-top: .6rem; }
+/* ===== HL-WORK-001 M2: registered projects ===== */
+#registered-projects { margin-bottom: 1rem; }
+#registered-projects h3 { margin: .2rem 0 .3rem; }
+#registered-list .registered-card .portfolio-controls { align-items: center; }
+.registered-changes { margin-top: .5rem; }
+.registered-diff {
+    max-height: 22rem; overflow: auto; font-size: .8rem; line-height: 1.35;
+    background: var(--panel-alt, rgba(127, 127, 127, .08)); border: 1px solid var(--border, #333);
+    border-radius: 6px; padding: .5rem .6rem; white-space: pre; tab-size: 4;
+}
+#registered-register { margin-top: .6rem; }
+#registered-register summary { cursor: pointer; }
+#registered-form { display: flex; flex-direction: column; gap: .45rem; margin-top: .5rem; max-width: 34rem; }
+#registered-form label { display: flex; flex-direction: column; gap: .15rem; font-size: .85rem; }
+#registered-error { color: #f66; margin: 0; font-size: .85rem; }

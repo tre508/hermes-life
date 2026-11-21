@@ -1,4 +1,4 @@
-"""Read-only VM repository discovery. Never executes repository-supplied code."""
+"""Read-only work-machine repository discovery. Never executes repository-supplied code."""
 import json
 import subprocess
 import shlex
@@ -18,7 +18,7 @@ from pathlib import Path
 import re
 import tokenize
 
-# Read-only, bounded scan of VM-approved projects. Never imports or executes source.
+# Read-only, bounded scan of work-machine-approved projects. Never imports or executes source.
 root = Path('/home/hermes/projects')
 found = []
 examined = 0
@@ -147,7 +147,7 @@ class Discovery:
  def scan(self):
   adapter=self.runtime.adapter
   if getattr(adapter,'transport',None)!='ssh':
-   raise ValueError('Discovery requires the isolated SSH VM transport')
+   raise ValueError('Discovery requires the isolated SSH work-machine transport')
   command=adapter._ssh_base()+['python3 -c '+shlex.quote(REMOTE_SCAN)]
   result=subprocess.run(command,capture_output=True,text=True,timeout=45,check=False)
   if result.returncode:
@@ -174,7 +174,7 @@ class Discovery:
       '(id,fingerprint,project,path,line,note,proposed_prompt,rationale,state,created_at,updated_at) '
       'VALUES (?,?,?,?,?,?,?,?,?,?,?)',
       (ident,fp,item['project'],item['file'],item['line'],item['note'],prompt,
-       'Explicit TODO/FIXME in approved VM project directory', 'proposed',now(),now()))
+       'Explicit TODO/FIXME in approved work-machine project directory', 'proposed',now(),now()))
     self.store.connection.commit()
    if cur.rowcount:
     added+=1
@@ -205,7 +205,7 @@ class Discovery:
         project=self.runtime.project_workspaces._read(row['project'])
     except ValueError:
         project=None
-    if project and project.get('vm_path'):
+    if project and project.get('remote_path'):
         safe_prompt=('@project ' + row['project'] + '\n' + safe_prompt)
 
     goal=self.autonomy.add(f"Investigate {row['project']}/{row['path']}:{row['line']}",safe_prompt,40)

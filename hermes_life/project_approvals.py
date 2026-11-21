@@ -1,4 +1,4 @@
-"""Review/apply immutable VM workspace diffs to registered host Git repositories."""
+"""Review/apply immutable work-machine workspace diffs to registered host Git repositories."""
 from __future__ import annotations
 import hashlib
 import os
@@ -24,10 +24,10 @@ class ProjectApprovals:
 
     def _snapshot(self, name):
         p = self.manager._read(name)
-        if not p.get('vm_path') or not p.get('commit_hash'):
+        if not p.get('remote_path') or not p.get('commit_hash'):
             raise WorkspaceError('Synchronize this project before reviewing changes')
-        # Verify the current VM HEAD equals the synchronized immutable base.
-        root = shlex.quote(p['vm_path'])
+        # Verify the current work-machine HEAD equals the synchronized immutable base.
+        root = shlex.quote(p['remote_path'])
         output = self.manager._ssh(f'''set -eu
 cd {root}
 test "$(git rev-parse HEAD)" = {shlex.quote(p['commit_hash'])}
@@ -38,7 +38,7 @@ printf '%s\\n' __HERMES_PATCH_END__
 ''')
         marker = '__HERMES_PATCH_BEGIN__\n'
         if marker not in output:
-            raise WorkspaceError('Could not extract VM Git changes')
+            raise WorkspaceError('Could not extract work-machine Git changes')
         diff = output.split(marker, 1)[1].rsplit('__HERMES_PATCH_END__',1)[0]
         if not diff.strip():
             raise WorkspaceError('No source changes to review')
@@ -72,7 +72,7 @@ printf '%s\\n' __HERMES_PATCH_END__
                 raise WorkspaceError('Confirmation phrase does not match')
             p, diff = self._snapshot(name)
             if p['commit_hash'] != rec['base'] or hashlib.sha256(diff.encode()).hexdigest() != rec['digest']:
-                raise WorkspaceError('VM content or synchronized base changed. Review again')
+                raise WorkspaceError('Work-machine content or synchronized base changed. Review again')
             host = Path(p['host_path']).resolve(strict=True)
             if not host.is_relative_to(self.manager.allowed_root):
                 raise WorkspaceError('Registered host path is no longer permitted')

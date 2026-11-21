@@ -179,15 +179,15 @@ class PersonalityAdapter:
         return self.delegate.available()
     @property
     def transport(self):
-        # Discovery/investigation/formulation/implementation assert the SSH VM
+        # Discovery/investigation/formulation/implementation assert the SSH work-machine
         # transport by inspecting the outermost adapter, so the value has to
         # survive this wrapper chain.
         return getattr(self.delegate,'transport',None)
     def _ssh_base(self):
         return self.delegate._ssh_base()
-    def run(self, prompt, event_callback, task_id=None):
+    def run(self, prompt, event_callback, task_id=None, **chat_model):
         if self.audience!='chat' or self.personality is None:
-            return self.delegate.run(prompt,event_callback,task_id)
+            return self.delegate.run(prompt,event_callback,task_id,**chat_model) if chat_model else self.delegate.run(prompt,event_callback,task_id)
         reflection=self.personality.reflection
         memory=self.personality.technical_memory
         kinds=[]
@@ -225,7 +225,7 @@ class PersonalityAdapter:
             applied_memory_ids, [row['id'] for row in relevant])
         
         try:
-            result=self.delegate.run(augmented,collect,task_id)
+            result=self.delegate.run(augmented,collect,task_id,**chat_model) if chat_model else self.delegate.run(augmented,collect,task_id)
         except Exception as exc:
             run_id=reflection.record(prompt,None,kinds,error=exc)
             memory.track_reuse([row['id'] for row in relevant],run_id,'failed')

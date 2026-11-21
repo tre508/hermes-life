@@ -105,7 +105,7 @@ def test_read_only_refuses_the_local_transport(monkeypatch):
     """The legacy local transport cannot apply the pin, so it must not run."""
     monkeypatch.setattr(HermesAdapter, 'available', lambda self: True)
     adapter = HermesAdapter(transport='local', profile='read_only')
-    with pytest.raises(HermesError, match='requires the isolated VM transport'):
+    with pytest.raises(HermesError, match='requires the isolated work-machine transport'):
         adapter.run('prompt', lambda *_: None)
 
 
@@ -177,7 +177,7 @@ def test_read_only_workspace_context_does_not_authorise_edits(tmp_path):
     runtime = _runtime(tmp_path)
     with runtime.store.lock:
         runtime.store.connection.execute(
-            "INSERT INTO hl_projects(name,host_path,vm_path,commit_hash) "
+            "INSERT INTO hl_projects(name,host_path,remote_path,commit_hash) "
             "VALUES('demo','/tmp/demo','/home/hermes/workspaces/demo/abc','abc')")
         runtime.store.connection.commit()
     workspace = runtime.project_workspaces

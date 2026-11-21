@@ -85,6 +85,89 @@ function setState(partial: Partial<NavigationState>) {
 }
 
 /* =====================================================================
+ * Typed per-workview selection model (HL-WORK-001 M1)
+ *
+ * One selection store, six consumers. Each Work subview owns its own
+ * selection ({kind, id}); a foreign-kind selection never renders in a
+ * view whose domain does not include that kind. Persisted in
+ * localStorage under HERMES_SELECTIONS_KEY so a reload restores the
+ * per-view selection context.
+ * ===================================================================== */
+
+export type SelectionKind = 'task' | 'discovery' | 'goal' | 'plan' | 'build' | 'project';
+export interface Selection { kind: SelectionKind; id: string; }
+
+/** Domain kinds each Work view can legitimately display in the inspector. */
+export const VIEW_SELECTION_KINDS: Record<WorkView, readonly SelectionKind[]> = {
+    tasks: ['task'],
+    discover: ['discovery'],
+    goals: ['goal'],
+    planning: ['plan'],
+    build: ['build'],
+    projects: ['project'],
+};
+
+export const HERMES_SELECTIONS_KEY = 'hermes-life-selections';
+
+let selections: Record<WorkView, Selection | null> = loadSelections();
+
+function loadSelections(): Record<WorkView, Selection | null> {
+    const empty = Object.fromEntries(WORK_VIEWS.map(v => [v, null])) as Record<WorkView, Selection | null>;
+    try {
+        const raw = localStorage.getItem(HERMES_SELECTIONS_KEY);
+        if (!raw) return empty;
+        const parsed = JSON.parse(raw) as Record<string, unknown>;
+        for (const view of WORK_VIEWS) {
+            const sel = parsed[view];
+            if (sel && typeof sel === 'object'
+                && typeof (sel as Selection).id === 'string' && (sel as Selection).id
+                && (VIEW_SELECTION_KINDS[view] as readonly string[]).includes((sel as Selection).kind)) {
+                empty[view] = { kind: (sel as Selection).kind, id: (sel as Selection).id };
+            }
+        }
+    } catch { /* corrupted storage falls back to empty */ }
+    return empty;
+}
+
+function persistSelections() {
+    try { localStorage.setItem(HERMES_SELECTIONS_KEY, JSON.stringify(selections)); } catch { /* storage unavailable */ }
+}
+
+const selectionListeners = new Set<(sel: Record<WorkView, Selection | null>) => void>();
+
+/** Subscribe to selection changes. Returns unsubscribe function. */
+export function onSelectionChange(fn: (sel: Record<WorkView, Selection | null>) => void): () => void {
+    selectionListeners.add(fn);
+    return () => selectionListeners.delete(fn);
+}
+
+/** The selection stored for a workview (may belong to a foreign kind after re-mapping; validate with viewAccepts). */
+export function getSelection(view: WorkView): Selection | null {
+    return selections[view] ?? null;
+}
+
+/** Whether `sel`'s kind is displayable in `view`'s inspector. */
+export function viewAccepts(view: WorkView, sel: Selection | null): boolean {
+    if (!sel) return false;
+    return (VIEW_SELECTION_KINDS[view] as readonly string[]).includes(sel.kind);
+}
+
+/** The selection for a view if its kind matches that view's domain, else null. */
+export function getValidSelection(view: WorkView): Selection | null {
+    const sel = getSelection(view);
+    return viewAccepts(view, sel) ? sel : null;
+}
+
+/** Set (or clear) the selection owned by a workview. Persists and notifies. */
+export function setSelection(view: WorkView, sel: Selection | null) {
+    const prev = selections[view];
+    const same = (prev?.id === sel?.id) && (prev?.kind === sel?.kind);
+    selections = { ...selections, [view]: sel && sel.id ? { kind: sel.kind, id: sel.id } : null };
+    persistSelections();
+    if (!same) for (const fn of selectionListeners) fn({ ...selections });
+}
+
+/* =====================================================================
  * URL serialization
  * ===================================================================== */
 

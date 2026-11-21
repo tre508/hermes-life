@@ -69,18 +69,22 @@ cat > "$prompt_file"
 """
 
 
-def _agent_command(toolsets=None):
+def _agent_command(toolsets=None, provider=None, model=None):
     command = f'{GUEST_HERMES} chat --query-file "$prompt_file" --format stream-json'
     if toolsets:
         command += ' -t ' + toolsets
+    if provider:
+        command += ' --provider ' + shlex.quote(provider)
+    if model:
+        command += ' --model ' + shlex.quote(model)
     return command
 
 
-def remote_script(profile='interactive'):
+def remote_script(profile='interactive', provider=None, model=None):
     """Build the guest shell script that runs exactly one Hermes turn."""
     if profile not in PROFILES:
         raise ValueError('Unknown capability profile: ' + str(profile))
-    return _SCRIPT_HEAD + _agent_command(PROFILES[profile]) + '\n'
+    return _SCRIPT_HEAD + _agent_command(PROFILES[profile], provider, model) + '\n'
 
 
 class HermesAdapter:
@@ -146,25 +150,29 @@ class HermesAdapter:
         except (OSError, subprocess.TimeoutExpired):
             return False
 
-    def run(self, prompt, event_callback, task_id=None):
+    def run(self, prompt, event_callback, task_id=None, provider=None, model=None):
+        if (provider or model) and self.profile != 'interactive':
+            raise HermesError('Model overrides are restricted to interactive chat')
         if not self.available():
             raise HermesError(f'Hermes unavailable via {self.transport} transport')
         if self.transport == 'ssh':
             # The prompt is sent over stdin, not a command-line argument or a host-side file.
-            command = self._ssh_base() + ['sh -c ' + shlex.quote(remote_script(self.profile))]
+            command = self._ssh_base() + ['sh -c ' + shlex.quote(remote_script(self.profile, provider, model))]
         else:
             # A restricted scope is enforced by the guest's session toolset; the legacy
             # local transport cannot apply it, so it refuses rather than running with
             # more capability than the scope authorised.
             if PROFILES[self.profile]:
                 raise HermesError(
-                    f'Capability profile {self.profile!r} requires the isolated VM transport')
+                    f'Capability profile {self.profile!r} requires the isolated work-machine transport')
             import tempfile
             # Local path retained for backwards compatibility.
             with tempfile.TemporaryDirectory(prefix='hermes-life-') as tmp:
                 file = Path(tmp) / 'prompt.txt'
                 file.write_text(prompt, encoding='utf-8')
                 command = [self.executable, 'chat', '--query-file', str(file), '--format', 'stream-json']
+                if provider: command.extend(['--provider', provider])
+                if model: command.extend(['--model', model])
                 return self._execute(command, None, event_callback, task_id)
         return self._execute(command, prompt, event_callback, task_id)
 

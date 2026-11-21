@@ -32,6 +32,7 @@ from .project_knowledge import ProjectKnowledge, add_knowledge_routes  # PHASE41
 from .project_approvals import add_approval_routes  # PHASE412_APPROVALS
 from .maintenance import MaintenanceService
 from .study import StudyService, create_study_service
+from .chat_models import ChatModels
 
 class GoalInput(BaseModel):
     title: str = Field(min_length=1, max_length=160)
@@ -46,10 +47,13 @@ class TaskInput(BaseModel):
     conversation_id: str | None = None
     revision_of: int | None = None
     revision_text: str | None = None
+    provider: str | None = None
+    model: str | None = None
 
 class Runtime:
     def __init__(self, database, adapter=None):
         self.store = Store(database)
+        self.chat_models = ChatModels(self.store)
         self.personality = Personality(self.store)
         self.conversations = ConversationMemory(self.store)
         self.recall = Recall(self.store)
@@ -125,7 +129,10 @@ class Runtime:
             self.store.update_task(ident, 'running')
             self.store.set_agent('executing',ident)
             self.store.emit('task.started', {'scope': scope}, ident)
+            choice = self.chat_models.for_task(ident)
             def on_event(name, payload):
+                if name in ('hermes.result', 'hermes.system') and choice:
+                    self.chat_models.observe(ident, payload)
                 self.store.emit(name, payload, ident)
             conversation_id = self.conversations.conversation_for_task(ident)
             context = self.conversations.context(conversation_id, ident) if conversation_id else ''
@@ -139,7 +146,11 @@ class Runtime:
 
             recall = self.recall.retrieve(prompt, conversation_id) if conversation_id else ''
             recall += self.vault_memory.retrieve_notes(prompt)
-            result = adapter.run(recall + context + prompt, on_event, ident)
+            if choice and scope == 'interactive':
+                result = adapter.run(recall + context + prompt, on_event, ident,
+                                     provider=choice['provider'], model=choice['model'])
+            else:
+                result = adapter.run(recall + context + prompt, on_event, ident)
             self.store.update_task(ident, 'completed', **result)
             self.record_experience(ident, 'completed', prompt)
             if conversation_id:
@@ -235,10 +246,20 @@ def create_app(database=None, adapter=None):
             migrate(runtime.store.connection)
             runtime.knowledge_library.migrate()
             recover_interrupted(runtime.store.connection)
+        runtime.chat_models.migrate()
         portfolio.reconcile()  # Phase 4: resolve leased milestones against real goal state
         autonomy.start()
         revisions.start()
         decision.start()
+        # HL-LIB-001 §4.4: backfill missing/stale chunk embeddings in a daemon thread
+        # so startup never waits on the model; search stays functional meanwhile.
+        def _backfill_library_embeddings():
+            try:
+                runtime.knowledge_library.backfill()
+            except Exception:
+                pass  # degraded mode: keyword-only search remains fully functional
+        threading.Thread(target=_backfill_library_embeddings, daemon=True,
+                         name='library-backfill').start()
         # Recover interrupted implementation runs (mark as interrupted, emit events)
         implementer.recover_interrupted()
         # Best-effort restart recovery for a handoff lost between goal completion and
@@ -511,12 +532,12 @@ def create_app(database=None, adapter=None):
     # -- HL-AUTO-001 Phase 3: proposal -> project bootstrap ---------------------------
     class BootstrapInput(BaseModel):
         project_name: str
-        vm_path: str
+        remote_path: str
 
     @app.post('/api/proposals/{proposal_id}/bootstrap', status_code=201)
     def bootstrap_proposal(proposal_id: str, payload: BootstrapInput):
         try:
-            record = bootstrapper.bootstrap(proposal_id, payload.project_name, payload.vm_path)
+            record = bootstrapper.bootstrap(proposal_id, payload.project_name, payload.remote_path)
         except PolicyDenied as exc:
             raise HTTPException(403, exc.decision['reason'])
         except BootstrapError as exc:
@@ -762,7 +783,7 @@ def create_app(database=None, adapter=None):
                 try:
                     attempt = revisions.queue(ident)
                     result['revision'] = {'attempt_id': attempt['id'], 'state': attempt['state']}
-                    result['next_action'] = 'Revision queued automatically in isolated VM staging workspace'
+                    result['next_action'] = 'Revision queued automatically in isolated work-machine staging workspace'
                 except (ValueError, KeyError) as exc:
                     # The review is already durable; startup recovery can enqueue it.
                     result['revision_queue_error'] = str(exc)
@@ -1204,8 +1225,31 @@ def create_app(database=None, adapter=None):
             task['conversation_id'] = cid
         return task
 
+    @app.get('/api/chat/models')
+    def chat_models():
+        return {'models': runtime.chat_models.catalog(),
+                'default': {'provider': None, 'model': None}}
+
+    @app.get('/api/chat/usage/{task_id}')
+    def chat_usage(task_id: str):
+        if not runtime.store.task(task_id):
+            raise HTTPException(404, 'Task not found')
+        return runtime.chat_models.for_task(task_id) or {'task_id': task_id,
+                                                         'model': None, 'provider': None,
+                                                         'input_tokens': None, 'context_window': None}
+
+    @app.get('/api/chat/balance')
+    def chat_balance(provider: str):
+        if not any(r['provider'] == provider for r in runtime.chat_models.catalog()):
+            raise HTTPException(422, 'Provider is not configured')
+        return runtime.chat_models.balance(provider)
+
     @app.post('/api/tasks', status_code=202)
     def create_task(payload: TaskInput):
+        try:
+            selected_chat_model = runtime.chat_models.validate(payload.provider, payload.model)
+        except ValueError as exc:
+            raise HTTPException(422, str(exc)) from exc
         if payload.revision_of is not None:
             if not payload.conversation_id or not payload.revision_text:
                 raise HTTPException(422, 'Revision requires conversation_id and revision_text')
@@ -1217,6 +1261,7 @@ def create_app(database=None, adapter=None):
             raise HTTPException(409, 'Agent is busy')
         try:
             task = runtime.store.create_task(payload.prompt)
+            runtime.chat_models.save(task['id'], selected_chat_model)
             cid = runtime.conversations.add_user_turn(payload.prompt,payload.conversation_id,task['id'])
             if payload.revision_of is not None:
                 runtime.recall.assert_revision(cid, payload.revision_of, payload.revision_text, task['id'])

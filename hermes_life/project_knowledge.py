@@ -96,8 +96,8 @@ class ProjectKnowledge:
                 'available':content is not None,
                 'sha256':hashlib.sha256(content.encode('utf-8')).hexdigest() if content is not None else None,
                 'bytes':len(content.encode('utf-8')) if content is not None else None})
-        return {'project':name,'vm_workspace':project.get('vm_path'), 'documents':items,
-                'note':'Host documents are read for context; the VM workspace is authoritative for source edits.'}
+        return {'project':name,'vm_workspace':project.get('remote_path'), 'documents':items,
+                'note':'Host documents are read for context; the work-machine workspace is authoritative for source edits.'}
 
     def context(self, name, query, *, max_chars=24000):
         project=self._project(name)

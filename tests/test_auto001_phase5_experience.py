@@ -52,7 +52,7 @@ def _world(tmp_path, project='alpha'):
     portfolio.experience = experience
     with store.lock:
         store.connection.execute(
-            'INSERT INTO autonomy_projects (id, name, origin, proposal_id, vm_path, status,'
+            'INSERT INTO autonomy_projects (id, name, origin, proposal_id, remote_path, status,'
             ' created_at, updated_at) VALUES (?,?,?,?,?,?,?,?)',
             ('proj-1', project, 'autonomous', None, f'/home/hermes/experiments/{project}',
              'active', now(), now()))
@@ -161,7 +161,7 @@ def test_phase5_end_to_end_and_restart(tmp_path):
         runtime = client.app.state.runtime
         with runtime.store.lock:
             runtime.store.connection.execute(
-                'INSERT INTO autonomy_projects (id, name, origin, vm_path, status,'
+                'INSERT INTO autonomy_projects (id, name, origin, remote_path, status,'
                 ' created_at, updated_at) VALUES (?,?,?,?,?,?,?)',
                 ('proj-1', 'gamma', 'autonomous', '/home/hermes/experiments/gamma',
                  'active', now(), now()))

@@ -1,0 +1,10 @@
+
+> hermes-life-world@0.3.0 dev
+> vite --host 0.0.0.0
+
+10:10:19 PM [vite] (client) Re-optimizing dependencies because vite config has changed
+
+  VITE v6.4.5  ready in 174 ms
+
+  ➜  Local:   http://localhost:5173/
+  ➜  Network: http://192.168.178.23:5173/

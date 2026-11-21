@@ -1,6 +1,6 @@
-"""HL-FLOW-005: durable candidate review decisions and VM-only evidence.
+"""HL-FLOW-005: durable candidate review decisions and work-machine-only evidence.
 
-No operation in this module applies files to a host or original VM project.
+No operation in this module applies files to a host or original work-machine project.
 """
 from __future__ import annotations
 import hashlib
@@ -94,12 +94,12 @@ class ImplementationReview:
     def _snapshot(self, ident):
         adapter = self.runtime.adapter
         if getattr(adapter, 'transport', None) != 'ssh':
-            raise ValueError('VM SSH transport required')
+            raise ValueError('Work-machine SSH transport required')
         command = adapter._ssh_base() + ['python3 -c ' + shlex.quote(SNAPSHOT_GUEST)]
         p = subprocess.run(command, input=json.dumps({'id':ident}), text=True,
                            capture_output=True, timeout=60)
         if p.returncode:
-            raise RuntimeError('VM review failed: ' + p.stderr[-500:])
+            raise RuntimeError('Work-machine review failed: ' + p.stderr[-500:])
         return json.loads(p.stdout)
 
     def get_decision(self, ident):

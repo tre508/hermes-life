@@ -81,7 +81,7 @@ class MaintenanceService:
         """Run the guest inventory script and return parsed results."""
         adapter = self.runtime.adapter
         if getattr(adapter, 'transport', None) != 'ssh':
-            raise ValueError('VM SSH transport required for maintenance')
+            raise ValueError('Work-machine SSH transport required for maintenance')
         command = adapter._ssh_base() + ['python3 -c ' + shlex.quote(EXPERIMENTS_INVENTORY_GUEST)]
         p = subprocess.run(command, capture_output=True, text=True, timeout=120)
         if p.returncode:
@@ -255,10 +255,10 @@ class MaintenanceService:
 
         for entry in eligible:
             try:
-                # Run deletion on the VM
+                # Run deletion on the work machine
                 adapter = self.runtime.adapter
                 if getattr(adapter, 'transport', None) != 'ssh':
-                    raise ValueError('VM SSH transport required')
+                    raise ValueError('Work-machine SSH transport required')
                 # Use rm -rf via SSH
                 command = adapter._ssh_base() + ['rm -rf ' + shlex.quote(entry.path)]
                 p = subprocess.run(command, capture_output=True, text=True, timeout=60)

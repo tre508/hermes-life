@@ -1,7 +1,7 @@
-"""Phase 4.11 project registry and isolated, Git-backed VM workspaces.
+"""Phase 4.11 project registry and isolated, Git-backed work-machine workspaces.
 
 No direct host source writes. Each synchronization creates a new immutable-base
-checkout; modifications in the VM are reviewable via `git diff`.
+checkout; modifications on the work machine are reviewable via `git diff`.
 """
 from __future__ import annotations
 import hashlib
@@ -41,7 +41,7 @@ class ProjectWorkspaces:
         with runtime.store.lock:
             runtime.store.connection.execute('''CREATE TABLE IF NOT EXISTS hl_projects (
                 name TEXT PRIMARY KEY, host_path TEXT NOT NULL, spec_path TEXT,
-                vm_path TEXT, commit_hash TEXT, synced_at TEXT)''')
+                remote_path TEXT, commit_hash TEXT, synced_at TEXT)''')
             runtime.store.connection.commit()
 
     def _read(self, name):
@@ -92,7 +92,7 @@ class ProjectWorkspaces:
 
     def _ssh(self, shell_script):
         p=subprocess.run(self._remote()+['sh -c '+shlex.quote(shell_script)],text=True,capture_output=True,timeout=90)
-        if p.returncode:raise WorkspaceError('VM: '+p.stderr[-450:])
+        if p.returncode:raise WorkspaceError('Work machine: '+p.stderr[-450:])
         return p.stdout.strip()
 
     def sync(self,name):
@@ -106,7 +106,7 @@ class ProjectWorkspaces:
                 raise WorkspaceError('Host repository has uncommitted or untracked files; commit or clean before sync')
             commit=self._git(['rev-parse','HEAD'],root).strip()
             dest=workspace_dest(name, commit)
-            if project.get('vm_path')==dest:
+            if project.get('remote_path')==dest:
                 return project
             # Use Git bundle for a snapshot including history, without mounting host files.
             with tempfile.TemporaryDirectory(prefix='hermes-project-') as tmp:
@@ -114,8 +114,12 @@ class ProjectWorkspaces:
                 self._git(['bundle','create',str(bundle),'--all'],root)
                 remote_bundle=f'/tmp/hermes-project-{name}-{commit[:16]}.bundle'
                 # _ssh_base includes options followed by user@host; SCP needs host/key params separately.
+                # Reach the base adapter and fail as a clean WorkspaceError (409) when
+                # no SSH transport exists, instead of an unwrapped AttributeError (500).
                 adapter=self.runtime.adapter
                 while hasattr(adapter,'delegate'):adapter=adapter.delegate
+                if not all(hasattr(adapter,a) for a in ('user','host','port','identity_file')):
+                    raise WorkspaceError('Hermes SSH transport is unavailable')
                 host=f'{adapter.user}@{adapter.host}'
                 scp=['scp','-o','BatchMode=yes','-o','ConnectTimeout=12','-P',str(adapter.port or 22),'-i',str(adapter.identity_file),str(bundle),f'{host}:{remote_bundle}']
                 up=subprocess.run(scp,text=True,capture_output=True,timeout=120)
@@ -127,40 +131,40 @@ class ProjectWorkspaces:
                          f'rm -f {shlex.quote(remote_bundle)}')
                 self._ssh(command)
             with self.runtime.store.lock:
-                self.runtime.store.connection.execute('UPDATE hl_projects SET vm_path=?,commit_hash=?,synced_at=CURRENT_TIMESTAMP WHERE name=?',(dest,commit,name))
+                self.runtime.store.connection.execute('UPDATE hl_projects SET remote_path=?,commit_hash=?,synced_at=CURRENT_TIMESTAMP WHERE name=?',(dest,commit,name))
                 self.runtime.store.connection.commit()
             return self._read(name)
 
     def context(self,name,read_only=False):
         project=self._read(name)
-        if not project['vm_path']:
+        if not project['remote_path']:
             raise WorkspaceError('Project is not synchronized; POST /api/projects/'+name+'/sync first')
-        spec=(f"Project requirements: {project['vm_path']}/{project['spec_path']}\n" if project['spec_path'] else '')
+        spec=(f"Project requirements: {project['remote_path']}/{project['spec_path']}\n" if project['spec_path'] else '')
         # HL-AUTO-004: the workspace instruction must match the enforced scope.
         authority=('This is a READ-ONLY task: inspect this workspace and report evidence. '
                    'Do not modify it, install packages, or change system settings.\n'
                    if read_only else
-                   'Work ONLY inside this VM workspace. You may investigate, modify and run tests there. '
+                   'Work ONLY inside this work-machine workspace. You may investigate, modify and run tests there. '
                    'Do not modify host paths or apply/deploy results. Report changed files, verification results and remaining risks. '
                    'Edits are provisional until separately reviewed.\n')
         return ('[Hermes Life selected project workspace]\n'
-                f"Project: {name}\nWorkspace: {project['vm_path']}\n"
+                f"Project: {name}\nWorkspace: {project['remote_path']}\n"
                 f"Base commit: {project['commit_hash']}\n{spec}"
                 + authority +
                 '[/Project workspace]\n\n')
 
     def changes(self,name):
         p=self._read(name)
-        if not p['vm_path']:raise WorkspaceError('No synchronized workspace')
-        root=shlex.quote(p['vm_path'])
+        if not p['remote_path']:raise WorkspaceError('No synchronized workspace')
+        root=shlex.quote(p['remote_path'])
         # Binary patch output is bounded; untracked files are reported rather than silently omitted.
         script=(f'set -eu; cd {root}; echo ---GIT-STATUS---; '
                 f'git status --porcelain; echo ---GIT-DIFF---; '
                 f'git diff --binary HEAD; echo ---END-DIFF---')
 
         output=self._ssh(script)
-        if len(output)>500_000:raise WorkspaceError('Patch too large for API; review through Git in VM')
-        return {'project':name,'base_commit':p['commit_hash'],'workspace':p['vm_path'],'output':output}
+        if len(output)>500_000:raise WorkspaceError('Patch too large for API; review through Git on the work machine')
+        return {'project':name,'base_commit':p['commit_hash'],'workspace':p['remote_path'],'output':output}
 
 
 def add_project_routes(app, runtime, manager):
