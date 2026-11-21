@@ -90,6 +90,22 @@ async function pollTask(){if(!activeTask)return;try{const t=await request<Task>(
 async function renderFinished(){clearStream();await render(true);}
 function eventItem(e:Evt){if(e.task_id!==activeTask)return;if(e.sequence<=lastSeq)return;lastSeq=e.sequence;if(e.type==='hermes.text'){const delta=e.payload?.text;if(typeof delta==='string')streamBubble(e.task_id||'',delta);return;}const events=el('hc-events');const d=document.createElement('div');d.textContent=`${new Date(e.timestamp).toLocaleTimeString()} · ${e.type} · ${JSON.stringify(e.payload).slice(0,550)}`;events.append(d);while(events.childElementCount>120)events.firstElementChild?.remove();events.scrollTop=events.scrollHeight;if(e.type==='task.completed'||e.type==='task.failed'||e.type==='task.cancelled'){void pollTask()}else if(e.type==='task.started')state('Hermes is executing');}
 function connect(){socket?.close();const ws=new WebSocket(`${location.protocol==='https:'?'wss':'ws'}://${location.host}/ws/events?after=${lastSeq}`);socket=ws;ws.onmessage=ev=>{try{eventItem(JSON.parse(ev.data) as Evt)}catch{}};ws.onclose=()=>{if(socket===ws)setTimeout(connect,2500)};}
+// HL-CONV-001: Hermes Chat is the primary conversational surface. Any
+// workspace (Task Board, thread views) can request a hand-off here —
+// with the conversation to continue and optional prefill text. If only
+// a task_id is known, we resolve its conversation via /api/tasks/{id}.
+window.addEventListener('hermes:open-in-chat',(ev:Event)=>{
+  const d=((ev as CustomEvent<{conversation_id?:string;task_id?:string;prefill?:string}>).detail||{}) as {conversation_id?:string;task_id?:string;prefill?:string};
+  const open=async(convId:string|undefined)=>{
+    panel.hidden=false;clearStream();activeTask='';activeState='idle';
+    if(convId){conversationId=convId;localStorage.setItem(stored,convId);}
+    void render(true);void refreshThreads();
+    if(!socket||socket.readyState>1)connect();
+    if(d.prefill){const box=el('hc-input') as HTMLTextAreaElement;box.value=d.prefill;box.focus();feedback.textContent='Draft opened in Chat — review and press Send.';}
+  };
+  void open(d.conversation_id);
+  if(!d.conversation_id&&d.task_id){void request<Task&{conversation_id?:string}>(`/api/tasks/${encodeURIComponent(d.task_id)}`).then(t=>{if(t.conversation_id){conversationId=t.conversation_id;localStorage.setItem(stored,conversationId);clearStream();activeTask='';void render(true);void refreshThreads();}else{feedback.textContent='This task has no conversation thread yet.';}}).catch(e=>{feedback.textContent=String(e)});}
+});
 el('hc-toggle').onclick=()=>{panel.hidden=!panel.hidden;if(!panel.hidden){void render(true);void refreshThreads();if(!socket||socket.readyState>1)connect()}};
 el('hc-close').onclick=()=>panel.hidden=true;
 el('hc-new').onclick=()=>{if(activeTask&&['queued','running'].includes(activeState)){feedback.textContent='Finish the active task before starting another conversation.';return;}conversationId='';localStorage.removeItem(stored);activeTask='';pendingRevision=null;void render();state('New conversation')};

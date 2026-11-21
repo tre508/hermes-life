@@ -107,10 +107,20 @@ export function mountThread(opts: ThreadOptions) {
     const idPill = document.createElement('small');
     idPill.textContent = `${conv.conversation_id.slice(0, 8)} · ${turns.length} turn${turns.length === 1 ? '' : 's'} · ${groups.reduce((n, g) => n + g.callCount, 0)} tool call${groups.reduce((n, g) => n + g.callCount, 0) === 1 ? '' : 's'}`;
     head.append(idPill);
+    // HL-CONV-001: let the reader jump straight into the primary
+    // conversational surface — the floating Hermes Chat — on this thread.
+    const openInChat = document.createElement('button');
+    openInChat.type = 'button';
+    openInChat.className = 'conv-thread__open-chat';
+    openInChat.textContent = 'Open in Chat →';
+    openInChat.addEventListener('click', () => {
+      window.dispatchEvent(new CustomEvent('hermes:open-in-chat', { detail: { conversation_id: conv.conversation_id } }));
+    });
+    head.append(openInChat);
     host.append(head);
 
     if (!turns.length && !groups.length) {
-      host.append(makeHint('No turns yet. Use the composer below to start this thread.'));
+      host.append(makeHint('No turns yet. Use "Open in Chat →" to start this thread in Hermes Chat.'));
       return;
     }
 

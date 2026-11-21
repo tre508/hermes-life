@@ -111,6 +111,13 @@ class Autonomy:
                 enabled=self.store.connection.execute('SELECT enabled FROM autonomy_settings WHERE id=1').fetchone()['enabled']
                 if not enabled:return False
                 task=self.store.create_task(goal['prompt'])
+                # HL-CONV-001 gap 3: autonomous tasks get a conversation too,
+                # so conversation_for_task() resolves and the UI has a thread.
+                try:
+                    conv = self.runtime.conversations.add_user_turn(goal['prompt'], task_id=task['id'])
+                    task = dict(task); task['conversation_id'] = conv
+                except Exception as exc:
+                    self.store.emit('conversation.link_failed', {'error': str(exc)}, task['id'])
                 self.store.connection.execute("UPDATE goals SET state='running',task_id=?,updated_at=? WHERE id=?",(task['id'],now(),goal['id']))
                 self.store.connection.commit()
             self.store.emit('goal.selected',{'goal_id':goal['id'],'title':goal['title']},task['id'])

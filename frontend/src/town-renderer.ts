@@ -18,6 +18,7 @@ import type { Activity, LocationId, Role, TownState } from './town-model';
 import { ACTIVITY_WORDS } from './town-model';
 import { create3DRenderer } from './town-renderer-3d';
 import { createStaticRenderer } from './town-renderer-static';
+import { createV2Renderer } from './town-renderer-v2';
 
 export type RendererKind = '3d' | 'static';
 
@@ -97,10 +98,16 @@ export function supportsWebGL2(): boolean {
   }
 }
 
-/** Picks the 3D renderer when the client can run it, otherwise the static fallback. A failed WebGL
- *  probe is not an error — it is what selects the fallback (D4). */
+/** Picks the from-scratch v2 scene when the client can run it, then the previous
+ *  3D renderer, then the static fallback. A failed WebGL probe is not an error —
+ *  it is what selects the fallback (D4). */
 export function createTownRenderer(host: HTMLElement, opts: { motion: boolean }): TownRenderer {
   if (supportsWebGL2()) {
+    try {
+      return createV2Renderer(host, opts);
+    } catch (error) {
+      console.warn('town: v2 renderer unavailable, falling back', error);
+    }
     try {
       return create3DRenderer(host, opts);
     } catch (error) {

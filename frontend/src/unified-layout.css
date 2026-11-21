@@ -585,6 +585,49 @@
 #app .task-composer-host {
     flex: 0 0 auto;
 }
+/* HL-CONV-001: chat hand-off bar — replaces the duplicate Task Board
+ * composer. Replies go through Hermes Chat on the same thread. */
+#app .task-chat-handoff {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 10px 12px;
+    margin-top: 10px;
+    border: 1px solid #426574;
+    border-radius: 8px;
+    background: #10232c;
+}
+#app .task-chat-handoff__text {
+    font-size: 12px;
+    color: #a9d2be;
+}
+#app .task-chat-handoff__btn {
+    border: 1px solid #426574;
+    border-radius: 6px;
+    background: #0b1720;
+    color: #87e7ba;
+    padding: 6px 12px;
+    cursor: pointer;
+    white-space: nowrap;
+}
+#app .task-chat-handoff__btn:hover {
+    background: #42657433;
+}
+#app .task-chat-handoff__btn:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+}
+#app .conv-thread__open-chat {
+    border: 1px solid #426574;
+    border-radius: 6px;
+    background: transparent;
+    color: #87e7ba;
+    font-size: 11px;
+    padding: 3px 8px;
+    cursor: pointer;
+    margin-left: 8px;
+}
 /* Context column: own scroll so approval cards stay reachable without
    crushing the task content. */
 #app #workview-tasks .work-context {

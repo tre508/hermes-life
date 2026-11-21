@@ -18,7 +18,7 @@ import * as THREE from 'three';
 
 import { ROSTER } from '../town-model';
 import { DAIS, type StationPlan } from './layout';
-import { floorDecal } from './labels';
+import { floorDecal, textSprite } from './labels';
 import { buildShipRooms } from './ship-rooms';
 import type { Track } from './palette';
 import {
@@ -79,6 +79,15 @@ export function buildCommandCentre(b: Builders, plan: StationPlan, track: Track)
   status.position.set(0, 1.72, -1.0);
   node.add(status);
   node.add(frame);
+
+  // The facility's name, glowing above the status display — the hub's identity,
+  // matching the target's luminous centrepiece. A sign plate, not a holo ring:
+  // it sits behind the coordinator, clear of his nameplate and readout.
+  const holo = textSprite(track, 'HERMES', {
+    width: 3.0, colour: '#8ce8ff', signage: true, large: true,
+  });
+  holo.position.set(0, 2.72, -1.3);
+  node.add(holo);
 
   // A holographic ring used to hover here as the futuristic accent, but every height it could take
   // collided with the name plate or the task readout above the coordinator's head, so it is gone; the

@@ -42,6 +42,14 @@ export interface BubbleContent {
   taskId?: string;
   /** Event sequence number */
   sequence?: number;
+  /**
+   * Functional category of a tool call (research/testing/memory/review/
+   * planning/development). UI-VIS-007 §3: this describes WHAT KIND of work
+   * the tool performs, NOT which resident executed it — every `hermes.*`
+   * event is executed by Hermes the coordinator, so the bubble's role must
+   * never be inferred from the tool name.
+   */
+  functionalCategory?: string;
   /** Internal: streaming text fragment for accumulation (not persisted) */
   _streamFragment?: string;
 }
@@ -247,7 +255,11 @@ export function categorizeEvent(event: {
   if (type === 'hermes.tool_use') {
     const toolName = toolNameFrom(payload);
     const toolTarget = toolTargetFrom(payload);
-    const role = determineRoleForTool(toolName) || 'coordinator';
+    // §3: hermes.* events are executed by Hermes the coordinator. The tool
+    // name determines only the functional category (shown as a secondary
+    // tag), never the anchoring role.
+    const role: Role = 'coordinator';
+    const functionalCategory = determineFunctionalCategoryForTool(toolName);
     // tool_call_id ties the result back to this exact call so the matching
     // hermes.tool_result can update this bubble instead of stacking on top.
     const id = typeof payload.tool_call_id === 'string' ? payload.tool_call_id : undefined;
@@ -261,6 +273,7 @@ export function categorizeEvent(event: {
         details: toolTarget || undefined,
         toolName,
         toolTarget,
+        functionalCategory,
         status: 'running',
         startTime: now,
         taskId,
@@ -273,7 +286,10 @@ export function categorizeEvent(event: {
   if (type === 'hermes.tool_result') {
     const toolName = toolNameFrom(payload);
     const toolTarget = toolTargetFrom(payload);
-    const role = determineRoleForTool(toolName) || 'coordinator';
+    // §3: same rule as tool_use — role is always the coordinator; the tool
+    // name only classifies the functional category.
+    const role: Role = 'coordinator';
+    const functionalCategory = determineFunctionalCategoryForTool(toolName);
     const isError = payload.is_error === true || payload.error || payload.failed === true;
     const id = typeof payload.tool_call_id === 'string' ? payload.tool_call_id : undefined;
 
@@ -294,6 +310,7 @@ export function categorizeEvent(event: {
         details: resultSummary,
         toolName,
         toolTarget,
+        functionalCategory,
         status: isError ? 'failed' : 'completed',
         startTime: now,
         endTime: now,
@@ -522,38 +539,37 @@ function mergeContent(oldC: BubbleContent, fresh: BubbleContent): BubbleContent 
   return merged as unknown as BubbleContent;
 }
 
-function determineRoleForTool(toolName: string): Role | null {
+function determineFunctionalCategoryForTool(toolName: string): string | undefined {
   const lower = (toolName || '').toLowerCase();
 
-  // Research tools → Sage
+  // Research tools → research
   if (/read_file|read_file|grep|glob|search|docs?|web|browse|fetch|arxiv|source|study|^cat$|^ls$|find|read_\b/.test(lower)) {
-    return 'researcher';
+    return 'research';
   }
-  // Test tools → Patch (before dev: `verify_build` is verification, not a build)
+  // Test tools → testing (before dev: `verify_build` is verification, not a build)
   if (/pytest|^test|verify|evaluate|benchmark|ctest|check|^lint/.test(lower)) {
-    return 'tester';
+    return 'testing';
   }
-  // Memory tools → Echo
+  // Memory tools → memory
   if (/memory|recall|vault|reflect|personality|lesson|archive|^note/.test(lower)) {
-    return 'archivist';
+    return 'memory';
   }
-  // Review / approval tools → Vale (spec §3: code review, candidate
-  // evaluation, approval status). Before planning so `approve_plan`
-  // routes to the reviewer, not the planner.
+  // Review / approval tools → review. Before planning so `approve_plan`
+  // classifies as review, not planning.
   if (/review|approve|reject/.test(lower)) {
-    return 'reviewer';
+    return 'review';
   }
-  // Planning tools → Piper. Before dev so `compile_criteria` (plan
-  // preparation) stays with Piper rather than Forge's `compile`.
+  // Planning tools → planning. Before dev so `compile_criteria` (plan
+  // preparation) stays planning rather than development's `compile`.
   if (/plan|goal|formulate|criteria/.test(lower)) {
-    return 'planner';
+    return 'planning';
   }
-  // Development tools → Forge
+  // Development tools → development
   if (/write_file|edit|patch(\b|$)|apply|git|compile|build|make|npm|cargo|revision|write_|create/.test(lower)) {
-    return 'builder';
+    return 'development';
   }
 
-  return null;
+  return undefined;
 }
 
 function mapWorkflowEventToRole(type: string): Role | null {
@@ -918,6 +934,10 @@ export class BubbleController {
     parts.push(`<span class="town-bubble__icon" aria-hidden="true">${icon}</span>`);
     parts.push(`<span class="town-bubble__role" title="${this.escapeHtml(roleTitle)}">${this.escapeHtml(roleLabel)}</span>`);
     parts.push(`<span class="town-bubble__category">${this.getCategoryLabel(bubble.category)}</span>`);
+    // §3 functional category: a secondary tag describing the KIND of work
+    // (e.g. "development"), never a resident identity. Populated in
+    // updateBubbleElement because a tool_result merge can add it later.
+    parts.push('<span class="town-bubble__functional" hidden></span>');
     parts.push('</div>');
     parts.push('<div class="town-bubble__content">');
     parts.push(`<span class="town-bubble__headline"></span>`);
@@ -973,6 +993,19 @@ export class BubbleController {
     element.className = `town-bubble town-bubble--${bubble.category} town-bubble--${bubble.role}`;
     element.dataset.category = bubble.category;
 
+    // §3: show the functional category tag when present, hide otherwise
+    // (the span always exists in the DOM; only its content/visibility vary).
+    const functional = element.querySelector('.town-bubble__functional') as HTMLElement | null;
+    if (functional) {
+      if (bubble.content.functionalCategory) {
+        functional.textContent = bubble.content.functionalCategory;
+        functional.hidden = false;
+      } else {
+        functional.hidden = true;
+        functional.textContent = '';
+      }
+    }
+
     const headline = element.querySelector('.town-bubble__headline');
     if (headline) headline.textContent = bubble.content.headline;
 
@@ -1027,8 +1060,9 @@ export class BubbleController {
       times.hidden = !bubble.expanded;
     }
 
-    // Update accent color — role can change when the same id (tool_call_id)
-    // is updated by a `coordinator` tool_use to a role-specific bubble.
+    // Update accent color — for hermes.* tool events the role is always the
+    // coordinator (§3), so the accent stays Hermes's teal across the
+    // tool_use → tool_result merge.
     element.style.setProperty('--bubble-accent', ROSTER[bubble.role].accent);
   }
 

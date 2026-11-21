@@ -24,7 +24,7 @@ export interface ShipArtKit {
 }
 
 /** Deterministic, shared exterior texture. No network image requests. */
-function exteriorTexture(track: Track): THREE.CanvasTexture {
+export function exteriorTexture(track: Track): THREE.CanvasTexture {
   const canvas = document.createElement('canvas');
   canvas.width = 512;
   canvas.height = 256;

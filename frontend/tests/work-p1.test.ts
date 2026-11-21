@@ -1,129 +1,55 @@
 /**
- * P1 — Work layout / composer state machine tests.
+ * P1 — Work workspace wiring tests.
  *
- * `composerCopyFor()` is a pure function so it can run in node:test
- * directly. Browser-harness verification covers the DOM-level wiring
- * (data-mode, textarea placeholder, inline approval card fetch).
+ * HL-CONV-001 removed the duplicate Task Board composer (Chat is the
+ * single conversational surface), so the composer state machine tests
+ * became a stale duplicate of removed logic. They are replaced by
+ * static-source checks that the shipped modules implement the hand-off:
+ * no composer in Work, `hermes:open-in-chat` wired in Chat, and the
+ * thread view offering the same jump.
  */
 import { test, describe } from 'node:test';
 import assert from 'node:assert';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { dirname, join } from 'node:path';
 
-type ComposerMode = 'new' | 'followup' | 'approval' | 'failed' | 'completed';
-interface ComposerCopy { label: string; placeholder: string; hint: string; submit: string; mode: ComposerMode; }
+const here = dirname(fileURLToPath(import.meta.url));
+const work = readFileSync(join(here, '../src/work-workspace.ts'), 'utf8');
+const chat = readFileSync(join(here, '../src/hermes-chat.ts'), 'utf8');
+const thread = readFileSync(join(here, '../src/conv-thread.ts'), 'utf8');
 
-declare global {
-  // eslint-disable-next-line no-var
-  var runComposerCopy: undefined | undefined;
-}
-
-// Inline copy of the production copy function (kept here for unit
-// testing without pulling the full DOM-bound module). The P1 changes
-// derive from the active task state; if the function shape changes
-// upstream the test will break loudly.
-function composerCopyFor(args: {
-  state: string;
-  hasConversation: boolean;
-  awaitingApproval: boolean;
-}): ComposerCopy {
-  const failed = args.state.toLowerCase() === 'failed';
-  const completed = args.state.toLowerCase() === 'completed';
-  if (failed) {
-    return {
-      mode: 'failed',
-      label: 'Try a different angle',
-      placeholder: 'Hermes was unable to complete this. Describe what should be tried differently.',
-      hint: 'Failed tasks benefit from a deliberately different prompt — new constraints, narrowed scope, or a workaround.',
-      submit: 'Send retry',
-    };
-  }
-  if (args.awaitingApproval) {
-    return {
-      mode: 'approval',
-      label: 'Add a note before approving',
-      placeholder: 'Optional: tell Hermes any caveats to record with the approval (constraints, follow-ups, scope)…',
-      hint: 'The approval action lives on the right. Submit unless you only want to comment.',
-      submit: 'Record note',
-    };
-  }
-  if (completed && args.hasConversation) {
-    return {
-      mode: 'completed',
-      label: 'Ask about this result or request additional work',
-      placeholder: 'Ask a follow-up question, request an additional investigation, or describe next steps…',
-      hint: 'The result is in. Continuing here keeps the original prompt, evidence, and answer in one thread.',
-      submit: 'Send follow-up',
-    };
-  }
-  if (args.hasConversation) {
-    return {
-      mode: 'followup',
-      label: 'Reply in conversation',
-      placeholder: 'Reply to Hermes or request more work…',
-      hint: 'Drafts are kept across navigation — clear is only after the message is accepted.',
-      submit: 'Send follow-up',
-    };
-  }
-  return {
-    mode: 'new',
-    label: 'Send to Hermes',
-    placeholder: 'Give Hermes a task or ask a question…',
-    hint: 'This starts a new conversation. Replies and follow-ups stay in the same thread.',
-    submit: 'Send to Hermes',
-  };
-}
-
-describe('P1 composer state machine', () => {
-  test('mode "new" when no conversation', () => {
-    const copy = composerCopyFor({ state: 'queued', hasConversation: false, awaitingApproval: false });
-    assert.strictEqual(copy.mode, 'new');
-    assert.strictEqual(copy.submit, 'Send to Hermes');
+describe('HL-CONV-001 — single conversation surface', () => {
+  test('Work no longer mounts a duplicate conversation composer', () => {
+    assert.doesNotMatch(work, /buildComposerShell|task-detail-composer-text|mountComposer/);
+    assert.match(work, /buildChatHandoff/);
   });
 
-  test('mode "followup" when there is an active conversation', () => {
-    const copy = composerCopyFor({ state: 'running', hasConversation: true, awaitingApproval: false });
-    assert.strictEqual(copy.mode, 'followup');
-    assert.strictEqual(copy.submit, 'Send follow-up');
-    assert.match(copy.label, /conversation/i);
+  test('Work hand-off dispatches hermes:open-in-chat with the task conversation', () => {
+    assert.match(work, /hermes:open-in-chat/);
+    assert.match(work, /conversation_id:\s*convId/);
   });
 
-  test('mode "approval" when next_action routes through approve', () => {
-    const copy = composerCopyFor({ state: 'completed', hasConversation: true, awaitingApproval: true });
-    assert.strictEqual(copy.mode, 'approval');
-    assert.strictEqual(copy.submit, 'Record note');
-    assert.match(copy.placeholder, /caveats|constraints|optional/i);
+  test('Chat listens for hermes:open-in-chat and resolves task_id via /api/tasks', () => {
+    assert.match(chat, /addEventListener\('hermes:open-in-chat'/);
+    assert.match(chat, /\/api\/tasks\/\$\{encodeURIComponent\(d\.task_id\)\}/);
   });
 
-  test('mode "completed" when task is complete and a conversation exists', () => {
-    const copy = composerCopyFor({ state: 'completed', hasConversation: true, awaitingApproval: false });
-    assert.strictEqual(copy.mode, 'completed');
-    assert.strictEqual(copy.submit, 'Send follow-up');
-    assert.match(copy.label, /ask about|request additional/i);
+  test('Chat prefill routes drafts into the chat input, never a local composer', () => {
+    assert.match(chat, /d\.prefill/);
+    assert.match(work, /prefillComposer/);
+    // prefillComposer must dispatch the event, not a Work textarea.
+    assert.match(work, /function prefillComposer\(prompt: string\) \{\s*const detail/);
   });
 
-  test('mode "failed" overrides everything', () => {
-    const copy = composerCopyFor({ state: 'failed', hasConversation: true, awaitingApproval: true });
-    assert.strictEqual(copy.mode, 'failed');
-    assert.strictEqual(copy.submit, 'Send retry');
-    assert.match(copy.label, /try a different angle/i);
+  test('thread view offers Open in Chat on the same conversation_id', () => {
+    assert.match(thread, /conv-thread__open-chat/);
+    assert.match(thread, /conversation_id: conv\.conversation_id/);
   });
 
-  test('no overlapping modes: every (state, hasConversation, awaitingApproval) tuple maps to one mode', () => {
-    const cases: Array<[string, boolean, boolean]> = [
-      ['queued', false, false],
-      ['queued', true, false],
-      ['running', true, false],
-      ['completed', false, false],
-      ['completed', true, false],
-      ['completed', true, true],
-      ['failed', true, true],
-      ['cancelled', false, false],
-    ];
-    const seen = new Set<string>();
-    for (const [state, has, awaiting] of cases) {
-      const m = composerCopyFor({ state, hasConversation: has, awaitingApproval: awaiting }).mode;
-      seen.add(m);
-    }
-    assert.ok(seen.size >= 4, `expected at least 4 distinct modes across cases, got: ${[...seen].join(', ')}`);
+  test('autonomous tasks get a conversation turn (backend)', () => {
+    const autonomy = readFileSync(join(here, '../../hermes_life/autonomy.py'), 'utf8');
+    assert.match(autonomy, /conversations\.add_user_turn\(goal\['prompt'\], task_id=task\['id'\]\)/);
   });
 });
 

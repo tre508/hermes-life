@@ -133,8 +133,12 @@ class StudyService:
     def get_next_queuable_unit(self, source_id: int) -> Optional[StudyUnit]:
         """Get the next unit that should be queued (HL-STUDY-002: no double enqueue after restart).
 
-        Returns the first unit in ordinal order that is 'not_queued' and has no goal_id,
-        or 'queued'/'running' but the linked goal is terminal (completed/failed).
+        Returns the first 'not_queued' unit in ordinal order. A 'queued'/'running' unit whose
+        linked goal is terminal is reconciled here: a completed goal FINALIZES the unit (that
+        goal already did the work), a failed/cancelled goal marks it failed. Finalizing is
+        essential — the completion callback mark_unit_completed has no caller, so without this
+        reconciliation the scan would return the same finished unit on every tick and the
+        scheduler would re-run it in an unbounded loop.
         """
         with self.store.lock:
             rows = self.store.connection.execute(
@@ -153,7 +157,8 @@ class StudyService:
                     goal_state = goal['state']
                     if goal_state in ('completed', 'failed', 'cancelled'):
                         if goal_state == 'completed':
-                            return unit
+                            self.mark_unit_completed(unit.id, unit.report_path, unit.checks_path)
+                            continue
                         elif goal_state in ('failed', 'cancelled'):
                             self._mark_unit_failed(unit.id, f'Goal {unit.goal_id} {goal_state}')
                             continue
@@ -186,7 +191,7 @@ class StudyService:
             self.store.connection.commit()
         return self.get_unit(unit_id)
 
-    def mark_unit_completed(self, unit_id: int, report_path: str, checks_path: str) -> Optional[StudyUnit]:
+    def mark_unit_completed(self, unit_id: int, report_path: Optional[str], checks_path: Optional[str]) -> Optional[StudyUnit]:
         """Mark a unit as completed with evidence paths."""
         stamp = now()
         with self.store.lock:

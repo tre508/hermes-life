@@ -21,16 +21,8 @@
  * No scrollIntoView for navigation.
  */
 import { type LifeStage, type Chain, type TaskRec } from './task-lifecycle.ts';
-import { mountComposer, type ComposerOptions } from './conv-composer.ts';
 import { mountThread, type Turn } from './conv-thread.ts';
 import { openWorkView, openTask, openActivityForTask, onNavigationChange, getCurrentWorkView, registerTaskValidator } from './navigation-state.ts';
-
-/** Composer copy + accent derive from the active task's chain state.
- *  Same composer DOM element is reused; we just re-render the label,
- *  hint, and textarea placeholder — and stamp `data-mode` on the
- *  container so CSS picks the right accent. */
-type ComposerMode = 'new' | 'followup' | 'approval' | 'failed' | 'completed';
-interface ComposerCopy { label: string; placeholder: string; hint: string; submit: string; mode: ComposerMode; }
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string): T | null => document.getElementById(id) as T | null;
 const str = (v: unknown): string => (typeof v === 'string' ? v : v == null ? '' : String(v));
@@ -45,12 +37,15 @@ let chainByTask: ChainMap = {};
 let selectedId: string | null = null;
 let currentStages: LifeStage[] = [];
 
-// Composer + thread handles per task selection. Rebuilt when selection changes.
+// Thread handle per task selection. Rebuilt when selection changes.
 type ConvHandles = {
-    composer: ReturnType<typeof mountComposer>;
     thread: ReturnType<typeof mountThread> | null;
 };
 let convHandles: ConvHandles | null = null;
+
+// The conversation bound to the currently rendered task — used by the
+// "Open in Chat" hand-off so the floating chat continues THIS thread.
+let selectedConversationId: string | null = null;
 
 // Track the currently rendered task's identity to avoid unnecessary rebuilds
 let renderedTaskId: string | null = null;
@@ -73,6 +68,7 @@ async function api(path: string): Promise<{ [k: string]: unknown } | unknown[]> 
 function showTaskNotFound(id: string) {
     renderedTaskId = null;
     renderedConversationId = null;
+    selectedConversationId = null;
     if (convHandles) {
         try { convHandles.thread?.dispose(); } catch { /* noop */ }
         convHandles = null;
@@ -177,6 +173,7 @@ function backToList() {
     selectedId = null;
     renderedTaskId = null;
     renderedConversationId = null;
+    selectedConversationId = null;
     const list = $('task-list-container'), detail = $('task-detail-container');
     const center = document.getElementById('app');
     const empty = $('task-center-empty');
@@ -292,7 +289,7 @@ function reconcileDetail(id: string) {
     renderedConversationId = convId;
 }
 
-/** Update only dynamic parts of the detail view (action panel, context) without rebuilding thread/composer. */
+/** Update only dynamic parts of the detail view (action panel, context) without rebuilding the thread. */
 function updateDynamicParts(t: TaskRec, c: Chain | null) {
     // Update action panel
     const actionPanelHost = $('task-detail-container')?.querySelector('.task-actions');
@@ -300,10 +297,9 @@ function updateDynamicParts(t: TaskRec, c: Chain | null) {
         actionPanelHost.replaceChildren(renderActionPanel(t, c));
     }
 
-    // Update composer copy (label, placeholder, submit text, mode)
-    const copy = composerCopyFor(t, c);
-    applyComposerCopy(copy);
-    markComposerMode(copy.mode);
+    // Update the chat hand-off bar (label text reflects the thread).
+    const bar = $('task-detail-container')?.querySelector('.task-chat-handoff');
+    if (bar instanceof HTMLElement) updateChatHandoffCopy(bar, t);
 
     // Update context panel
     renderContext(str(t.id));
@@ -344,16 +340,13 @@ function renderDetail(id: string) {
     shell.append(threadHost);
 
     const composerHost = node('div', '', 'task-composer-host');
-    composerHost.append(buildComposerShell());
+    composerHost.append(buildChatHandoff(cId));
     shell.append(composerHost);
 
     host.append(shell);
 
-    const copy = composerCopyFor(t, c);
-    applyComposerCopy(copy);
-    markComposerMode(copy.mode);
-
     const convId = cId || null;
+    selectedConversationId = convId;
     if (convId) {
         const thread = mountThread({
             host: threadHost,
@@ -361,115 +354,44 @@ function renderDetail(id: string) {
             getFilterTaskId: () => String(t.id),
             onTaskClick: (otherId) => { void selectTask(otherId); },
         });
-        const composerOpts: ComposerOptions = composerOptsFor(convId, copy);
-        convHandles = { composer: mountComposer(composerOpts), thread };
+        convHandles = { thread };
     } else {
-        const composerOpts: ComposerOptions = composerOptsFor(null, copy);
-        convHandles = { composer: mountComposer(composerOpts), thread: null };
+        convHandles = { thread: null };
     }
 
     renderedTaskId = id;
     renderedConversationId = convId;
 }
 
-/** Compute the composer's label/placeholder/hint and which accent
- *  variant applies. */
-function composerCopyFor(t: TaskRec, c: Chain | null): ComposerCopy {
-    const cId = t.conversation_id ? String(t.conversation_id) : '';
-    const next = c ? String(c.next_action || '') : '';
-    const stage = c ? String(c.stage || '') : '';
-    const failed = String(t.state || '').toLowerCase() === 'failed';
-    const completed = String(t.state || '').toLowerCase() === 'completed';
-    const awaitingApproval = next.includes('approve') || next.includes('review');
-    if (failed) {
-        return {
-            mode: 'failed',
-            label: 'Try a different angle',
-            placeholder: 'Hermes was unable to complete this. Describe what should be tried differently.',
-            hint: 'Failed tasks benefit from a deliberately different prompt — new constraints, narrowed scope, or a workaround.',
-            submit: 'Send retry',
-        };
-    }
-    if (awaitingApproval) {
-        return {
-            mode: 'approval',
-            label: 'Add a note before approving',
-            placeholder: 'Optional: tell Hermes any caveats to record with the approval (constraints, follow-ups, scope)…',
-            hint: 'The approval action lives on the right. Submit unless you only want to comment.',
-            submit: 'Record note',
-        };
-    }
-    if (completed && cId) {
-        return {
-            mode: 'completed',
-            label: 'Ask about this result or request additional work',
-            placeholder: 'Ask a follow-up question, request an additional investigation, or describe next steps…',
-            hint: 'The result is in. Continuing here keeps the original prompt, evidence, and answer in one thread.',
-            submit: 'Send follow-up',
-        };
-    }
-    if (cId) {
-        return {
-            mode: 'followup',
-            label: 'Reply in conversation',
-            placeholder: 'Reply to Hermes or request more work…',
-            hint: 'Drafts are kept across navigation — clear is only after the message is accepted.',
-            submit: 'Send follow-up',
-        };
-    }
-    return {
-        mode: 'new',
-        label: 'Send to Hermes',
-        placeholder: 'Give Hermes a task or ask a question…',
-        hint: 'This starts a new conversation. Replies and follow-ups stay in the same thread.',
-        submit: 'Send to Hermes',
-    };
+/** HL-CONV-001: the Task Board no longer hosts a duplicate conversation
+ *  composer — Hermes Chat is the single conversational surface. This
+ *  hand-off bar routes replies INTO the same thread in Chat. */
+function buildChatHandoff(convId: string): HTMLElement {
+    const wrap = node('div', '', 'task-chat-handoff');
+    wrap.dataset.hasConversation = convId ? 'true' : 'false';
+    const copy = node('span', '', 'task-chat-handoff__text');
+    const btn = node('button', 'Open in Chat →', 'task-chat-handoff__btn') as HTMLButtonElement;
+    btn.type = 'button';
+    btn.addEventListener('click', () => {
+        const detail: { conversation_id?: string; task_id: string; prefill?: string } = { task_id: String(selectedId || '') };
+        if (convId) detail.conversation_id = convId;
+        window.dispatchEvent(new CustomEvent('hermes:open-in-chat', { detail }));
+    });
+    wrap.append(copy, btn);
+    updateChatHandoffCopy(wrap, null, convId);
+    return wrap;
 }
 
-/** Repaint the visible composer label, hint, placeholder, and submit
- *  button text. Called whenever the active task changes. */
-function applyComposerCopy(copy: ComposerCopy) {
-    const wrap = $('task-detail-composer');
-    const label = wrap?.querySelector<HTMLElement>('.task-composer__label-text');
-    if (label) label.textContent = copy.label;
-    const hint = wrap?.querySelector<HTMLElement>('.task-composer__label-hint');
-    if (hint) hint.textContent = copy.hint;
-    const ta = $<HTMLTextAreaElement>('task-detail-composer-text');
-    if (ta) ta.placeholder = copy.placeholder;
-    const btn = $<HTMLButtonElement>('task-detail-composer-submit');
-    if (btn) btn.textContent = copy.submit;
-}
-
-function markComposerMode(mode: ComposerMode) {
-    const wrap = $('task-detail-composer');
-    if (!wrap) return;
-    wrap.dataset.mode = mode;
-}
-
-function composerOptsFor(convId: string | null, copy: ComposerCopy): ComposerOptions {
-    const ta = $('task-detail-composer-text') as HTMLTextAreaElement | null;
-    const btn = $('task-detail-composer-submit') as HTMLButtonElement | null;
-    if (!ta || !btn) throw new Error('Composer shell was not mounted into the DOM.');
-    return {
-        textarea: ta,
-        submitButton: btn,
-        counter: $('task-detail-composer-count') || undefined,
-        feedback: $('task-detail-composer-feedback') || undefined,
-        getConversationId: () => convId,
-        submit: async (prompt) => {
-            const payload: { prompt: string; conversation_id?: string } = { prompt };
-            if (convId) payload.conversation_id = convId;
-            const res = await fetch('/api/tasks', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(payload),
-            });
-            if (!res.ok) throw new Error(`HTTP ${res.status}`);
-            const body = await res.json();
-            void loadData();
-            return { task_id: String(body.id || ''), conversation_id: body.conversation_id ? String(body.conversation_id) : convId };
-        },
-    };
+function updateChatHandoffCopy(bar: HTMLElement, t: TaskRec | null, convIdOverride?: string) {
+    const copy = bar.querySelector<HTMLElement>('.task-chat-handoff__text');
+    if (!copy) return;
+    const has = (t ? (t.conversation_id ? String(t.conversation_id) : '') : (convIdOverride || '')) !== '';
+    const btn = bar.querySelector<HTMLButtonElement>('.task-chat-handoff__btn');
+    bar.dataset.hasConversation = String(has);
+    copy.textContent = has
+        ? 'Replies live in Chat — the same conversation this task belongs to.'
+        : 'This task has no conversation thread yet. Open in Chat to start it.';
+    if (btn) btn.disabled = !has && !(t?.id || selectedId);
 }
 
 /** Compose the actionable next-action panel from the task's chain.
@@ -553,34 +475,7 @@ function renderActionPanel(t: TaskRec, c: Chain | null): HTMLElement {
     return panel;
 }
 
-function buildComposerShell(): HTMLElement {
-    const wrap = node('div', '', 'task-composer');
-    const label = document.createElement('label');
-    label.className = 'task-composer__label';
-    label.htmlFor = 'task-detail-composer-text';
-    const title = node('span', 'Reply in conversation', 'task-composer__label-text');
-    label.append(title);
-    const hint = node('small', 'Drafts are kept across navigation — clear is only after the message is accepted.', 'task-composer__label-hint');
-    label.append(hint);
-    const feedback = node('p', '', 'task-composer__feedback');
-    feedback.id = 'task-detail-composer-feedback';
-    feedback.dataset.kind = '';
-    const count = node('small', '0', 'task-composer__count');
-    count.id = 'task-detail-composer-count';
-    const textarea = document.createElement('textarea');
-    textarea.id = 'task-detail-composer-text';
-    textarea.rows = 3;
-    textarea.placeholder = 'Reply to Hermes or request more work…';
-    const row = node('div', '', 'task-composer__row');
-    const submit = document.createElement('button');
-    submit.type = 'button';
-    submit.id = 'task-detail-composer-submit';
-    submit.textContent = 'Send to Hermes';
-    submit.className = 'task-composer__submit';
-    row.append(count, submit);
-    wrap.append(label, feedback, textarea, row);
-    return wrap;
-}
+
 
 async function postPlanApproval(planId: string) {
     try {
@@ -597,17 +492,16 @@ function openActivityFiltered(taskId: string) {
     openActivityForTask(taskId);
 }
 
-/** Pre-fill the composer with a pre-canned follow-up prompt and focus it.
- *  The caller clicks "Discuss findings" or "Try a different angle" from
- *  the action panel; the composer remains the single place the user
- *  writes — we just seed it. */
+/** Pre-fill a pre-canned follow-up prompt in Hermes Chat instead of a
+ *  local composer (HL-CONV-001): Chat is the single place the user
+ *  writes. Opens Chat on this task's conversation with the draft. */
 function prefillComposer(prompt: string) {
-    const ta = $<HTMLTextAreaElement>('task-detail-composer-text');
-    if (!ta) return;
-    ta.value = prompt;
-    ta.focus();
-    const pos = prompt.length;
-    ta.setSelectionRange(pos, pos);
+    const detail: { conversation_id?: string; task_id: string; prefill: string } = {
+        task_id: String(selectedId || ''),
+        prefill: prompt,
+    };
+    if (selectedConversationId) detail.conversation_id = selectedConversationId;
+    window.dispatchEvent(new CustomEvent('hermes:open-in-chat', { detail }));
 }
 
 /** Actionable-investigation-results CTA: build a specific follow-up
@@ -824,16 +718,9 @@ async function postApprove(planId: string, okBtn: HTMLButtonElement, fixBtn: HTM
 }
 
 function prefillComposerForPlanChanges(planId: string, feedback: HTMLElement) {
-    feedback.textContent = `Composer pre-filled with caveats for ${planId.slice(0, 8)}.`;
+    feedback.textContent = `Chat opened with caveats for ${planId.slice(0, 8)} — review and press Send.`;
     feedback.dataset.kind = '';
-    const ta = $<HTMLTextAreaElement>('task-detail-composer-text');
-    if (ta) {
-        ta.value = `Please revise plan ${planId} before approval. Concerns: `;
-        ta.focus();
-        // Put the caret at the end after "Concerns: ".
-        const pos = ta.value.length;
-        ta.setSelectionRange(pos, pos);
-    }
+    prefillComposer(`Please revise plan ${planId} before approval. Concerns: `);
 }
 
 function buildRunCard(t: TaskRec, c: Chain | null): HTMLElement {

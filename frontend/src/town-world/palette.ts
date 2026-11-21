@@ -6,9 +6,10 @@
  * "the objective is meaningful variation in materials and surfaces", not increased saturation on the
  * same grey boxes. So this module defines:
  *
- *   1. a **coordinated palette** — warm stone flooring, warm off-white panelling, slate-blue structure,
- *      walnut and brushed aluminium furniture, painted metal cabinets, fabric seating, blue-green
- *      glazing and near-black technology — instead of one family of greys;
+ *   1. a **coordinated palette** — dark gunmetal flooring and panelling, steel trim, glowing cyan
+ *      accent lines, saturated per-department tones, walnut and brushed aluminium furniture,
+ *      painted metal cabinets, fabric seating, blue-green glazing and near-black technology —
+ *      instead of one family of greys;
  *   2. **procedural textures**, drawn once into small canvases at startup and shared: floor tiling,
  *      plaster speckle, wood grain, fabric weave, brushed metal, and a workstation interface. They are
  *      cached by (kind, repeat, tone) so a surface never gets a private copy;
@@ -24,18 +25,20 @@ import * as THREE from 'three';
 import { ROSTER, type Role } from '../town-model';
 
 export const PALETTE = {
-  // --- architecture: warm stone, warm off-white, slate structure, charcoal trim --------------------
-  floor: 0x8f8779,
-  floorJoint: 0x6d6659,
-  floorZone: 0x9c9486,
-  plaza: 0xa89f8f,
-  floorLine: 0xe0cfa6,
-  kerb: 0x5a554c,
-  wall: 0x9a9283,
-  wallPanel: 0xb1b5ad,
-  wallTrim: 0xd8d0bf,
-  wallDetail: 0x354956,
-  slate: 0x446374,
+  // --- architecture: dark gunmetal deck, steel panelling, cyan accent lines, charcoal trim ---------
+  // Restyled to the Phase-4 art direction: a dark starship hull with glowing blue-green channels,
+  // lit interiors and steel trim. Furniture stays warm (walnut/aluminium) for contrast.
+  floor: 0x2e3640,
+  floorJoint: 0x1d242c,
+  floorZone: 0x27313a,
+  plaza: 0x232b33,
+  floorLine: 0xff8a4a,
+  kerb: 0x141a20,
+  wall: 0x333d47,
+  wallPanel: 0x26303a,
+  wallTrim: 0x8fa4b4,
+  wallDetail: 0x182028,
+  slate: 0x1a222b,
 
   // --- furniture: walnut, brushed aluminium, painted metal, fabric ---------------------------------
   wood: 0x8a6238,
@@ -76,14 +79,14 @@ export type Track = <T extends { dispose(): void }>(resource: T) => T;
  */
 export const KIT: Readonly<Record<Role, { floor: number; body: number; panel: number }>> = Object.freeze({
   // Purposeful department identities, not seven slightly different gray/beige desks.
-  // Floors are muted textiles/rubber overlays; storage and acoustic panels pick up the same family.
-  coordinator: { floor: 0x617984, body: 0x345866, panel: 0x31515c }, // teal command
-  researcher: { floor: 0x73917c, body: 0x55745d, panel: 0x486b59 }, // sage green research
-  planner: { floor: 0x8d80a5, body: 0x655a8b, panel: 0x62547b }, // lavender strategy
-  builder: { floor: 0xb68a69, body: 0x906243, panel: 0x825635 }, // copper development
-  tester: { floor: 0x9da17b, body: 0x747a4f, panel: 0x626b41 }, // olive verification
-  archivist: { floor: 0x9d8b73, body: 0x755943, panel: 0x6e5341 }, // walnut archive
-  reviewer: { floor: 0x76a293, body: 0x477765, panel: 0x3f6758 }, // jade review
+  // Deep, saturated tones on the dark hull: each area is lit from its own hue.
+  coordinator: { floor: 0x114a5c, body: 0x0d3a49, panel: 0x0a3140 }, // teal command
+  researcher: { floor: 0x24523a, body: 0x1c4230, panel: 0x173728 }, // emerald research
+  planner: { floor: 0x4a3d72, body: 0x39305a, panel: 0x2f284a }, // violet strategy
+  builder: { floor: 0x7a4426, body: 0x62361e, panel: 0x522d18 }, // copper development
+  tester: { floor: 0x55602e, body: 0x414a22, panel: 0x343b1b }, // chartreuse verification
+  archivist: { floor: 0x5c4030, body: 0x473023, panel: 0x3a261c }, // oxblood archive
+  reviewer: { floor: 0x1f5a4a, body: 0x18443a, panel: 0x133730 }, // jade review
 });
 
 // ---------------------------------------------------------------------------------- procedural texture

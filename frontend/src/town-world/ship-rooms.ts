@@ -10,7 +10,7 @@ import * as THREE from 'three';
 import type { Role } from '../town-model';
 import type { Builders } from './props';
 import type { Track } from './palette';
-import { floorDecal } from './labels';
+import { textSprite } from './labels';
 import { buildRoomArt, createShipArtKit, decorateShipCorridor, type ShipArtKit } from './ship-art';
 
 export type PhysicalRoomId =
@@ -105,12 +105,26 @@ function roomArchitecture(b: Builders, room: PhysicalRoom, track: Track, art: Sh
     // lighting cheap on integrated graphics.
     addBox(b, node, b.m.led, 0.12, 0.22, thickness + 0.09, sign * (opening / 2 + 0.05), 0.16, halfD);
   }
+  // A lit orange edge along every wall top — the target's trim language, which
+  // outlines the whole floor plan from above.
+  addBox(b, node, art.warm, room.width - 0.2, 0.045, 0.18, 0, tall + 0.02, -halfD);
+  for (const side of [-1, 1]) {
+    const h = side < 0 ? tall : low;
+    addBox(b, node, art.warm, 0.18, 0.045, room.depth - 0.3, side * halfW, h + 0.02, 0);
+  }
   // Entry threshold visibly connects room to corridor.
   addBox(b, node, b.m.wallTrim, opening, 0.035, 0.48, 0, 0.035, halfD + 0.12);
 
   // Unambiguous room identity independent of the seven backend station signs.
-  const label = floorDecal(track, room.label, '#9adff0', Math.min(room.width - 0.9, 3.6));
-  label.position.set(0, 0.045, halfD - 0.68);
+  // A pill-shaped signage plate centred on the room's bottom edge — the target
+  // mock puts every label there, warm cream text on an orange-bordered plate.
+  const label = textSprite(track, room.label, {
+    width: Math.min(room.width * 0.5, 3.2),
+    colour: '#f5c896',
+    signage: true,
+    large: true,
+  });
+  label.position.set(0, 0.85, halfD + 0.75);
   node.add(label);
 
   // Exterior window / sci-fi visor on the far wall. This is a static
@@ -136,8 +150,10 @@ function corridor(b: Builders, from: PhysicalRoom, to: PhysicalRoom, art: ShipAr
   addBox(b, node, b.m.floor, width, 0.018, distance, 0, -0.018, 0);
   for (const sign of [-1, 1]) {
     addBox(b, node, art.steel, 0.18, 0.16, distance, sign * (width / 2 + 0.14), -0.014, 0);
-    addBox(b, node, art.warm, 0.09, 0.045, Math.max(0.1, distance - 0.4),
-      sign * (width / 2 + 0.14), 0.082, 0);
+    // Continuous glowing warm-orange channel along each rail: the corridor reads as
+    // a lit conduit in the target's orange trim language, not a cyan one.
+    addBox(b, node, art.warm, 0.16, 0.07, Math.max(0.1, distance - 0.4),
+      sign * (width / 2 + 0.14), 0.085, 0);
   }
   decorateShipCorridor(b, node, distance, art);
   return node;

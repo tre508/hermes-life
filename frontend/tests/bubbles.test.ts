@@ -22,14 +22,17 @@ describe('Bubble System - Event Categorization', () => {
     };
     const result = categorizeEvent(event);
     assert.ok(result !== null);
-    assert.strictEqual(result!.role, 'researcher');
+    // §3: role is always the coordinator for hermes.* events; the tool name
+    // only determines the functional category.
+    assert.strictEqual(result!.role, 'coordinator');
+    assert.strictEqual(result!.content.functionalCategory, 'research');
     assert.strictEqual(result!.category, 'tool');
     assert.strictEqual(result!.content.toolName, 'read_file');
     assert.ok(result!.content.toolTarget!.includes('src/main.ts'));
     assert.strictEqual(result!.content.status, 'running');
   });
 
-  test('categorizes hermes.tool_use with grep as researcher tool', () => {
+  test('categorizes hermes.tool_use with grep as research tool (coordinator role)', () => {
     const event = {
       type: 'hermes.tool_use',
       payload: { tool_name: 'grep', input: { pattern: 'TODO' } },
@@ -39,11 +42,12 @@ describe('Bubble System - Event Categorization', () => {
     };
     const result = categorizeEvent(event);
     assert.ok(result !== null);
-    assert.strictEqual(result!.role, 'researcher');
+    assert.strictEqual(result!.role, 'coordinator');
+    assert.strictEqual(result!.content.functionalCategory, 'research');
     assert.strictEqual(result!.category, 'tool');
   });
 
-  test('categorizes hermes.tool_use with write_file as builder tool', () => {
+  test('categorizes hermes.tool_use with write_file as development tool (coordinator role)', () => {
     const event = {
       type: 'hermes.tool_use',
       payload: { tool_name: 'write_file', input: { path: 'src/test.ts', content: 'test' } },
@@ -53,11 +57,12 @@ describe('Bubble System - Event Categorization', () => {
     };
     const result = categorizeEvent(event);
     assert.ok(result !== null);
-    assert.strictEqual(result!.role, 'builder');
+    assert.strictEqual(result!.role, 'coordinator');
+    assert.strictEqual(result!.content.functionalCategory, 'development');
     assert.strictEqual(result!.category, 'tool');
   });
 
-  test('categorizes hermes.tool_use with pytest as tester tool', () => {
+  test('categorizes hermes.tool_use with pytest as testing tool (coordinator role)', () => {
     const event = {
       type: 'hermes.tool_use',
       payload: { tool_name: 'pytest', input: { args: ['tests/'] } },
@@ -67,11 +72,12 @@ describe('Bubble System - Event Categorization', () => {
     };
     const result = categorizeEvent(event);
     assert.ok(result !== null);
-    assert.strictEqual(result!.role, 'tester');
+    assert.strictEqual(result!.role, 'coordinator');
+    assert.strictEqual(result!.content.functionalCategory, 'testing');
     assert.strictEqual(result!.category, 'tool');
   });
 
-  test('categorizes hermes.tool_result as success bubble for researcher', () => {
+  test('categorizes hermes.tool_result as success bubble (coordinator, research category)', () => {
     const event = {
       type: 'hermes.tool_result',
       payload: { tool_name: 'read_file', output: 'file content' },
@@ -81,12 +87,13 @@ describe('Bubble System - Event Categorization', () => {
     };
     const result = categorizeEvent(event);
     assert.ok(result !== null);
-    assert.strictEqual(result!.role, 'researcher');
+    assert.strictEqual(result!.role, 'coordinator');
+    assert.strictEqual(result!.content.functionalCategory, 'research');
     assert.strictEqual(result!.category, 'success');
     assert.strictEqual(result!.content.status, 'completed');
   });
 
-  test('categorizes hermes.tool_result with error as error bubble for builder', () => {
+  test('categorizes hermes.tool_result with error as error bubble (coordinator, development category)', () => {
     const event = {
       type: 'hermes.tool_result',
       payload: { tool_name: 'write_file', error: 'Permission denied' },
@@ -96,7 +103,8 @@ describe('Bubble System - Event Categorization', () => {
     };
     const result = categorizeEvent(event);
     assert.ok(result !== null);
-    assert.strictEqual(result!.role, 'builder');
+    assert.strictEqual(result!.role, 'coordinator');
+    assert.strictEqual(result!.content.functionalCategory, 'development');
     assert.strictEqual(result!.category, 'error');
     assert.strictEqual(result!.content.status, 'failed');
   });
@@ -415,34 +423,38 @@ describe('Bubble System - Result bubble keeps original context', () => {
   });
 });
 
-describe('Bubble System - Role mapping from tool name (live keys)', () => {
-  test('maps `read_file` to researcher', () => {
-    const r = categorizeEvent({ type: 'hermes.tool_use', payload: { name: 'read_file', input: { path: 'x' } }, task_id: 't', sequence: 1, timestamp: new Date().toISOString() });
-    assert.strictEqual(r!.role, 'researcher');
-  });
-  test('maps `write_file`, `edit_file`, `git`, `npm` to builder', () => {
-    for (const name of ['write_file', 'edit_file', 'git', 'npm']) {
+describe('Bubble System - §3 role/category split (hermes.* tool events)', () => {
+  test('every hermes.tool_use anchors to the coordinator regardless of tool name', () => {
+    for (const name of ['read_file', 'write_file', 'pytest', 'memory', 'plan', 'git', 'grep']) {
       const r = categorizeEvent({ type: 'hermes.tool_use', payload: { name, input: {} }, task_id: 't', sequence: 1, timestamp: new Date().toISOString() });
-      assert.strictEqual(r!.role, 'builder', `expected ${name} → builder`);
+      assert.strictEqual(r!.role, 'coordinator', `expected ${name} → coordinator`);
     }
   });
-  test('maps `pytest`, `test`, `lint`, `evaluate` to tester', () => {
-    for (const name of ['pytest', 'test', 'lint', 'evaluate']) {
+  test('tool names classify functional categories (§3), not roles', () => {
+    const expectations: Array<[string, string]> = [
+      ['read_file', 'research'],
+      ['grep', 'research'],
+      ['write_file', 'development'],
+      ['edit_file', 'development'],
+      ['git', 'development'],
+      ['npm', 'development'],
+      ['pytest', 'testing'],
+      ['lint', 'testing'],
+      ['memory', 'memory'],
+      ['archive', 'memory'],
+      ['plan', 'planning'],
+      ['formulate', 'planning'],
+    ];
+    for (const [name, category] of expectations) {
       const r = categorizeEvent({ type: 'hermes.tool_use', payload: { name, input: {} }, task_id: 't', sequence: 1, timestamp: new Date().toISOString() });
-      assert.strictEqual(r!.role, 'tester', `expected ${name} → tester`);
+      assert.strictEqual(r!.content.functionalCategory, category, `expected ${name} → ${category}`);
     }
   });
-  test('maps `memory`, `recall`, `archive` to archivist', () => {
-    for (const name of ['memory', 'recall', 'archive']) {
-      const r = categorizeEvent({ type: 'hermes.tool_use', payload: { name, input: {} }, task_id: 't', sequence: 1, timestamp: new Date().toISOString() });
-      assert.strictEqual(r!.role, 'archivist', `expected ${name} → archivist`);
-    }
-  });
-  test('maps `plan`, `goal`, `formulate` to planner', () => {
-    for (const name of ['plan', 'goal', 'formulate']) {
-      const r = categorizeEvent({ type: 'hermes.tool_use', payload: { name, input: {} }, task_id: 't', sequence: 1, timestamp: new Date().toISOString() });
-      assert.strictEqual(r!.role, 'planner', `expected ${name} → planner`);
-    }
+  test('unknown tools still anchor to the coordinator with no functional category', () => {
+    const r = categorizeEvent({ type: 'hermes.tool_use', payload: { name: 'definitely_not_a_real_tool', input: {} }, task_id: 't', sequence: 1, timestamp: new Date().toISOString() });
+    assert.ok(r);
+    assert.strictEqual(r!.role, 'coordinator');
+    assert.strictEqual(r!.content.functionalCategory, undefined);
   });
 });
 

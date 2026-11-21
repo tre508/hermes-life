@@ -57,28 +57,52 @@ test('D1: a full page-load replay produces zero bubbles', () => {
 });
 
 // ---------------------------------------------------------------------------
-// D4 — role mapping: review/approval → Vale, planning → Piper
+// D4 — §3 functional categories: review/approval → review, planning → planning
+// (the role is always the coordinator for hermes.* events — the tool name
+// never implies an independent resident executed the tool)
 // ---------------------------------------------------------------------------
 
-test('D4: review and approval tools route to the reviewer (Vale)', () => {
+test('D4: review and approval tools carry the review functional category on the coordinator', () => {
   for (const tool of ['review_candidate', 'review_changes', 'approve_plan']) {
     const out = categorizeEvent({
       type: 'hermes.tool_use', task_id: 't',
       payload: { name: tool, input: 'plan-1' },
     });
-    assert.ok(out, `${tool} produces a bubble`);
-    assert.equal(out.role, 'reviewer', `${tool} → reviewer`);
+    assert.ok(out);
+    assert.equal(out.role, 'coordinator', `${tool} → coordinator role`);
+    assert.equal(out.content.functionalCategory, 'review', `${tool} → review category`);
   }
 });
 
-test('D4: planning tools still route to the planner (Piper)', () => {
+test('§8: a sequential task with many tool calls keeps a single coordinator tool bubble', () => {
+  const c = new BubbleController();
+  const tools = ['read_file', 'grep', 'write_file', 'pytest', 'git'];
+  tools.forEach((name, i) => {
+    c.processEvent({
+      type: 'hermes.tool_use', sequence: i + 1, task_id: 't-seq',
+      payload: { name, tool_call_id: `tc-${i}`, input: { path: 'x.ts', command: 'git status', args: ['tests/'], pattern: 'p' } },
+    });
+    c.processEvent({
+      type: 'hermes.tool_result', sequence: tools.length + i + 1, task_id: 't-seq',
+      payload: { name, tool_call_id: `tc-${i}`, output: 'ok' },
+    });
+  });
+  const toolBubbles = c.getBubbles().filter(b => b.category === 'tool' || b.category === 'success' || b.category === 'error');
+  // All tool events land on the coordinator, and maxPerResident=1 means one
+  // visible slot: N sequential calls must NOT produce N simultaneous bubbles.
+  assert.ok(toolBubbles.every(b => b.role === 'coordinator'));
+  assert.ok(toolBubbles.length <= 1, `expected ≤1 live tool bubble, got ${toolBubbles.length}`);
+});
+
+test('D4: planning tools carry the planning functional category on the coordinator', () => {
   for (const tool of ['plan_draft', 'formulate_proposal', 'compile_criteria']) {
     const out = categorizeEvent({
       type: 'hermes.tool_use', task_id: 't',
       payload: { name: tool, input: 'x' },
     });
-    assert.ok(out, `${tool} produces a bubble`);
-    assert.equal(out.role, 'planner', `${tool} → planner`);
+    assert.ok(out);
+    assert.equal(out.role, 'coordinator', `${tool} → coordinator role`);
+    assert.equal(out.content.functionalCategory, 'planning', `${tool} → planning category`);
   }
 });
 
@@ -158,7 +182,7 @@ test('D3: chains resolve transitively (each stacks above the last)', () => {
 // N2 — task boundary drops only the thought accumulator
 // ---------------------------------------------------------------------------
 
-test('N2: a new task boundary drops thought bubbles but keeps tool context', () => {
+test('N2: a new task boundary drops the old task\'s bubbles; §3 keeps everything on Hermes', () => {
   const c = new BubbleController();
   c.processEvent({ type: 'task.started', sequence: 1, task_id: 't1' });
   c.processEvent({ type: 'hermes.text', sequence: 2, task_id: 't1', payload: { text: 'thinking' } });
@@ -167,8 +191,12 @@ test('N2: a new task boundary drops thought bubbles but keeps tool context', () 
     payload: { name: 'read_file', path: 'x.ts' },
   });
   // New task begins: the old thought stream must not bleed into the new task.
+  // §3: the tool bubble also anchors to the coordinator now, so the new
+  // task's execution bubble takes the coordinator's single slot — the old
+  // task's thought stream is gone either way.
   c.processEvent({ type: 'task.started', sequence: 4, task_id: 't2' });
   const bubbles = c.getBubbles();
   assert.ok(!bubbles.some(b => b.category === 'thought'), 'old thought bubble dropped');
-  assert.ok(bubbles.some(b => b.category === 'tool'), 'tool bubble retained as context');
+  assert.ok(bubbles.every(b => b.role === 'coordinator'), 'everything stays on Hermes');
+  assert.ok(bubbles.some(b => b.category === 'execution' && b.content.taskId === 't2'), 'new task execution bubble live');
 });

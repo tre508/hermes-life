@@ -117,6 +117,21 @@
   color: #a8d8c8;
 }
 
+/* §3 functional category: describes the kind of work (research, development,
+   testing…) — never a resident identity. Muted secondary tag. */
+.town-bubble__functional {
+  font-size: 9px;
+  font-weight: 500;
+  text-transform: lowercase;
+  letter-spacing: 0.05em;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: rgba(127, 212, 193, 0.12);
+  color: #9fcfc0;
+  flex-shrink: 0;
+}
+.town-bubble__functional[hidden] { display: none; }
+
 /* Category-specific header colors */
 .town-bubble--thought .town-bubble__category { background: rgba(111, 180, 240, 0.2); color: #6fb4f0; }
 .town-bubble--tool .town-bubble__category { background: rgba(232, 164, 92, 0.2); color: #e8a45c; }

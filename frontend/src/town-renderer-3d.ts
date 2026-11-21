@@ -34,7 +34,7 @@ import { ROLES, ROSTER, type Activity, type LocationId, type Role, type TownStat
 import type { RendererPoint, TownRenderer } from './town-renderer';
 import { DESIGN, mountInto, stateWordFor } from './town-renderer';
 import { CONTENT, DAIS_HEIGHT, ROOM, facilityPlan, seatTurnFor, spotFor, walkEase } from './town-world/layout';
-import { createGeometryCache, createMaterials, PALETTE, type Materials, type Track } from './town-world/palette';
+import { createGeometryCache, createMaterials, type Materials, type Track } from './town-world/palette';
 import { residentName, taskPanel, type TaskPanel } from './town-world/labels';
 import { locationLabel } from './town-vocabulary';
 import { buildCommandCentre, buildFacility } from './town-world/facility';
@@ -43,13 +43,14 @@ import type { Expression } from './town-world/faces';
 import { mergeStaticGeometry } from './town-world/optimize';
 import { buildStation } from './town-world/workstations';
 import { contactPatch } from './town-world/props';
+import { exteriorTexture } from './town-world/ship-art';
 import { PHYSICAL_ROOMS, roomToWorld, type PhysicalRoomId } from './town-world/ship-rooms';
 
-/** A 45° azimuth with a low 30° eye: the projection then matches the wide panel, and the viewer looks
- * into the room rather than down onto a model (audit v2 §4, §5). 27° left the facility projecting to
- * 3.07:1 against a 2.85:1 world box; 30° closes that gap and is still low enough that resident faces
- * — which carry the state contract — stay legible. Anything past ~33° starts costing the faces. */
-const ISO = { azimuthDeg: 45, elevationDeg: 30, distance: 70 } as const;
+/** A 45° azimuth with a high 62° eye: the projection matches the target mock's near top-down floor
+ * plan, where every room's interior and its outline are visible at once. The old 30° eye made the
+ * scene read as a corridor-level diorama instead. This costs resident faces — they are barely visible
+ * from this angle, so the state contract now leans on badges, glows and the readout panels. */
+const ISO = { azimuthDeg: 45, elevationDeg: 62, distance: 70 } as const;
 
 /** Compute the facility center from the actual room geometry so the camera tracks the real layout. */
 function computeFacilityCenter(): THREE.Vector3 {
@@ -163,26 +164,6 @@ interface Station {
   panel: TaskPanel;
 }
 
-/** A soft vertical gradient instead of a flat void: cheap depth behind the room (§5). */
-function backgroundGradient(): THREE.Texture {
-  const hex = (value: number) => `#${value.toString(16).padStart(6, '0')}`;
-  const canvas = document.createElement('canvas');
-  canvas.width = 4;
-  canvas.height = 256;
-  const context = canvas.getContext('2d');
-  if (context) {
-    const gradient = context.createLinearGradient(0, 0, 0, canvas.height);
-    gradient.addColorStop(0, hex(PALETTE.backgroundTop));
-    gradient.addColorStop(0.55, '#141c22');
-    gradient.addColorStop(1, hex(PALETTE.background));
-    context.fillStyle = gradient;
-    context.fillRect(0, 0, canvas.width, canvas.height);
-  }
-  const texture = new THREE.CanvasTexture(canvas);
-  texture.colorSpace = THREE.SRGBColorSpace;
-  return texture;
-}
-
 export function create3DRenderer(host: HTMLElement, opts: { motion: boolean }): TownRenderer {
   const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'low-power' });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.5));
@@ -192,11 +173,9 @@ export function create3DRenderer(host: HTMLElement, opts: { motion: boolean }): 
   renderer.toneMappingExposure = 1.12;
 
   const scene = new THREE.Scene();
-  const backdrop = backgroundGradient();
-  scene.background = backdrop;
   // Aerial perspective: the deck and the walls run out of the frame, and the distance softens into the
   // backdrop rather than ending at a visible edge (audit v2 §3, §11).
-  scene.fog = new THREE.Fog(0x1b242c, 100, 155);
+  scene.fog = new THREE.Fog(0x0d1b30, 100, 155);
 
   const target = computeFacilityCenter();
   const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 400);
@@ -218,6 +197,11 @@ export function create3DRenderer(host: HTMLElement, opts: { motion: boolean }): 
   const track: Track = resource => { disposables.push(resource); return resource; };
   const geometry = createGeometryCache(track);
   const materials: Materials = createMaterials(track);
+
+  // The backdrop is the starfield/nebula texture the window panes already use:
+  // the facility floats in the same deep-space environment the rooms look out on.
+  const backdrop = exteriorTexture(track);
+  scene.background = backdrop;
 
   // --- lighting: hemisphere base, one warm key, one cool fill. No shadow maps (§8, §13) ------------
   // Three layers, per audit v3 §3: a broad base so nothing is black, a strong directional to give every

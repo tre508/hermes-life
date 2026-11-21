@@ -1,6 +1,7 @@
 """Host-side reference corpus. Source text is untrusted data, never tool authority."""
 from __future__ import annotations
 import hashlib
+import math
 import re
 import sqlite3
 from datetime import datetime, timezone
@@ -15,6 +16,18 @@ def now():
 
 def _terms(text):
     return set(re.findall(r'[a-z0-9_]{3,}', text.casefold())) - {'the','and','for','with','from','that','this','into','about','when','then','using','your','have','does','will','not'}
+
+def _phrase_pairs(text):
+    """Ordered adjacent word pairs from a query, for exact-phrase boosting.
+
+    Multi-word concepts ('find command', 'for loop', 'hard link') are the weak spot
+    of a pure bag-of-words overlap; a verbatim bigram is strong relevance evidence.
+    """
+    words = re.findall(r'[a-z0-9_]+', str(text).casefold())
+    return {f'{words[i]} {words[i+1]}' for i in range(len(words)-1)}
+
+def _normalized(text):
+    return re.sub(r'\s+', ' ', str(text).casefold())
 
 def _chunks(text, size=MAX_CHUNK_CHARS):
     text = str(text).replace('\x00','').strip()
@@ -113,19 +126,37 @@ class KnowledgeLibrary:
         return [dict(x) for x in rows]
 
     def search(self, query, limit=5):
+        """Rank chunks for a query by IDF-weighted term overlap plus verbatim bigram boost.
+
+        Raw overlap alone lets ubiquitous words ('find', 'command', 'files', 'loop')
+        dominate a large corpus and buries the chapter that actually answers the
+        question. Inverse document frequency down-weights those, and an exact
+        adjacent-word match ('find command') is treated as strong evidence.
+        """
         tokens=_terms(query)
         if not tokens:return []
+        phrases=_phrase_pairs(query)
         with self.store.lock:
             rows=self.store.connection.execute('''SELECT c.id,c.page,c.content,s.id as source_id,s.title,s.url
                 FROM library_chunks c JOIN library_sources s ON s.id=c.source_id''').fetchall()
-        ranked=[]
+        total=len(rows)
+        if not total:return []
+        doc_terms=[]; df={}
         for r in rows:
             keys=_terms(r['content'])
-            score=len(tokens & keys)
-            if score:
-                item=dict(r)
-                item['score']=score
-                ranked.append(item)
+            doc_terms.append(keys)
+            for term in tokens & keys:
+                df[term]=df.get(term,0)+1
+        ranked=[]
+        for r,keys in zip(rows,doc_terms):
+            overlap=tokens & keys
+            if not overlap:continue
+            score=sum(math.log(1.0+total/df[term]) for term in overlap)
+            content=_normalized(r['content'])
+            score+=2.0*sum(1 for phrase in phrases if phrase in content)
+            item=dict(r)
+            item['score']=round(score,4)
+            ranked.append(item)
         ranked.sort(key=lambda x:(-x['score'],x['source_id'],x['page'],x['id']))
         return ranked[:min(max(int(limit),1),10)]
 
