@@ -1,6 +1,11 @@
 /* Phase 4.15 – compact project bar; review surface hidden unless requested. */
 #hc-panel.hc415-chat{width:min(660px,calc(100vw - 24px));height:min(760px,calc(100dvh - 95px));position:absolute;min-width:0}
 #hc-panel.hc415-expanded{width:calc(100vw - 40px);height:calc(100dvh - 55px);max-width:1200px}
+/* HL-CHAT-005: full-window chat workspace — fixed over the whole viewport, Command Centre hidden beneath. */
+#hc-panel.hc415-fullscreen{position:fixed;inset:0;right:auto;bottom:auto;width:100vw;height:100dvh;max-width:none;max-height:none;border-radius:0;border:none;z-index:10001}
+#hermes-chat-root:has(#hc-panel.hc415-fullscreen) #hc-toggle{visibility:hidden}
+body.hc415-fullscreen-open{overflow:hidden}
+@media(max-width:650px){#hc-panel.hc415-fullscreen{width:100vw;height:100dvh}}
 #hc-project-workspace{flex:0 0 auto;display:flex;align-items:center;gap:9px;padding:8px 14px;background:#102e37;border-top:1px solid #315d63;min-width:0;font-size:12px}
 #hc-project-workspace label{white-space:nowrap;color:#a8d2cf}
 #hc-project-picker{flex:0 1 190px;min-width:76px;max-width:220px;color:#e6f8f0;background:#183a43;border:1px solid #557e7f;border-radius:7px;padding:5px 8px;font-size:12px}
@@ -23,3 +28,40 @@
 #hc415-workspace-drawer #hc415-apply{background:#69c7aa;color:#082b2b;font-weight:700}
 #hc-panel .hc-head .hc-actions #hc415-expand{font-size:11px}
 @media(max-width:650px){#hc-panel.hc415-chat,#hc-panel.hc415-expanded{width:calc(100vw - 16px);height:calc(100dvh - 77px)}#hc-project-workspace{padding:8px;gap:6px}#hc415-project-hint{display:none}#hc-project-workspace label{display:none}#hc-project-picker{max-width:none;flex:1}#hc415-expand{font-size:0!important;min-width:34px}#hc415-expand::first-letter{font-size:15px}}
+/* HL-CHAT-006: file-context sidebar — a real column in fullscreen, slide-over on narrow screens. */
+#hc-panel.hc415-fullscreen{display:grid;grid-template-columns:minmax(0,300px) minmax(0,1fr);grid-template-rows:auto auto auto minmax(0,1fr) auto;grid-template-areas:"head head" "models models" "bar bar" "side main" "side form"}
+#hc-panel.hc415-fullscreen>.hc-head{grid-area:head}
+#hc-panel.hc415-fullscreen>#hc-model-controls{grid-area:models}
+#hc-panel.hc415-fullscreen>#hc-project-workspace{grid-area:bar}
+#hc-panel.hc415-fullscreen>#hc415-file-sidebar{grid-area:side;display:flex}
+#hc-panel.hc415-fullscreen>#hc-messages{grid-area:main}
+#hc-panel.hc415-fullscreen>#hc-form{grid-area:form}
+#hc415-file-sidebar{display:none;flex-direction:column;min-height:0;background:#0a2430;border-right:1px solid #315d63;font-size:12px;color:#dcefe9}
+#hc415-file-sidebar[hidden]{display:none!important}
+#hc415-file-sidebar .hc415-side-head{display:flex;align-items:center;justify-content:space-between;padding:9px 12px;border-bottom:1px solid #315d63;flex:0 0 auto}
+#hc415-file-sidebar .hc415-side-head strong{font-size:13px}
+#hc415-file-sidebar button{background:#183a43;color:#dcf7ee;border:1px solid #557e7f;border-radius:6px;padding:4px 8px;cursor:pointer;font-size:11px}
+#hc415-file-sidebar button:hover{background:#24545b}
+#hc415-file-status{padding:6px 12px;color:#9fbfbd;min-height:1.2em;flex:0 0 auto;overflow-wrap:anywhere}
+#hc415-file-tree{flex:1 1 auto;overflow-y:auto;padding:6px 4px;min-height:0}
+#hc415-file-sidebar .hc415-tree-row{display:flex;align-items:center;gap:6px;width:100%;background:none;border:none;text-align:left;padding:3px 8px;border-radius:5px;color:#dcefe9}
+#hc415-file-sidebar .hc415-tree-row:hover{background:#153441}
+#hc415-file-sidebar .hc415-tree-row.hc415-attached{color:#8df0c8}
+#hc415-file-sidebar .hc415-tree-icon{flex:0 0 12px}
+#hc415-file-sidebar .hc415-tree-label{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.hc415-tree-note{color:#9fbfbd;padding:6px 10px}
+#hc415-attachments{flex:0 0 auto;border-top:1px solid #315d63;padding:8px 12px;max-height:32dvh;overflow-y:auto}
+#hc415-attachments h4{margin:0 0 6px;font-size:12px;color:#a8d2cf;display:flex;align-items:center;justify-content:space-between;gap:8px}
+#hc415-attachments h4 .hc415-attach-clear{font-size:10px;padding:1px 6px;background:#153441;color:#9fd8d2;border:1px solid #315d63;border-radius:4px;cursor:pointer}
+#hc415-attachments h4 .hc415-attach-clear:hover{background:#1e4a58}
+#hc415-file-sidebar .hc415-dir-attach{flex:0 0 auto;margin-left:auto;padding:0 6px;background:none;border:1px solid #315d63;border-radius:4px;color:#8fc9c2;font-size:10px;cursor:pointer;line-height:16px}
+#hc415-file-sidebar .hc415-dir-attach:hover{background:#1e4a58}
+#hc415-file-sidebar .hc415-dir-attach.hc415-attached{color:#8df0c8;border-color:#8df0c8}
+#hc415-attach-list{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:3px}
+#hc415-attach-list li{display:flex;align-items:center;gap:6px;min-width:0}
+#hc415-attach-list li span{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:ui-monospace,monospace;font-size:11px}
+#hc415-file-sidebar .hc415-attach-remove{padding:1px 6px}
+#hc415-file-preview{flex:0 0 auto;max-height:26dvh;overflow:auto;margin:0;border-top:1px solid #315d63;padding:10px;background:#081b25;color:#e3f3ef;font:11px/1.5 ui-monospace,monospace;white-space:pre}
+#hc415-file-meter{flex:0 0 auto;padding:7px 12px;border-top:1px solid #315d63;color:#9fbfbd}
+#hc415-files-button{white-space:nowrap}
+@media(max-width:900px){#hc-panel.hc415-fullscreen{grid-template-columns:minmax(0,1fr);grid-template-areas:"head" "models" "bar" "main" "form"}#hc-panel.hc415-fullscreen>#hc415-file-sidebar{grid-area:auto;position:absolute;left:0;top:0;bottom:0;width:min(320px,86vw);z-index:5;box-shadow:12px 0 30px #000a}}

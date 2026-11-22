@@ -27,6 +27,17 @@ class ProjectInput(BaseModel):
 
 class WorkspaceError(ValueError): pass
 
+# HL-CHAT-006: file-context manager. Whole-tree inspection must never silently
+# pull junk or secrets, so the walk prunes a fixed denylist and caps volume.
+DENY_DIRS = {'.git', 'node_modules', '__pycache__', '.venv', 'venv', '.venv2',
+             'dist', 'build', '.next', '.cache', '.mypy_cache', '.pytest_cache',
+             '.ruff_cache', '.tox', '.idea', '.vscode', '.run', 'coverage'}
+DENY_FILE = re.compile(r'(^\.env|\.env$|\.pem$|\.key$|\.p12$|\.pfx$|id_rsa|id_ed25519|'
+                       r'\.keystore$|credential|secret|\.token|\.crt$|\.cer$|\.pem\b)', re.I)
+MAX_TREE_ENTRIES = 3000
+MAX_FILE_BYTES = 200_000
+MAX_DEPTH = 12
+
 
 def workspace_dest(name, commit):
     """Absolute worker path for a project snapshot; the worker home comes from guest_env."""
@@ -167,6 +178,77 @@ class ProjectWorkspaces:
         return {'project':name,'base_commit':p['commit_hash'],'workspace':p['remote_path'],'output':output}
 
 
+    # --- HL-CHAT-006: file-context manager ---------------------------------
+
+    def _root(self, name):
+        project = self._read(name)
+        root = Path(project['host_path'])
+        if not root.is_dir() or root.resolve() != root or not root.is_relative_to(self.allowed_root):
+            raise WorkspaceError('Registered path no longer valid')
+        return root
+
+    @staticmethod
+    def _denied(rel: str) -> bool:
+        parts = Path(rel).parts
+        if any(part in DENY_DIRS for part in parts[:-1]):
+            return True
+        for part in parts:
+            if part != parts[-1] and part in DENY_DIRS:
+                return True
+        return bool(DENY_FILE.search(parts[-1]))
+
+    def tree(self, name):
+        root = self._root(name)
+        entries = []
+        truncated = False
+        base = root
+        for dirpath, dirnames, filenames in os.walk(base):
+            rel_dir = os.path.relpath(dirpath, base)
+            depth = 0 if rel_dir == '.' else rel_dir.count(os.sep) + 1
+            if depth >= MAX_DEPTH:
+                dirnames[:] = []
+            dirnames[:] = sorted(d for d in dirnames if d not in DENY_DIRS)
+            if len(entries) >= MAX_TREE_ENTRIES:
+                truncated = True
+                break
+            for fname in sorted(filenames):
+                rel = fname if rel_dir == '.' else f'{rel_dir}/{fname}'
+                if self._denied(rel):
+                    continue
+                try:
+                    st = os.stat(base / rel)
+                except OSError:
+                    continue
+                entries.append({'path': rel, 'type': 'file', 'size': st.st_size,
+                                'mtime': st.st_mtime})
+                if len(entries) >= MAX_TREE_ENTRIES:
+                    truncated = True
+                    break
+        return {'project': name, 'root': str(root), 'count': len(entries),
+                'truncated': truncated, 'entries': entries}
+
+    def file(self, name, relpath):
+        root = self._root(name)
+        if not relpath or relpath.startswith('/') or '\\' in relpath or '..' in Path(relpath).parts:
+            raise WorkspaceError('Invalid file path')
+        target = (root / relpath).resolve()
+        if not target.is_relative_to(root):
+            raise WorkspaceError('Path escapes the project root')
+        rel = target.relative_to(root).as_posix()
+        if self._denied(rel):
+            raise WorkspaceError('File is denylisted (secret or build artifact): ' + rel)
+        if not target.is_file():
+            raise WorkspaceError('Not a regular file: ' + rel)
+        st = target.stat()
+        if st.st_size > MAX_FILE_BYTES:
+            raise WorkspaceError(f'File too large to attach ({st.st_size} bytes; limit {MAX_FILE_BYTES})')
+        import stat as stat_module
+        content = target.read_bytes().decode('utf-8', errors='replace')
+        return {'path': rel, 'size': st.st_size, 'mtime': st.st_mtime,
+                'mode': stat_module.filemode(st.st_mode), 'truncated': False,
+                'content': content}
+
+
 def add_project_routes(app, runtime, manager):
     router=APIRouter(prefix='/api/projects',tags=['projects'])
     def handle(fn,*args):
@@ -181,4 +263,9 @@ def add_project_routes(app, runtime, manager):
     def sync(name:str):return handle(manager.sync,name)
     @router.get('/{name}/changes')
     def changes(name:str):return handle(manager.changes,name)
+    # HL-CHAT-006: file-context manager endpoints (host paths, read-only).
+    @router.get('/{name}/tree')
+    def tree(name:str):return handle(manager.tree,name)
+    @router.get('/{name}/file')
+    def file(name:str,path:str):return handle(manager.file,name,path)
     app.include_router(router)
