@@ -1,9 +1,9 @@
 # HERMES LIFE — MASTER PRODUCT, UI & ENGINEERING SPECIFICATION
 
 **Document ID:** HL-SOT-002  
-**Version:** 2.1 (autonomous initiative milestone added)  
+**Version:** 2.2 (Hermesha unified experience and Obsidian wiring design)  
 **Prepared:** 2026-11-04  
-**Updated:** 2026-11-10  
+**Updated:** 2026-11-23  
 **Status:** Normative product specification and development roadmap  
 **Repository destination:** `/home/gayzer/Apps/hermes-life/HERMES_LIFE_MASTER_DEV_SPEC.md`  
 **Replaces as planning authority:** `HERMES_LIFE_DEV_SPEC.md` v1.0, once explicitly adopted; retain the old document as historical reference.  
@@ -15,9 +15,9 @@
 
 ### 0.1 Mission
 
-Hermes Life is a **persistent personal AI coding and task assistant**, controlled from one web application. Its purpose is to let a user describe a goal, select or create a project, observe Hermes investigate and plan, approve changes at appropriate boundaries, have Hermes build and test real code in an isolated VM, review and revise candidates, and retain useful knowledge over time. It also supports noncoding tasks, document study, research, and self-directed improvement **within declared authorization boundaries**. It can also originate **entirely new, separately registered projects**—applications, tools, research and automations—from evidence-backed opportunities or validated learning goals, subject to the autonomy policy in §26.
+Hermes Life is a **persistent personal AI environment** centered on Hermesha: an autonomous development agent, research partner, and personal life assistant. The user can enter Hermesha's living operational World, communicate in one canonical conversation system, investigate and direct work, inspect evidence and approvals, explore durable knowledge, and oversee self-directed initiatives. Coding remains a first-class capability: Hermes can investigate registered or newly initiated projects, propose plans, build and evaluate isolated candidates, and present reviewable changes with separate host-application authorization. Research, document study, personal organization, persistent memory, and independently originated initiatives are equally supported **within declared authorization boundaries** (§§8, 13, 17, 26–27).
 
-The virtual world is a readable representation of **real** agent work, not a game running a separate simulated agent. Chat, goals, plans, builds, events, and memories are views into **one persisted system**.
+The **Hermesha Command Centre / World** is a primary, persistent, spatial representation of **real** agent work—not a game running a fictional separate agent, and not an authoritative execution database. Conversation, the shared work graph, evidence, approvals, memory, and the World are connected views of one operational environment. The complete UI/UX and Obsidian wiring contract is §27.
 
 ### 0.2 Normative vocabulary
 
@@ -42,7 +42,7 @@ The virtual world is a readable representation of **real** agent work, not a gam
 
 ### 0.4 Product principles
 
-- **Conversation first:** all major functionality is accessible conversationally; structured views improve discoverability and review.
+- **One intelligence, multiple surfaces:** World provides presence, conversation provides communication, and the work graph provides auditable execution; all major functions are conversationally accessible.
 - **Explain state:** every action reveals what happened, what is happening, what is waiting, and why.
 - **One truth:** no competing schedulers, chat-only task statuses, or synthetic UI progress.
 - **Actual work:** activity and completion claims require persisted events/evidence.
@@ -51,12 +51,15 @@ The virtual world is a readable representation of **real** agent work, not a gam
 - **Project awareness:** source, specifications, tasks, tools, memories, and outcomes are scoped to a project when applicable. New projects may be initiated autonomously within authorization boundaries; project registration is not limited to existing repositories.
 - **Reproducible outcomes:** store exact commands, environments, commits, evidence and errors.
 - **Readable over crowded:** the UI defaults to relevant outcomes; diagnostics are available on demand.
+- **Five-question clarity:** every operational surface makes it easy to find current work, purpose/owner, evidence, decisions requiring the user, and next action.
+- **One conversation / one work graph / one contextual inspector:** no duplicate task chat, cross-workspace ghost selection, or competing workflow lifecycle.
+- **Navigation without interruption:** changing views or docking chat does not cancel unrelated work, reset drafts, or lose task/review context.
 
 ---
 
 ## 1. Product outcomes and users
 
-**Primary user:** an individual managing several coding and personal projects on Kubuntu, using Hermes as a persistent coding/task assistant. Additional users and remote/multiuser authentication are out of the initial single-user scope unless explicitly approved.
+**Primary user:** one individual using Hermes as a persistent autonomous assistant for development, life administration, personal projects, and research, primarily through a browser on an Ubuntu Linux workstation. The deployment must not assume KDE/Kubuntu-specific UI services. Additional users remain out of the initial single-user scope unless explicitly approved; remote authentication boundaries must reflect the actual deployment and be verified rather than presumed absent.
 
 ### 1.1 Primary scenarios
 
@@ -71,6 +74,10 @@ The virtual world is a readable representation of **real** agent work, not a gam
 **E. Troubleshooting:** User can see an exact task/goal state, error, timestamps, current tool activity, historical transitions, and actionable next step without navigating an opaque event dump.
 
 **F. Self-directed project development (HL-AUTO-001 target):** Hermes detects a repeated workflow, skill gap or unmet need, produces an evidence-backed opportunity, ranks it against existing commitments, proposes a new application/tool/research project, initializes a distinct VM workspace when authorized, develops and evaluates it through existing execution stages, retains lessons and resumes future milestones after restart. No user-authored ticket is required to originate the initiative.
+
+**G. Living World interaction (HL-EXP-001 target):** The user enters the existing eight-room Hermesha Command Centre, observes only event-backed residents and room activity, selects a room or resident to inspect real linked work, and opens the same conversation as a docked or focused panel without interrupting execution.
+
+**H. Persistent research and memory (HL-EXP-002 target):** Research threads connect sources, findings, questions, projects and curated Obsidian notes; external vault edits reappear in Knowledge after verified indexing. Vault material cannot silently authorize tool actions.
 
 ### 1.2 Explicit non-goals
 
@@ -131,23 +138,34 @@ VM: Hermes CLI | temporary source copies | candidate & baseline | tests | report
 
 ## 3. Global UI design system and information architecture
 
-### 3.1 Screen structure (HL-UI-001)
+### 3.1 Application shell and information architecture (HL-UI-001, HL-UX-SHELL-001)
 
-Desktop layout has **three conceptual regions**: a navigable operational workspace, a persistent activity/world surface, and an expandable assistant chat. The chat must not fight a full project control panel for the same narrow space.
+The **Hermesha Command Centre** is the primary application shell. Preserve the existing eight shared rooms, residents and backend event bindings (§15); the World is a first-class interaction space, not a decorative background or a replacement for structured Work. Default World entry should be configurable; returning from Chat or Work restores meaningful prior scene context.
 
-**Global navigation** (labels may be changed deliberately, but semantics must remain):
+The interface has an application header, collapsible navigation rail, flexible main stage (World or active workspace), contextual inspector, nonintrusive conversation presentation, and compact operational status/Attention entry. **Only the main stage must always be visible**; do not force an empty right inspector or chat dock to occupy space.
 
-1. **Overview** — summary of current work and next user action.
-2. **Goals** — intended outcomes and actual execution state.
-3. **Discover** — findings, curiosity questions, relevance, and investigation requests.
-4. **Planning** — investigation findings and **actual structured plans**, approvals and blockers.
-5. **Build** — implementation runs, candidate tests, reviews, revisions and application status.
-6. **Projects** — project portfolio (registered and autonomously originated projects), proposals, milestones, repository/workspace initialization, permissions, sync, specifications, source status, budgets and execution evidence (§26).
-7. **Knowledge** — registered documents, study progress, Obsidian memory and memory reviews.
-8. **Activity/Evidence** — searchable timeline and linked execution evidence. These may remain separate tabs if they are semantically distinct.
-9. **Settings** — autonomy mode, scheduler status, VM connectivity, retention and integrations.
+**Primary navigation:**
 
-Small screens may use a drawer and stacked views, but all operations remain accessible.
+- **Experience:** World, Conversations, Home.
+- **Operations:** Work (Overview, Discoveries, Goals, Plans, Tasks, Builds, Reviews, Results; portfolio Projects), Activity.
+- **Intelligence:** Knowledge (Obsidian, curated memories and sources), Research.
+- **Global utilities:** Search, Attention Center, session/model/provider settings, account/authentication.
+
+Existing World, Task Board, Goals, Memory, Knowledge Deck, Results, Activity and Projects destinations MUST retain their useful capabilities. Legacy routes SHOULD redirect or deep-link to the corresponding new view **with relevant selected record preserved**, never to an unrelated default tab. Work portfolio treats existing repositories and autonomously created projects identically except for explicit origin, permissions and lifecycle flags.
+
+**Desktop layout target (>=1440px):** header 56–64px; expanded nav 210–240px or collapsed 56–64px; optional inspector 320–380px resizable; status bar 32–40px. Conversation presentations: minimized launcher, docked panel around 360–500px, and full-focus chat with a centered reading column of 960–1080px maximum. These are design targets, not hardcoded breakpoints or evidence of current UI behavior. At 1024–1439px use overlay/sliding inspector and reframe World; narrower viewports use navigation drawers and one active workspace at a time. Preserve pane widths, active thread, per-thread drafts, scroll positions and user navigation state appropriately.
+
+**Density and appearance:** navy/blue-teal palette, restrained emerald accents, high-contrast readable typography, subdued structural borders. No oversized static provider/model configuration band, empty permanent left activity column, or unrestricted message widths. Model/provider are compact session controls, not the visual center of the interface. Responsive World canvas MUST reframe when inspector/chat geometry changes rather than cropping or shrinking the facility.
+
+**Five questions, available within the active surface (HL-UX-CLARITY-001):**
+
+1. What is Hermes actually working on?
+2. Why is the work happening; which project, goal or user request owns it?
+3. What has actually happened, with inspectable event/source/test evidence?
+4. Which decision is required of the user, and what authority would that grant?
+5. What valid next action can the user take?
+
+See §27 for full component, selection, interaction, and Obsidian contracts. New UI design MUST reuse existing persisted entities and state services rather than building duplicate parallel dashboards.
 
 ### 3.2 Common page contract (HL-UI-002)
 
@@ -190,7 +208,7 @@ Default order: active and actionable first, then most recently updated, then his
 
 ## 4. Overview dashboard: the user's control center
 
-**HL-UI-OVERVIEW-001** The first screen answers: **What is Hermes doing? What happened recently? What requires me? What is blocked?**
+**HL-UI-OVERVIEW-001** The Home/overview screen answers: **What is Hermes doing? What happened recently? What requires me? What is blocked?**
 
 Sections:
 
@@ -209,9 +227,9 @@ No fake work counters or repeated generic “Recording” status. An empty dashb
 
 ### 5.1 Layout (HL-UI-CHAT-001)
 
-Chat has a compact header with `Hermes` state, selected project, expandable **Workspace** button, conversation selector, expand/restore and close. Project setup and approval controls **MUST NOT** occupy half the chat permanently. Project name is visible in a single compact row, and its detailed controls open in an on-demand drawer. The review diff opens in a dedicated wide panel, not between the messages and composer.
+Chat has a compact header with `Hermes` state, selected project, expandable **Workspace** button, conversation selector, minimize/dock/focus controls and close. Project setup and approval controls **MUST NOT** occupy half the chat permanently. Project name is visible in a single compact row, and its detailed controls open in an on-demand drawer. The review diff opens in a dedicated wide panel, not between the messages and composer.
 
-The message list owns the flexible middle region; the composer remains anchored at the bottom. The panel is resizable and supports a near-fullscreen mode. Chat width, selected project and drawer state persist appropriately. Opening/closing project tools does not reset the draft, response, conversation or review snapshot.
+The message list owns the flexible middle region; the composer remains anchored at the bottom and aligned to the reading column. The panel is resizable and supports minimized, docked, and full-focus presentations of the **same canonical thread**. Ordinary assistant prose should be readable without oversized bordered cards; user bubbles use restrained surface contrast, and tool/execution details use expandable event-backed cards. Chat width, selected project and drawer state persist appropriately. Opening/closing project tools does not reset the draft, response, conversation or review snapshot.
 
 ### 5.2 Behavior (HL-UI-CHAT-002)
 
@@ -225,7 +243,11 @@ The message list owns the flexible middle region; the composer remains anchored 
 - Chat can select project explicitly. For ambiguous project routing, ask/select rather than silently editing wrong repo.
 - Task output, evidence and completion survive refresh/reconnect by replaying persisted events.
 
-### 5.3 Workspace drawer (HL-UI-CHAT-003)
+### 5.3 Conversation continuity (HL-CONV-001, HL-UX-CHAT-001)
+
+All chat entry points—including World launcher, project conversation links, task details and direct Chat navigation—MUST operate on canonical thread/message records. Opening a task or resident does not create an independent duplicate conversation. A message may link a project, goal, task, source, artifact or decision through stable typed IDs. If the user switches from World to focus chat, closes the chat or changes project views, active execution continues independently; the selected thread, streaming message, unsent draft and history survive. A task card can expand to show actual public Hermes text, tool calls/results, redacted arguments, statuses and linked outputs, not private model reasoning or fabricated intermediate steps. See §27.4–27.5.
+
+### 5.4 Workspace drawer (HL-UI-CHAT-003)
 
 Displays project name, host/VM locations (expand for technical detail), branch/commit, last successful sync, clean/dirty state, **Sync host → VM**, **Review VM changes**, and **Apply approved changes to host**. Review drawer includes exact file diff, snapshot hash, test summary, approval phrase/action and blocking reasons. Review closing retains pending state; a new sync explicitly invalidates stale approvals.
 
@@ -444,7 +466,7 @@ Do not treat an entire chat transcript as durable fact or a model-generated clai
 
 ### 13.2 Obsidian contract (HL-MEM-002)
 
-Use the configured vault under `/home/gayzer/black/obsidian/hermes/Hermes-Life/` by default. Mirror key transcripts, accepted lessons, project decisions and study artifacts in human-readable Markdown, with stable IDs, timestamps, source links/checksums, provenance and sync outcome. Edits to vault notes should have a defined reconciliation policy; no silent overwrites.
+The prior spec identifies `/home/gayzer/black/obsidian/hermes/` as the vault root and `/home/gayzer/black/obsidian/hermes/Hermes-Life/` as the Hermes Life subtree. **Treat both as historical configuration examples until the actual configured root/subtree and mount availability are inspected**; do not create a new `HermeshaVault/` or move existing folders simply to match a diagram. SQLite remains authoritative for structured memories, approval/workflow records and provenance. Mirror key transcripts, accepted lessons, project decisions and study artifacts in human-readable Markdown with stable IDs, timestamps, source links/checksums and sync outcomes; externally authored vault notes are authoritative for their own Markdown content unless a separately approved ownership policy specifies otherwise. Edits to vault notes require revision-aware reconciliation: no silent overwrites. The Knowledge workspace and World Archive consume the **same** memory service and vault adapter (§27.8–27.9).
 
 ### 13.3 Extraction, contradictions, retrieval (HL-MEM-003)
 
@@ -455,7 +477,13 @@ Use the configured vault under `/home/gayzer/black/obsidian/hermes/Hermes-Life/`
 - Expose memory extraction attempts, candidate/rejection counts and reasons; `0 stored` without explanation is unacceptable.
 - Keep secrets and unnecessary personal data out of routine memory or diagnostic output.
 
-### 13.4 Development learning (HL-MEM-004)
+### 13.4 Obsidian indexing and controlled synchronization (HL-MEM-005, HL-MEM-006)
+
+Implement a vault adapter behind the existing memory service, rather than an independent memory database. For **read:** scan configured allowed Markdown/assets, parse frontmatter and headings, resolve wikilinks/aliases/backlinks, detect changes via watcher with periodic rescan fallback, and update a **rebuildable** full-text index (semantic index optional). Return provenance-bearing citation anchors, note IDs, original paths, revisions, project/source links and freshness. Never treat retrieved Markdown as trusted instructions or authority.
+
+For **write:** create or update a note only after operation-specific policy approval; require stable note identity, path containment, allowed-scope checks, expected content hash/revision and origin/evidence metadata; preserve user-authored sections. Use safe file replacement where available and verify the watcher/index state before reporting `synced`. Conflicts, read-only storage, unavailable mounts and index failures appear visibly in Knowledge/Attention, never as success. Deletion/mass moves have separate authority. Secrets and disallowed paths must be excluded from prompt assembly and note search. Do not presume the Obsidian application or any Obsidian REST plugin is required to access local Markdown.
+
+### 13.5 Development learning (HL-MEM-004)
 
 An accepted candidate or resolved incident may yield a technical lesson **only when supported by outcome evidence**, including tests and acceptance decision. Rejected/failed attempts can generate lessons about failures, labeled as such. A new coding task should retrieve relevant lessons for the same project/toolchain without copying stale instructions blindly.
 
@@ -477,18 +505,20 @@ An accepted candidate or resolved incident may yield a technical lesson **only w
 
 ### 15.1 Purpose (HL-WORLD-001)
 
-The virtual lab is the visual counterpart to the activity ledger, showing the same real work in a more intuitive form. It is never authoritative for execution; animations and location are derived from persisted events/task state.
+The **Hermesha Command Centre** is the primary spatial presence interface and visual counterpart to the activity ledger, showing the same real work in a more intuitive form. Preserve the existing eight-room layout and residents until a verified migration is approved. It is never authoritative for execution; animations and location are derived from persisted events/task state. Clicking rooms/residents selects typed contextual records, and can open a docked chat without introducing a second conversation system.
 
-### 15.2 Suggested stations and operational mapping
+### 15.2 Operational mapping (existing eight-room topology; HL-UX-WORLD-001)
 
-| Station | Real operations | Detail overlay |
+| Existing room | Operational responsibility | Evidence-backed inspector content |
 |---|---|---|
-| Library | Reading spec, manuals, sources, indexed docs | Source/document, section, study unit |
-| Planning desk | Investigation synthesis, goal formulation, plan creation | Goal, linked evidence, pending approval |
-| Coding studio | Source search, file edits, Git diff | Repo, file count, edited paths as recorded |
-| Test lab | Environment provisioning, baseline/candidate tests, reevaluation | Exact command, progress/exit status, errors |
-| Archive | Obsidian notes, memory lookup/extraction, knowledge indexing | Note IDs, successful sync/failure |
-| Lounge | Idle, user gate, disconnected | Why idle, what Hermes is waiting for |
+| Director Office | Hermes director identity, user collaboration, project/work triage | Configured identity, actual focus, related project, decisions |
+| Research Station | Evidence gathering, source study, investigation | Active research, cited sources, questions, findings |
+| Review Station | Candidate/diff review, validation and user approval | Test evidence, exact review object, authority boundary |
+| Control Room | Orchestration and current linked operations | Active tasks, real events, blockers, authorization |
+| Dev Station | Source analysis, isolated edits and development | Repository, changed files, runs, actual tool events |
+| Lab | Provisioning, baseline/candidate tests, experimentation | Exact environment, commands, results and errors |
+| Archive | Obsidian memory, indexing, archival and retrieval | Note IDs, original vault paths, retrieval and sync status |
+| Break Room | Idle/waiting/no active responsibility | Real idle/wait reason, no invented tasks |
 
 If no station maps to an event, show neutral activity, not fabricated actions. Room travel can animate but must not imply a tool action happened unless an event exists.
 
@@ -496,7 +526,11 @@ If no station maps to an event, show neutral activity, not fabricated actions. R
 
 Click a station or current task to open a compact detail panel: active project, goal/task/run ID, actual operation, start time, last event, recent five events, link to full evidence, and next decision. Distinguish `live`, `last seen`, `waiting for user`, `disconnected`. Mark missing telemetry rather than guessing. The scene may adapt layout to screen space; chat expansion must not crush the room detail controls.
 
-### 15.4 Rendering constraints (HL-WORLD-003)
+### 15.4 World focus and presentation (HL-UX-WORLD-002)
+
+World is the default living stage, with room/resident hover affordances, typed selection and one contextual inspector. Hover reveals room/role and last authoritative state; selection loads project, goal/task/run, latest event, rationale, evidence and valid next action. `Follow activity` is opt-in; it MUST NOT steal the camera or selection during user inspection. When chat docks or inspector resizes, the camera re-fits the scene without canvas clipping. World occupancy and motion are a **projection**, not proof of task execution. The app remains usable when World rendering is unavailable via equivalent Work and Activity links.
+
+### 15.5 Rendering constraints (HL-WORLD-003)
 
 Respect device pixel ratio and Phaser version's supported GameConfig types; do not inject unsupported top-level properties merely for sharpness. Maintain usable image rendering, responsive layout and accessibility alternatives for visual-only state.
 
@@ -645,13 +679,13 @@ This roadmap is **dependency-based**, not a promise that every earlier patch has
 | 17 | **HL-AUTO-001.7 / P1** | End-to-end fault injection, live verification and rollout | 16 | §26.11 scenarios pass without bypassing authorization or losing work |
 | 18 | **HL-QUALITY-017 / P2** | Full recovery, browser regression, install and end-to-end suite | All | Continuous real-environment release gate |
 
-**Suggested first sprint:** 0 → 1 → 2 → 3. Complete HL-MEM-013 and HL-PERS-001 before starting HL-AUTO-001 implementation phases; run its Phase 0 integration audit before any new persistence or orchestration code. Do not begin storage cleanup while candidate recovery and environment ownership remain unverified. UI polish should not obscure the underlying execution-state gap.
+**Suggested first sprint for legacy lifecycle gaps:** 0 → 1 → 2 → 3. For the 2026-11-23 UI/UX redesign, execute the separate §27.12 dependency sequence, beginning with a fresh repository/route/vault inventory before implementation. Complete HL-MEM-013 and HL-PERS-001 before starting HL-AUTO-001 implementation phases; run its Phase 0 integration audit before any new persistence or orchestration code. Do not begin storage cleanup while candidate recovery and environment ownership remain unverified. UI polish should not obscure the underlying execution-state gap.
 
 ---
 
 ## 22. Implementation evidence and status registry (snapshot)
 
-**Snapshot date: 2026-11-04.** Status entries are intentionally conservative. `Observed` is not a claim that every code path was independently inspected in this document. Update against the running installation before acting.
+**Historical evidence snapshot: 2026-11-04, with selected 2026-11-10 updates. New design changes dated 2026-11-23 do not update runtime verification.** Status entries are intentionally conservative. `Observed` is not a claim that every code path was independently inspected in this document. Update against the running installation before acting.
 
 | Area | Evidence from this project conversation | Status for planning |
 |---|---|---|
@@ -668,13 +702,17 @@ This roadmap is **dependency-based**, not a promise that every earlier patch has
 | Auto revisions | FLOW-006/006.1 patches produced; audit found missing DB tables and stale bundle before subsequent changes | Deployment and fault recovery require live verification |
 | FLOW-007 unified env | Merged package produced from uploaded host files; user had not yet reported successful install | **Not verified installed** |
 | Goals/Planning UI | Screenshots show unclear statuses, approved plans lacking progress, task clicks not useful | Incomplete UX |
-| Chat UI | Crowded project control panel reported; compact-chat patch produced | Verify current build and layout |
-| Virtual lab | Rooms/world exist but insufficient live detail | Partial |
+| Chat UI | 2026-11-22 screenshot shows fullscreen chat with oversized controls, detached composer and broad/uneven message layout; this is visual evidence only | Redesign target §27; current code and canonical-thread continuity unverified |
+| Virtual lab | Eight-room Hermesha Command Centre observed in user screenshot dated 2026-11-22; room/resident implementation and current live event linkage not independently verified here | UI observed; telemetry integration unverified |
 | Event/streaming | `/ws/events` exists; real stream end-to-end and UI recovery not established | Partial/unverified |
 | Study | Handbook 13-unit manifest and timer installed earlier | Continued autonomous completion unverified |
 | Experiment pruning | Proposed policy, no confirmed implementation | Planned |
 | HL-PERS-001 adaptive personality | Implemented and verified end-to-end (extraction → consolidation → retrieval → assembly → execution → post-task learning); 38+3 passing tests (`tests/test_pers001_*`, incl. policy-separation guardrails); architecture note `docs/context-assembly.md` | Implemented; personality policy verified separate from project-selection policy |
 | HL-AUTO-001 self-directed project creation | Phases 0–6 implemented and verified (policy engine, opportunities/proposals/decisions, bootstrap, portfolio, experience, Projects UI); Phase 7 live subset verified on the real worker (bootstrap, milestone execution, restart reconciliation, WS replay, denials). See `docs/auto001-phase0-audit.md` | **Partial; live-verified core loop** — AUTO-02 study-exercise and AUTO-09 live revision paths remain fixture-only |
+
+| Unified shell and docked chat | Agreed 2026-11-23 wireframe and design proposal only | Planned; not deployed/verified |
+| Context Inspector / Attention | Agreed cross-workspace UX requirements; no current backend or UI audit performed for this revision | Planned; existing capabilities must be inventoried |
+| Obsidian read/write/search sync | Prior vault location and partial memory integration noted; live mount/index/permissions not inspected in this revision | Proposed wiring; current implementation unverified |
 
 **Known conflict with older spec:** The earlier `HL-SOT-001` §15 `HL-BUG-001` and milestone sequence were a snapshot from November 2; they should not be treated as currently confirmed defects. This document's registry and verified source/runtime evidence supersede those stale status claims once this document is adopted.
 
@@ -757,6 +795,8 @@ Copy this file into the host repository; review it; explicitly designate `HERMES
 
 ### 24.4 Change log
 
+- **v2.2 / 2026-11-23:** Reframed Hermes Life as a personal autonomous AI environment; established World/conversation/work-graph information architecture, canonical chat presentation, contextual inspector, Attention Center, unified Research/Knowledge, and Obsidian vault read/index/write/sync contracts in §27. Reconciled World with existing eight rooms and clarified historical vault/host assumptions. These are **normative design targets, not deployment claims**.
+
 - **v2.1 / 2026-11-10:** Added §26 HL-AUTO-001 autonomous learning, opportunity selection, new-project bootstrap, portfolio orchestration, policy modes, Projects UI and tests; added HL-PERS-001 prerequisite and roadmap milestones; migrated former control ID `HL-AUTO-001` → `HL-AUTO-CTRL-001`. No runtime implementation claims.
 - **v2.0 / 2026-11-04:** Consolidated product purpose, architecture, full UI information model, interactive curiosity, goal/task distinction, plan lifecycle, approval gates, candidate review/revisions, reproducible test environments, memory/Obsidian, virtual lab event mapping, maintenance policy, deployment gates and updated dependency roadmap.
 - **v1.0 / 2026-11-02:** Original HL-SOT-001 target specification, retained as historical context.
@@ -765,7 +805,7 @@ Copy this file into the host repository; review it; explicitly designate `HERMES
 
 ## 25. Final product acceptance (north star)
 
-Hermes Life is ready to act as the user's everyday personal AI coding/task assistant when a user can, **without command-line babysitting**:
+Hermes Life meets the product vision as the user's persistent personal, research, and autonomous-development assistant when a user can, **without command-line babysitting**:
 
 1. Choose a project and ask for a change in normal language.
 2. See what is queued, running, done, waiting and blocked in the same view.
@@ -778,6 +818,8 @@ Hermes Life is ready to act as the user's everyday personal AI coding/task assis
 9. Understand Hermes' current work from both activity cards and the virtual lab, without guessing what animations mean.
 10. Trust that every completion claim maps to an actual persisted state, real execution evidence and a verifiable outcome.
 11. Enable an authorized autonomy mode and observe Hermes identify a real opportunity or knowledge gap, create and manage a **new project** without a user-authored ticket, test actual results, and resume it across sessions; inspect its rationale, costs, permissions and artifacts in Projects.
+
+**Additional experience acceptance (§27):** The same canonical conversation must be usable from World and full-focus chat; selecting a resident must reveal its real work; Work and Attention must share linked decisions; Research and Knowledge must access the configured existing Obsidian vault with revision-safe writes.
 
 **Design invariant:** Hermes must never leave the user wondering: *What is this record? Is it new or old? Has it started? What did Hermes do? What stopped it? What is the next action?*
 
@@ -929,3 +971,167 @@ Each phase produces a reviewable, independently testable development goal per §
 **Done** requires a fully verified path from authorized, evidence-backed observation → **autonomously chosen** opportunity/learning objective → versioned proposal → new registered, isolated VM project → milestone selection → real implementation/test/revision → reviewable deliverable → experience lesson → safe restart/resume, with meaningful dashboard visibility and enforcement of mode/permissions/budgets throughout. Demonstrate with **at least one new project that did not originate as a user-authored ticket**. Report exact source commit, migration level, VM job/run IDs, suite outputs and observable UI actions. Update §22 only after actual deployment evidence; otherwise mark `planned`, `partial`, `unverified` or `blocked` as appropriate.
 
 **Out of scope unless separately authorized:** training model weights, unrestricted web crawling, autonomous purchases, secret use, messaging third parties, silent host merge/publish/deploy, self-modification outside the approved workspace, and claiming model-generated thoughts as private reasoning. A standalone implementation-plan DOCX is supporting design material; this master section is the normative feature target after adoption.
+
+
+---
+
+## 27. HL-UX-001 — Unified Hermesha Experience, World/Conversation/Work & Obsidian Wiring
+
+**Milestone:** `HL-UX-001` · **Priority:** P1 (foundational shell and shared state) · **Status:** normative design target; **implementation unverified** · **Design baseline:** user-approved 2026-11-23 UI/UX concept and associated visual wireframe. The illustration is conceptual, not a live system screenshot. Existing §2, §8–§11, §13, §15–§17 and §26 rules remain in force.
+
+### 27.1 Product experience contract (HL-UX-001)
+
+Hermesha is both a user-addressable oracle-like assistant and an independently operating agent. **World = presence**, **Conversation = interaction**, **Work Graph = accountable execution**, **Obsidian/Knowledge = durable context**. Users can enter and leave the living World while authorized work continues. No interface treats Hermesha's virtual residents as separate fictional agents or uses spatial animation as execution authority.
+
+The app MUST answer the five questions in §3.1 from the active surface or its one-click contextual inspector, without making the user navigate a chain of unrelated tabs. Project/research/personal tasks share the same conversation and identity, but retain domain-appropriate workflows.
+
+### 27.2 Shell wireframe and layout contract (HL-UX-SHELL-001)
+
+```text
+┌─────────────────────────────────────────────────────────────────────────────────────┐
+│ HERMES LIFE / Hermesha Command Centre    Search    ● Live   Attention (N)   Settings│
+├─────────────────┬───────────────────────────────────────────┬───────────────────────┤
+│ EXPERIENCE      │                                           │ CONTEXT INSPECTOR     │
+│ World           │        LIVING HERMESHA WORLD               │ Selected room / task  │
+│ Conversations   │  [Eight existing rooms and residents]     │ Why / owner / status  │
+│ Home            │                                           │ Actual event/evidence │
+│                 │                                           │ Decision / next step  │
+│ OPERATIONS      │                                           │                       │
+│ Work            │                                           │ (collapse / resize)   │
+│ Activity        │                                           │                       │
+│                 ├───────────────────────────────────────────┤                       │
+│ INTELLIGENCE    │ Ask Hermesha…  [attach] [workspace] [send] │                       │
+│ Knowledge       │      [dock / focus conversation]          │                       │
+│ Research        │                                           │                       │
+├─────────────────┴───────────────────────────────────────────┴───────────────────────┤
+│ Real agent status · task owners / blockers · latest event · open Activity           │
+└─────────────────────────────────────────────────────────────────────────────────────┘
+```
+
+The inspector and chat are collapsible; this drawing does **not** mandate three permanently open panes. The **full-focus Chat** is a centered 960–1080px reading column with the composer aligned to messages and controls relegated to compact menus. The **Work** stage swaps in a structured portfolio/workflow view while retaining the shell and canonical chat access. The **Knowledge** stage swaps in vault search, notes, graph, sources and sync/health.
+
+### 27.3 Shared UI state and typed selection (HL-UX-STATE-001)
+
+The browser uses one navigational selection contract: `{type, id, workspace, optional parent link}` for `room`, `resident`, `thread`, `project`, `discovery`, `goal`, `plan`, `task`, `run`, `review`, `decision`, `source`, `research`, or `note`. The inspector resolves details according to **current workspace and type**. Prior selections MAY be remembered per workspace, but must not leak unrelated task details into Research/Knowledge. Invalid or missing IDs yield actionable empty/error states.
+
+Store (appropriately per user/session) `active_view`, `selected_thread_id`, `chat_presentation` (`minimized|docked|focus`), `drafts_by_thread`, inspector visibility/width/pin, nav width, work filters, and World camera/follow preference. Switching views MUST NOT restart tasks, duplicate messages or clear drafts. Deep links restore typed selection and relevant project context.
+
+### 27.4 Canonical conversation (HL-UX-CHAT-001)
+
+All messages, user prompts, tool-backed task launches and agent responses use the **existing canonical conversation/thread store**. The World conversation launcher, Work task links, project discussions, and fullscreen Chat are presentations of this same system. Task details show linked transcript/message anchors and evidence rather than independent transcript state. An action launched from a message records `thread_id`, `message_id`, project/goal/task linkage and correlation ID where schema supports it; add missing fields by migration only after audit.
+
+The assistant surface favors readable unboxed text, restrained user bubbles, consistent spacing, and appropriately sized code/output blocks. Inline execution cards expand to persisted public text/tool events with timestamps and redacted arguments. Keep one streaming response with replayed durable deltas; navigation or reconnect must not fabricate or repeat external side effects. All permissions from §§8, 17, 26 still apply.
+
+### 27.5 Living World interactions (HL-UX-WORLD-001)
+
+Preserve **Director Office, Research Station, Review Station, Control Room, Dev Station, Lab, Archive, Break Room** and the existing role/resident mapping unless current repository evidence justifies an approved mapping change. Selection of room/resident resolves authoritative `current operation → task/run → goal → project/origin → evidence → next action` as applicable. Never infer a role is working just because a resident is visually present. World must fit the available stage on window resize, dock changes and inspector changes; `Follow activity` is opt-in. The Archive opens Knowledge scoped to the same configured vault/memory service. Work and Activity must provide nonvisual equivalents for all important status/details.
+
+### 27.6 Shared Work and Attention (HL-UX-WORK-001, HL-UX-ATTN-001)
+
+Work is the single structured work-management destination. Views: Overview, Discoveries, Goals, Plans, Tasks, Builds, Reviews, Results, and a Project Portfolio accessible from Work navigation. The portfolio covers registered personal/research/development projects and independently originated initiatives; origin and authority are labeled, not split into disconnected dashboards. Do not alter existing type/state distinctions in §§6–12, 26.
+
+One global **Attention Center** aggregates genuine pending decisions from canonical approval, review, conflict and blocked-work records. Each item states **why**, evidence, owning project/goal, exact requested authority and next valid action. Opening, deferring, approving or rejecting must operate on that same authoritative record; duplicate clicks are idempotent or yield a structured conflict. `Proposed ≠ approved ≠ executed ≠ tested ≠ accepted ≠ applied` remains enforced backend-side.
+
+### 27.7 Research and Knowledge UX (HL-UX-RESEARCH-001, HL-UX-KNOW-001)
+
+Research is a persistent investigation workspace, not another independent task runner. It links canonical threads, questions, source records, cited claims/findings, projects and durable notes. A finding is labeled sourced, inferred, disputed or unverified as appropriate; source clicks open attributable evidence. Promotion into durable memory follows configured write policy.
+
+Knowledge offers **Search / Notes / Graph / Sources / Sync & Health** over the configured Obsidian vault and existing curated memory service. Results distinguish authored Markdown notes, mirrored Hermes output, approved memory facts, source documents, and ephemeral execution context. Note details show stable ID, path, revision, tags, wikilinks/backlinks, linked entities, citation anchors and last verified sync. The Knowledge Deck and Memory legacy routes should redirect to useful filtered views of this same system.
+
+### 27.8 Obsidian boundaries and wiring (HL-UX-OBS-001)
+
+```text
+World / Conversation / Work / Research / Knowledge / Attention
+                            │
+                    Existing Hermes API
+             ┌──────────────┼───────────────┐
+             │              │               │
+       Work / approvals  Threads/messages  Events (durable + WS)
+             └──────────────┼───────────────┘
+                            │
+              Existing context & memory service
+                       ┌────┴────┐
+                       │         │
+            Vault adapter      Derived search index
+         Markdown/frontmatter  Full-text; semantic optional
+            watcher + writer   revision-aware/backlinks
+                       │
+               Configured Obsidian vault
+```
+
+The **existing SQLite database** remains authoritative for workflow states, structured memory records, approvals, conversation IDs and event history. The **existing Obsidian vault** holds the actual authored Markdown content and accepted/policy-permitted mirrors. The derived index is rebuildable, not a competing source of truth. Do not introduce a second scheduler, conversation service or memories database. No assumed Obsidian REST plugin is required for local file access. Before implementation, verify configured vault root, expected subtree, mount permissions, existing indexer/writer, host-vs-VM boundaries and source ownership; see historical examples in §§2.1, 13.2.
+
+### 27.9 Memory read, write and conflict contracts (HL-UX-OBS-002)
+
+**Read:** initial scan plus file watcher (periodic reconciliation fallback); parse frontmatter, headings, aliases, wikilinks, Markdown references and attachments; preserve stable note identity independent of filename/path; index changed revisions; return `{note_id, path, revision, excerpt, citation_anchor, project_links, source_refs, freshness}` with permission/scope filtering. Never allow retrieved note text to issue unapproved commands.
+
+**Write:** propose note target, origin, supporting sources, project/research scope and expected revision; pass memory policy and path containment; preserve user-authored sections and original note metadata; commit safely via temporary write/atomic replacement when supported; verify persisted file revision and indexing before announcing sync success. External edits invalidate stale revisions and must produce visible conflict resolution, not silent overwrites. File moves/deletions require distinct approval. Offline/read-only vault and failed watcher/index states show explicit status and retry paths; secret-bearing notes stay out of normal prompts and search.
+
+**Suggested frontmatter** (illustrative, not a mandatory vault migration):
+
+```yaml
+---
+hermes_note_id: note_example_123
+kind: research_finding
+project_id: project_123
+research_id: research_456
+source_ids: [source_abc]
+origin: hermes_research
+confidence: unverified
+updated_at: 2026-11-23T00:00:00+01:00
+---
+```
+
+Existing vault folders, wikilinks, metadata and human edits take precedence. A new suggested folder hierarchy is **not** a requirement to reorganize the current vault.
+
+### 27.10 Proposed adapter interfaces (HL-UX-API-001)
+
+Logical contracts, **not confirmed installed routes**; adapt to §19 and live OpenAPI:
+
+- `GET /memory/health`: configured vault availability, read/write mode, watcher/index freshness and last error.
+- `GET /memory/search`: scoped note retrieval with citation anchors and revisions.
+- `GET /memory/notes/{id}`: Markdown, metadata, backlinks, source/project associations and current hash.
+- `POST /memory/notes`, `PATCH /memory/notes/{id}`: policy-checked writes using expected revision/hash.
+- `POST /memory/reindex`: privileged real index job and status.
+- `GET /memory/graph`: bounded related-note/backlink graph.
+
+These MAY be implemented as extensions to existing `/api/memories` routes, service functions or another consistent route family; do not register duplicates merely to match examples.
+
+### 27.11 Mandatory end-to-end acceptance (HL-UX-TEST-001)
+
+| ID | Scenario | Passing evidence |
+|---|---|---|
+| UX-01 | Minimize/dock/focus chat while task runs | Same thread/messages/draft and linked task; no task cancellation or duplicate send |
+| UX-02 | World room/resident selection | Correct selected project/task/event and five-question context, never stale unrelated inspector |
+| UX-03 | World changes size | Facility reframes; no cropping or inaccessible interaction |
+| UX-04 | Follow activity off | Camera/selection remain under user control while events continue |
+| UX-05 | Open task from Chat/World/Work | Same canonical work ID, current status, evidence, and relevant thread link |
+| UX-06 | Review/Attention action | One authoritative decision, explicit authorization, no implicit apply/deploy |
+| UX-07 | Autonomous vs user-originated projects | Both appear in one portfolio with accurate origin, stage and permissions |
+| UX-08 | Search existing vault note | Exact source/path and heading cite, no unexpected file modification |
+| UX-09 | Edit note externally in Obsidian | Index/search/backlinks refresh after observed change; freshness displayed |
+| UX-10 | Concurrent Hermes + Obsidian edit | Revision conflict appears; no user-authored text silently overwritten |
+| UX-11 | Vault offline or read-only | Explicit unavailable/stale status and preserved queued/draft operation |
+| UX-12 | Unauthorized note path or secret access | Request denied, no unsafe read/write or leaked prompt content |
+| UX-13 | Archive -> Knowledge | Same vault-backed note record/links, not a second memory store |
+| UX-14 | Research finding -> durable note | Source-backed authorized write, note ID and index verified, project backlinks |
+| UX-15 | Disconnect/reconnect during streamed work | Sequenced event replay, same chat history/status and no invented events |
+| UX-16 | Keyboard/mobile/reduced-motion | Accessible controls and meaningful nonvisual World status alternative |
+
+### 27.12 Incremental development and verification sequence
+
+**Phase UX-0 — Inventory and contract reconciliation (P0):** inspect actual repo and deployment revision, conversation/thread store, route structure, UI state/store, World eight-room/resident mapping, work graph, approvals, event sequence, current Obsidian vault root, watcher/index/writer, access policy and existing tests. Document confirmed, missing and partially implemented contracts; no duplicate service implementation.
+
+**Phase UX-1 — Shared app shell and canonical chat (P1):** navigation, contextual inspector, responsive stage, compact header, minimized/docked/full-focus chat, persisted drafts and selection, stable routes; test browser transitions and regressions.
+
+**Phase UX-2 — World and linked operations (P1):** event-backed room/resident inspector, camera fit, truthful activity, Archive and task deep links; test real execution event playback and disconnected behavior.
+
+**Phase UX-3 — Unified Work/Portfolio/Attention (P1):** typed inspector across linked entities, accurate approval boundaries and global attention aggregation; preserve existing §26 autonomous initiatives.
+
+**Phase UX-4 — Obsidian read path (P1):** connect existing vault, discover notes, index/search/backlinks/health, original-note citations, external-change watcher; verify no unexpected edits.
+
+**Phase UX-5 — Obsidian guarded write path + Research/Knowledge (P1):** policy/provenance checks, revision conflicts, safe writes, verified indexing, research sources/findings and knowledge graph UI.
+
+**Phase UX-6 — Cross-surface end-to-end release gate (P1):** real World → Chat → autonomous/authorized Work → review/decision → evidence → cited Obsidian note flow; check exact version/commit, migrations, OpenAPI, UI bundle and all UX scenarios. Update §22 **only with fresh observed evidence**.
+
+**Implementation scope:** integrate with existing infrastructure in §§2, 9, 13, 15, 16, 19, 26. A target design image, example endpoint, or planned feature is not evidence of working code. Older roadmap §21 still governs its legacy core workflow defects; order UX phases with those dependencies according to current audit instead of blindly declaring legacy work complete.

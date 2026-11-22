@@ -68,41 +68,58 @@ class GateConfig:
                                                  str(DEFAULT_SESSION_HOURS)))
         except ValueError:
             self.session_hours = DEFAULT_SESSION_HOURS
-        self.enabled = bool(self.hash)
-        # WebAuthn passkey configuration (HL-AUTH-002). The gate offers passkey
-        # unlock only when a credential store path is configured AND a
-        # credential has been registered into it.
         self.rp_id = os.getenv('HERMES_LIFE_GATE_RP_ID', DEFAULT_RP_ID).strip()
         self.origin = os.getenv('HERMES_LIFE_GATE_ORIGIN', DEFAULT_ORIGIN).strip()
         store = os.getenv('HERMES_LIFE_GATE_PASSKEY_STORE', '').strip()
         self.passkey_store = Path(store) if store else None
+        # The gate is ON with a password hash OR a configured passkey store, so
+        # a passkey-only deployment works without any hash at all.
+        self.enabled = bool(self.hash or self.passkey_store)
+        self.has_password = bool(self.hash)
         # Challenge store: challenge (b64url) -> (kind, expiry). In-memory is
         # correct for a single-process, single-user gate.
         self._challenges: dict[str, tuple[int, float]] = {}
         self._failures: dict[str, list[float]] = {}
-        # Cookie-signing key is derived from the stored hash, so rotating the
-        # password also invalidates every outstanding session cookie.
-        self.key = hashlib.sha256((self.hash + ':hl-gate-cookie').encode()).digest()
+        # Cookie-signing key: a dedicated env value when configured, otherwise
+        # derived from the password hash (rotating the password then
+        # invalidates every outstanding session cookie), otherwise from the
+        # passkey store path so a hashless passkey-only gate still signs cookies.
+        if os.getenv('HERMES_LIFE_GATE_COOKIE_KEY', '').strip():
+            seed = 'cookie:' + os.environ['HERMES_LIFE_GATE_COOKIE_KEY'].strip()
+        elif self.hash:
+            seed = 'hash:' + self.hash
+        else:
+            seed = 'store:' + str(self.passkey_store)
+        self.key = hashlib.sha256(seed.encode()).digest()
 
     # ---- passkey plumbing -------------------------------------------------
 
-    def passkey_record(self) -> dict | None:
-        """The registered credential record, or None when not registered."""
+    def passkey_credentials(self) -> list[dict]:
+        """All registered credential records (empty when none).
+
+        Reads the multi-credential store format; a legacy single-record file
+        (the HL-AUTH-002 original) is migrated in memory on read.
+        """
         if not self.passkey_store:
-            return None
+            return []
         try:
             record = json.loads(self.passkey_store.read_text())
         except (OSError, ValueError):
-            return None
-        if not isinstance(record, dict) or not record.get('credential_id'):
-            return None
-        return record
+            return []
+        if not isinstance(record, dict):
+            return []
+        creds = record.get('credentials')
+        if creds is None and record.get('credential_id'):
+            creds = [record]  # legacy single-credential format
+        if not isinstance(creds, list):
+            return []
+        return [c for c in creds if isinstance(c, dict) and c.get('credential_id')]
 
-    def save_passkey_record(self, record: dict) -> None:
+    def save_passkey_credentials(self, creds: list[dict]) -> None:
         if not self.passkey_store:
             raise HTTPException(404, 'Passkey store is not configured')
         self.passkey_store.parent.mkdir(parents=True, exist_ok=True)
-        self.passkey_store.write_text(json.dumps(record))
+        self.passkey_store.write_text(json.dumps({'credentials': creds}))
         try:
             self.passkey_store.chmod(0o600)
         except OSError:
@@ -128,7 +145,7 @@ class GateConfig:
             del self._challenges[key]
 
     def verify_password(self, password: str) -> bool:
-        if not self.enabled or not password:
+        if not self.hash or not password:
             return False
         try:
             _scheme, iters, salt_b64, hash_b64 = self.hash.split('$')
@@ -238,12 +255,20 @@ def add_gate_routes(app: FastAPI, config: GateConfig) -> None:
         return {'enabled': config.enabled,
                 'authenticated': config.verify_token(_cookie_token(request.scope)),
                 'image_url': image_url,
-                'passkey_available': bool(config.enabled and config.passkey_record())}
+                'passkey_available': bool(config.enabled and config.passkey_credentials()),
+                # HL-AUTH-003: password unlock is bootstrap-only — it is offered
+                # (and works) until the first credential exists, never after.
+                'password_unlock_available': bool(config.enabled and config.has_password
+                                                  and not config.passkey_credentials())}
 
     @app.post('/api/entrance/unlock')
     def unlock(payload: UnlockInput, request: Request):
         if not config.enabled:
             raise HTTPException(404, 'Gate is not configured')
+        if config.passkey_credentials():
+            # Passkey-only: once a credential is registered the password form
+            # is dead everywhere, including the API surface.
+            raise HTTPException(404, 'Password unlock is disabled — use your passkey')
         if not config.register_failure(_client_id(request.scope)):
             raise HTTPException(429, 'Too many attempts — wait a few minutes')
         if not config.verify_password(payload.password):
@@ -350,24 +375,50 @@ def add_passkey_routes(app: FastAPI, config: GateConfig) -> None:
             )
         except Exception as exc:  # webauthn raises on any invalid material
             raise HTTPException(400, f'Passkey registration failed: {exc}') from exc
-        config.save_passkey_record({
+        new_credential = {
             'credential_id': _b64url(verified.credential_id),
             'public_key': _b64url(verified.credential_public_key),
             'sign_count': verified.sign_count,
-        })
-        return {'ok': True}
+            'created_at': int(time.time()),
+        }
+        # HL-AUTH-003: append, don't overwrite — 1Password registers a distinct
+        # credential per device. Re-registering the SAME credential id replaces
+        # its record instead of duplicating it.
+        creds = [c for c in config.passkey_credentials()
+                 if c.get('credential_id') != new_credential['credential_id']]
+        creds.append(new_credential)
+        config.save_passkey_credentials(creds)
+        return {'ok': True, 'credentials': [
+            {'credential_id': c['credential_id'],
+             'label': c.get('label') or 'passkey',
+             'created_at': c.get('created_at'),
+             'sign_count': c.get('sign_count', 0)} for c in creds]}
+
+    @app.get('/api/entrance/webauthn/credentials')
+    def credentials_list(request: Request):
+        if not config.enabled:
+            raise HTTPException(404, 'Gate is not configured')
+        _require_session(request, config)
+        # Non-secret listing for the UI: no public keys (the credential id is
+        # not sensitive — the authenticator sends it on every login anyway).
+        return {'credentials': [
+            {'credential_id': c['credential_id'],
+             'label': c.get('label') or 'passkey',
+             'created_at': c.get('created_at'),
+             'sign_count': c.get('sign_count', 0)}
+            for c in config.passkey_credentials()]}
 
     @app.get('/api/entrance/webauthn/authenticate/options')
     def authenticate_options():
         if not config.enabled:
             raise HTTPException(404, 'Gate is not configured')
-        record = config.passkey_record()
-        if not record:
+        creds = config.passkey_credentials()
+        if not creds:
             raise HTTPException(404, 'No passkey registered')
         options = generate_authentication_options(
             rp_id=config.rp_id,
             allow_credentials=[PublicKeyCredentialDescriptor(
-                id=_from_b64url(record['credential_id']))],
+                id=_from_b64url(c['credential_id'])) for c in creds],
         )
         config.store_challenge(options.challenge, KIND_AUTHENTICATE)
         return options_to_json(options)
@@ -376,8 +427,8 @@ def add_passkey_routes(app: FastAPI, config: GateConfig) -> None:
     def authenticate(request: Request, credential: dict):
         if not config.enabled:
             raise HTTPException(404, 'Gate is not configured')
-        record = config.passkey_record()
-        if not record:
+        creds = config.passkey_credentials()
+        if not creds:
             raise HTTPException(404, 'No passkey registered')
         if not config.register_failure(_client_id(request.scope)):
             raise HTTPException(429, 'Too many attempts — wait a few minutes')
@@ -387,6 +438,18 @@ def add_passkey_routes(app: FastAPI, config: GateConfig) -> None:
             raise HTTPException(400, 'Malformed credential payload') from exc
         if not config.take_challenge(challenge, KIND_AUTHENTICATE):
             raise HTTPException(400, 'Unknown or expired challenge')
+        # Match the assertion to its registered credential by id so each
+        # device's public key and sign counter are verified against its own
+        # record. Unknown ids are refused before any crypto runs.
+        try:
+            presented = _b64url(_from_b64url(credential.get('rawId')
+                                             or credential.get('id') or ''))
+        except (ValueError, TypeError) as exc:
+            raise HTTPException(400, 'Malformed credential payload') from exc
+        record = next((c for c in creds
+                       if c.get('credential_id') == presented), None)
+        if record is None:
+            raise HTTPException(401, 'Unknown passkey credential')
         try:
             verified = verify_authentication_response(
                 credential=credential,
@@ -398,6 +461,8 @@ def add_passkey_routes(app: FastAPI, config: GateConfig) -> None:
             )
         except Exception as exc:  # webauthn raises on any invalid signature
             raise HTTPException(401, f'Passkey verification failed: {exc}') from exc
-        config.save_passkey_record({**record, 'sign_count': verified.new_sign_count})
+        creds = [({**c, 'sign_count': verified.new_sign_count}
+                  if c is record else c) for c in creds]
+        config.save_passkey_credentials(creds)
         return JSONResponse({'ok': True}, headers={
             'set-cookie': _session_cookie(request, config)})

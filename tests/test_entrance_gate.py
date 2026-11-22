@@ -11,7 +11,10 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import time
+
+from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
@@ -45,7 +48,8 @@ def test_gate_off_is_a_no_op(tmp_path, monkeypatch):
         r = client.get('/api/entrance/status')
         assert r.status_code == 200
         assert r.json() == {'enabled': False, 'authenticated': False,
-                            'image_url': None, 'passkey_available': False}
+                            'image_url': None, 'passkey_available': False,
+                            'password_unlock_available': False}
 
 
 def test_gate_blocks_api_and_unlocks_with_password(tmp_path, monkeypatch):
@@ -182,6 +186,20 @@ def test_passkey_enrol_then_unlock_passwordless(tmp_path, monkeypatch):
         store = client.get('/api/entrance/status')  # sanity only
         assert store.status_code == 200
 
+        # The password path is now dead: passkey-only once a credential exists.
+        assert client.post('/api/entrance/unlock',
+                           json={'password': PASSWORD}).status_code == 404
+        assert client.get('/api/entrance/status').json()[
+            'password_unlock_available'] is False
+
+        # The credential list endpoint reflects exactly one enrolled device.
+        creds = client.get('/api/entrance/webauthn/credentials')
+        assert creds.status_code == 200
+        listed = creds.json()['credentials']
+        assert len(listed) == 1
+        assert listed[0]['credential_id']
+        assert 'public_key' not in listed[0]  # listing never leaks key material
+
         # Fresh (logged-out) client unlocks with the passkey alone.
         fresh = TestClient(create_app(tmp_path / 'life.db', FakeAdapter()))
         options = fresh.get('/api/entrance/webauthn/authenticate/options')
@@ -193,9 +211,7 @@ def test_passkey_enrol_then_unlock_passwordless(tmp_path, monkeypatch):
         assert fresh.get('/api/entrance/status').json()['authenticated'] is True
         assert fresh.get('/api/personality').status_code == 200
 
-        # The password recovery path still works after enrolment.
-        assert client.post('/api/entrance/unlock',
-                           json={'password': PASSWORD}).status_code == 200
+        # The password recovery path is gone after enrolment (passkey-only).
 
 
 def test_passkey_rejects_bad_material_and_replays(tmp_path, monkeypatch):
@@ -238,3 +254,94 @@ def test_passkey_registration_verifies_challenge(tmp_path, monkeypatch):
         reg = client.post('/api/entrance/webauthn/register', json=credential)
         assert reg.status_code == 400
         assert client.get('/api/entrance/status').json()['passkey_available'] is False
+
+
+def _passkey_only_client(tmp_path, monkeypatch):
+    """A gate with NO password hash — passkey store alone enables the gate."""
+    monkeypatch.delenv('HERMES_LIFE_GATE_PASSWORD_HASH', raising=False)
+    monkeypatch.setenv('HERMES_LIFE_GATE_RP_ID', RP_ID)
+    monkeypatch.setenv('HERMES_LIFE_GATE_ORIGIN', ORIGIN)
+    monkeypatch.setenv('HERMES_LIFE_GATE_PASSKEY_STORE',
+                       str(tmp_path / 'gate-passkey.json'))
+    return TestClient(create_app(tmp_path / 'life.db', FakeAdapter()))
+
+
+def test_passkey_only_gate_enables_and_rejects_password(tmp_path, monkeypatch):
+    from webauthn_sim import SoftAuthenticator
+    with _passkey_only_client(tmp_path, monkeypatch) as client:
+        # The gate is ON with no hash at all — the passkey store enables it.
+        status = client.get('/api/entrance/status').json()
+        assert status['enabled'] is True
+        assert status['password_unlock_available'] is False
+        assert client.get('/api/personality').status_code == 401
+        # No password hash is configured: password unlock simply fails (401),
+        # exactly as it would for any wrong password.
+        assert client.post('/api/entrance/unlock',
+                           json={'password': PASSWORD}).status_code == 401
+        # Bootstrap: enrolment needs a session, which the password would have
+        # granted — with no hash there is no way in until a credential exists,
+        # which is why the hash is kept in the env as the bootstrap key.
+        assert client.get('/api/entrance/webauthn/register/options').status_code == 401
+
+
+def test_multi_device_credentials_are_independent(tmp_path, monkeypatch):
+    """1Password multi-device: two distinct credentials, both can unlock."""
+    from webauthn_sim import SoftAuthenticator
+    with _passkey_client(tmp_path, monkeypatch) as client:
+        client.post('/api/entrance/unlock', json={'password': PASSWORD})
+        device_a = SoftAuthenticator(RP_ID, ORIGIN, credential_id=b'\xa1' * 32)
+        device_b = SoftAuthenticator(RP_ID, ORIGIN, credential_id=b'\xa2' * 32)
+        _register_passkey(client, device_a)
+        _register_passkey(client, device_b)
+
+        creds = client.get('/api/entrance/webauthn/credentials').json()['credentials']
+        assert len(creds) == 2
+        assert creds[0]['credential_id'] != creds[1]['credential_id']
+
+        # Registration response also carries the list for UI confirmation.
+        options = client.get('/api/entrance/webauthn/register/options')
+        credential = device_a.registration_response(options.json())
+        reg = client.post('/api/entrance/webauthn/register', json=credential)
+        assert reg.status_code == 200
+        listed = reg.json()['credentials']
+        ids = {c['credential_id'] for c in listed}
+        assert len(ids) == len(listed)  # no duplicates, whatever the sim does
+        assert len(ids) >= 2
+
+        # BOTH devices can unlock independently, each with its own key.
+        fresh = TestClient(create_app(tmp_path / 'life.db', FakeAdapter()))
+        for auth in (device_a, device_b):
+            other = TestClient(create_app(tmp_path / 'life.db', FakeAdapter()))
+            options = other.get('/api/entrance/webauthn/authenticate/options')
+            assert options.status_code == 200
+            assertion = auth.assertion_response(options.json())
+            unlock = other.post('/api/entrance/webauthn/authenticate', json=assertion)
+            assert unlock.status_code == 200, unlock.text
+            assert other.get('/api/personality').status_code == 200
+
+        # An assertion from an UNKNOWN credential id (not registered) is refused.
+        rogue = SoftAuthenticator(RP_ID, ORIGIN)
+        options = fresh.get('/api/entrance/webauthn/authenticate/options')
+        forged = rogue.assertion_response(options.json())
+        assert fresh.post('/api/entrance/webauthn/authenticate',
+                          json=forged).status_code == 401
+
+
+def test_legacy_single_record_store_is_migrated(tmp_path, monkeypatch):
+    from webauthn_sim import SoftAuthenticator
+    with _passkey_client(tmp_path, monkeypatch) as client:
+        client.post('/api/entrance/unlock', json={'password': PASSWORD})
+        authenticator = SoftAuthenticator(RP_ID, ORIGIN)
+        _register_passkey(client, authenticator)
+        store = Path(os.environ['HERMES_LIFE_GATE_PASSKEY_STORE'])
+        record = json.loads(store.read_text())
+        assert 'credentials' in record  # new format
+        # Downgrade the file to the legacy single-record shape in place.
+        store.write_text(json.dumps(record['credentials'][0]))
+        client.get('/api/entrance/logout')
+        fresh = TestClient(create_app(tmp_path / 'life.db', FakeAdapter()))
+        options = fresh.get('/api/entrance/webauthn/authenticate/options')
+        assert options.status_code == 200  # legacy record still authenticates
+        assertion = authenticator.assertion_response(options.json())
+        assert fresh.post('/api/entrance/webauthn/authenticate',
+                          json=assertion).status_code == 200

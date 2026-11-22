@@ -67,7 +67,7 @@ export async function gatePasskeyUnlock(): Promise<void> {
  * HL-AUTH-002: enrol this device. Requires an unlocked session (call from the
  * app). Throws Error with a human-readable message on failure.
  */
-export async function gateRegisterPasskey(): Promise<void> {
+export async function gateRegisterPasskey(): Promise<{ credentials?: { credential_id: string }[] }> {
   const options = await fetchWebauthnOptions('register');
   const cred = await navigator.credentials.create({ publicKey: options as PublicKeyCredentialCreationOptions });
   if (!cred || !(cred instanceof PublicKeyCredential)) throw new Error('No passkey credential returned');
@@ -80,9 +80,11 @@ export async function gateRegisterPasskey(): Promise<void> {
     const body = await res.json().catch(() => ({}));
     throw new Error(typeof body.detail === 'string' ? body.detail : 'Passkey registration failed');
   }
+  return res.json().catch(() => ({}));
 }
 
-function buildGate(imageUrl: string | null, passkeyAvailable: boolean): HTMLElement {
+function buildGate(imageUrl: string | null, passkeyAvailable: boolean,
+                   passwordAvailable = true): HTMLElement {
   const gate = document.createElement('div');
   gate.id = GATE_ID;
   gate.innerHTML = `
@@ -90,7 +92,7 @@ function buildGate(imageUrl: string | null, passkeyAvailable: boolean): HTMLElem
       ${imageUrl ? `<img class="hl-gate-img" src="${imageUrl}" alt="Entrance gate" />` : ''}
     </div>
     <div class="hl-gate-actions">
-      <button id="hl-gate-enter" type="button">Enter</button>
+      ${passwordAvailable ? '<button id="hl-gate-enter" type="button">Enter</button>' : ''}
       ${passkeyAvailable ? '<button id="hl-gate-passkey" type="button">🔑 Unlock with passkey</button>' : ''}
       <form id="hl-gate-form" hidden>
         <label>Password
@@ -103,17 +105,21 @@ function buildGate(imageUrl: string | null, passkeyAvailable: boolean): HTMLElem
   return gate;
 }
 
-function showGate(imageUrl: string | null, passkeyAvailable = false): void {
-  const gate = buildGate(imageUrl, passkeyAvailable);
+function showGate(imageUrl: string | null, passkeyAvailable = false,
+                  passwordAvailable = true): void {
+  const gate = buildGate(imageUrl, passkeyAvailable, passwordAvailable);
   document.body.appendChild(gate);
   const img = gate.querySelector<HTMLImageElement>('.hl-gate-img');
   img?.addEventListener('error', () => img.remove());  // image missing: gate still works
   const error = gate.querySelector<HTMLElement>('#hl-gate-error')!;
-  const enter = gate.querySelector<HTMLButtonElement>('#hl-gate-enter')!;
+  const enter = gate.querySelector<HTMLButtonElement>('#hl-gate-enter');
   const form = gate.querySelector<HTMLFormElement>('#hl-gate-form')!;
   const input = gate.querySelector<HTMLInputElement>('#hl-gate-pass')!;
 
-  enter.addEventListener('click', () => {
+  // Bootstrap-only password form: hidden entirely once a passkey is
+  // registered (the backend 404s /api/entrance/unlock from then on anyway).
+  if (!passwordAvailable) form.hidden = true;
+  enter?.addEventListener('click', () => {
     form.hidden = false;
     enter.hidden = true;
     input.focus();
@@ -180,7 +186,8 @@ export async function initGate(): Promise<void> {
       releaseApp();
       return;
     }
-    showGate(state.image_url ?? null, state.passkey_available === true);
+    showGate(state.image_url ?? null, state.passkey_available === true,
+             state.password_unlock_available !== false);
   } catch {
     // Backend unreachable: keep the gate up (secure default) and say why.
     showGate(null);

@@ -26,11 +26,11 @@ def b64url_decode(value: str) -> bytes:
 class SoftAuthenticator:
     """One P-256 credential that can register and then assert."""
 
-    def __init__(self, rp_id: str, origin: str):
+    def __init__(self, rp_id: str, origin: str, credential_id: bytes = b'\xa1' * 32):
         self.rp_id = rp_id
         self.origin = origin
         self.key = ec.generate_private_key(ec.SECP256R1())
-        self.credential_id = b'\xa1' * 32
+        self.credential_id = credential_id
         self.sign_count = 0
 
     # -- registration -------------------------------------------------------

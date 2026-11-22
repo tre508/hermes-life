@@ -268,17 +268,23 @@ void initializeChatModels();
 el('hc-toggle').onclick=()=>{panel.hidden=!panel.hidden;if(!panel.hidden){void render(true);void refreshThreads();if(!socket||socket.readyState>1)connect()}};
 el('hc-close').onclick=()=>panel.hidden=true;
 el('hc-logout').onclick=()=>{void gateLogout();};
-// HL-AUTH-002: one-time passkey enrolment. The button only appears while the
-// gate is enabled, the session is live, and no credential is registered yet.
+// HL-AUTH-003: passkey enrolment. The button appears while the gate is
+// enabled and the session is live, and STAYS visible after the first
+// enrolment so additional devices (1Password etc.) can register too —
+// each device gets its own credential in the store.
 void (async()=>{
   const passkeyBtn=el('hc-passkey') as HTMLButtonElement;
   try{
     const st=await fetch('/api/entrance/status').then(r=>r.json());
-    if(st.enabled&&st.authenticated&&!st.passkey_available)passkeyBtn.hidden=false;
+    if(st.enabled&&st.authenticated)passkeyBtn.hidden=false;
   }catch{/* gate status unknown: keep the enrol button hidden */}
   passkeyBtn.onclick=async()=>{
     passkeyBtn.disabled=true;
-    try{await gateRegisterPasskey();passkeyBtn.hidden=true;state('Passkey registered on this device');}
+    try{
+      const out=await gateRegisterPasskey() as {credentials?:{credential_id:string}[]};
+      const n=out&&out.credentials?out.credentials.length:undefined;
+      passkeyBtn.hidden=true;state(n?`Passkey registered (${n} credential${n===1?'':'s'} on file)`:'Passkey registered on this device');
+    }
     catch(e){state(e instanceof Error?e.message:'Passkey registration failed');passkeyBtn.disabled=false;}
   };
 })();
