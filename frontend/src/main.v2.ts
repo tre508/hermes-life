@@ -13,6 +13,9 @@
  */
 
 // Order matters: hermes-chat must run before phase412 (which extends its panel).
+// HL-AUTH-001: gate.ts boots first; while the gate is locked the app stays hidden
+// under the opaque entrance overlay, so it can render underneath harmlessly.
+import { gateLogout } from './gate';
 import './hermes-chat';
 import './phase412-project-ui';
 import './phase41301-rework';
@@ -128,6 +131,9 @@ window.addEventListener('hermes:workview', ((ev: Event) => {
 document.querySelector('#primary-nav button[data-hc-chat="open"]')?.addEventListener('click', () => {
     queueMicrotask(() => document.getElementById('header-chat-open')?.click());
 });
+
+// HL-AUTH-001: topbar logout — clear the gate session and land back on the entrance.
+$('topbar-logout')?.addEventListener('click', () => { void gateLogout(); });
 
 // Open the floating Hermes conversation from anywhere.
 const headerChat = $('header-chat-open');

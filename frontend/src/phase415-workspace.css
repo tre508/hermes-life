@@ -61,7 +61,43 @@ body.hc415-fullscreen-open{overflow:hidden}
 #hc415-attach-list li{display:flex;align-items:center;gap:6px;min-width:0}
 #hc415-attach-list li span{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:ui-monospace,monospace;font-size:11px}
 #hc415-file-sidebar .hc415-attach-remove{padding:1px 6px}
+/* HL-CHAT-006 2.3: attachment mode selector (A access / B manifest / C inline). */
+#hc415-attach-mode{display:flex;align-items:center;gap:6px;margin-top:6px}
+#hc415-attach-mode .hc415-mode-label{font-size:11px;color:#9fbfbd}
+#hc415-attach-mode .hc415-mode-btn{font-size:10px;padding:2px 8px;background:#153441;color:#9fd8d2;border:1px solid #315d63;border-radius:4px;cursor:pointer}
+#hc415-attach-mode .hc415-mode-btn:hover{background:#1e4a58}
+#hc415-attach-mode .hc415-mode-btn[aria-pressed=true]{background:#0d4a3a;color:#8df0c8;border-color:#8df0c8}
 #hc415-file-preview{flex:0 0 auto;max-height:26dvh;overflow:auto;margin:0;border-top:1px solid #315d63;padding:10px;background:#081b25;color:#e3f3ef;font:11px/1.5 ui-monospace,monospace;white-space:pre}
 #hc415-file-meter{flex:0 0 auto;padding:7px 12px;border-top:1px solid #315d63;color:#9fbfbd}
 #hc415-files-button{white-space:nowrap}
+/* HL-CHAT-006 2.1: workspace selector card — hidden state-holder select, visible selector button + overlay. */
+.hc415-visually-hidden{position:absolute!important;width:1px!important;height:1px!important;margin:-1px!important;padding:0!important;overflow:hidden!important;clip:rect(0 0 0 0)!important;white-space:nowrap!important;border:0!important}
+#hc415-ws-selector{flex:0 1 auto;min-width:0;max-width:340px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-align:left;background:#183a43;color:#e6f8f0;border:1px solid #557e7f;border-radius:7px;padding:6px 10px;cursor:pointer;font-size:12px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+#hc415-ws-selector:hover{background:#24545b}
+#hc415-ws-selector.hc415-ws-active{border-color:#69c7aa;color:#b8f4dc}
+#hc415-ws-select[hidden]{display:none!important}
+#hc415-ws-select{position:absolute;inset:0;z-index:4;background:#0d2833;display:flex;flex-direction:column;gap:14px;padding:17px;overflow-y:auto;color:#e7f6f5;box-shadow:0 0 0 1px #5c9088 inset;font-size:13px}
+.hc415-ws-head{display:flex;align-items:center;justify-content:space-between;gap:10px;position:sticky;top:-17px;z-index:1;background:#0d2833;padding:0 0 12px;border-bottom:1px solid #436b70}
+.hc415-ws-head strong{font-size:13px;letter-spacing:.08em}
+#hc415-ws-select button{border:1px solid #639c90;border-radius:7px;padding:8px 11px;background:#25544f;color:#e1fff4;cursor:pointer;font-size:12px}
+#hc415-ws-select button:disabled{opacity:.5;cursor:not-allowed}
+#hc415-ws-select button:hover:not(:disabled){background:#327364}
+#hc415-ws-close{padding:4px 9px!important}
+#hc415-ws-list{display:flex;flex-direction:column;gap:6px}
+#hc415-ws-list .hc415-ws-option{text-align:left;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+#hc415-ws-list .hc415-ws-option[aria-checked="true"]{background:#2f6b60;border-color:#69c7aa;color:#c4ffe6;font-weight:700}
+#hc415-ws-info{display:flex;flex-direction:column;gap:5px;border-top:1px solid #436b70;border-bottom:1px solid #436b70;padding:11px 2px;color:#aacdca;font-size:12px}
+.hc415-ws-info-row{display:flex;gap:10px;min-width:0}
+.hc415-ws-info-key{flex:0 0 auto;color:#8fb8b5;white-space:nowrap}
+.hc415-ws-info-val{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#dcefe9;font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+.hc415-ws-actions{display:flex;flex-wrap:wrap;gap:7px}
+#hc415-ws-explorer{background:#69c7aa;color:#082b2b;font-weight:700}
+@media(max-width:650px){#hc415-ws-selector{flex:1;max-width:none}}
 @media(max-width:900px){#hc-panel.hc415-fullscreen{grid-template-columns:minmax(0,1fr);grid-template-areas:"head" "models" "bar" "main" "form"}#hc-panel.hc415-fullscreen>#hc415-file-sidebar{grid-area:auto;position:absolute;left:0;top:0;bottom:0;width:min(320px,86vw);z-index:5;box-shadow:12px 0 30px #000a}}
+/* HL-CHAT-006 §5: host-version label on the attachments panel. */
+#hc415-host-ver{display:block;padding:5px 12px 0;color:#8fb8b5;font:11px/1.4 ui-monospace,SFMono-Regular,Menlo,monospace;letter-spacing:.02em}
+/* HL-CHAT-006 §3: "Files consulted" footer under assistant responses that referenced attached files. */
+.hc415-consulted{margin-top:9px;border-top:1px dashed #3d6a6f;padding-top:7px;color:#a9d9d4;font-size:12px}
+.hc415-consulted strong{display:block;letter-spacing:.05em;font-size:11px;color:#8fd8c6;text-transform:none}
+.hc415-consulted ul{margin:4px 0 0;padding-left:18px}
+.hc415-consulted li{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11px;color:#cdeee6;overflow-wrap:anywhere}

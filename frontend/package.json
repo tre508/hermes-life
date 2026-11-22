@@ -11,7 +11,8 @@
     "test:ui": "node --import tsx --test tests/control-wiring.test.ts",
     "test:renderer": "node --import tsx --test tests/town-renderer.test.ts",
     "test:lifecycle": "node --import tsx --test tests/task-lifecycle.test.ts",
-    "test": "npm run test:town && npm run test:ui && npm run test:renderer && npm run test:lifecycle"
+    "test:build": "node --import tsx --test tests/build-inspector.test.ts",
+    "test": "npm run test:town && npm run test:ui && npm run test:renderer && npm run test:lifecycle && npm run test:build"
   },
   "dependencies": {
     "three": "^0.187.0"

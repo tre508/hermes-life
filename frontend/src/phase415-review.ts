@@ -1,7 +1,9 @@
 /** HL-FLOW-005: one coherent Planning/Build status, evidence and approval surface. */
 import './phase415-review.css';
 import { makeRefresh } from './refresh-feedback.ts';
-import { openWorkView, openTask } from './navigation-state.ts';
+import { openWorkView, openTask, setSelection, getSelection } from './navigation-state.ts';
+import { registerKindRenderer, registerSummaryProvider, rerenderInspector } from './context-inspector.ts';
+import { deriveBuildStages, testOutcome, decisionLabel } from './build-lifecycle.ts';
 type Rec=Record<string,unknown>;
 const $=(id:string)=>document.getElementById(id);
 const s=(x:unknown)=>typeof x==='string'?x:String(x??'');
@@ -142,6 +144,16 @@ function renderBuild(){const root=$('hl415-build');if(!root)return;root.replaceC
  }
  if(!runs.length){root.append(node('p','No candidate runs yet. Approve a plan in Planning and start its isolated implementation.','hl415-status'));return}
  for(const run of runs){const d=decisionMap.get(s(run.id));const revisions=revisionMap.get(s(run.id));const attempts=Array.isArray(revisions?.attempts)?revisions!.attempts as Rec[]:[];const card=node('article','','hl415-card');card.id='hl415-run-'+s(run.id);
+  // HL-WORK-001 M3: selecting a run card is a typed build selection — the
+  // inspector shows THIS run, never the last-touched task. The card stays
+  // fully interactive; selection is a click anywhere on it.
+  if(getSelection('build')?.id===s(run.id))card.classList.add('hl415-card-selected');
+  card.addEventListener('click',()=>{
+    setSelection('build',{kind:'build',id:s(run.id)});
+    document.querySelectorAll<HTMLElement>('.hl415-card-selected').forEach(x=>x.classList.remove('hl415-card-selected'));
+    card.classList.add('hl415-card-selected');
+  });
+
   const top=node('div','','hl415-row');top.append(node('strong',s(run.project)),node('span',chip(run,status(run,d)),'hl415-chip'));
   const verified=verificationMap.get(s(run.id));if(verified)top.append(node('span',`verification: ${s(verified.disposition)}`,'hl415-chip'));
   if(wfNext(run)==='open_review')top.append(node('span','next: review candidate','hl415-chip'));
@@ -246,7 +258,11 @@ function renderReview(){let root=$('hl415-review');if(!root){root=node('section'
  });if(decision==='accepted'&&(s(run.state)!=='candidate_passed'||(verdicts.length>0&&!verifiedAll)))b.disabled=true;actions.append(b)}
  root.append(actions);if(decisionMessage)root.append(node('p',decisionMessage,'hl415-good'));
 }
-function renderAll(){renderPlanning();renderBuild()}
+function renderAll(){renderPlanning();renderBuild();
+ // A persisted build selection rendered before run data landed; re-render
+ // now that runs/decisions/verifications are loaded.
+ if(getSelection('build'))rerenderInspector();
+}
 const refreshCtl=makeRefresh({
  load:async()=>{
   const [planRows,runRows,settings]=await Promise.all([api('/investigation-plans'),api('/implementations'),api('/verification/settings')]);
@@ -287,3 +303,56 @@ let attempts=0;const timer=window.setInterval(()=>{if(mount()||++attempts>60)win
 
 // FLOW-006: refresh open reviews only while a revision is queued or running.
 setInterval(()=>{if(reviewRun&&revisionData){const a=(revisionData.attempts as Rec[]|undefined)||[];if(a.length&&['queued','running'].includes(s(a[0].state)))void openReview(reviewRun)}},5000);
+
+/* =====================================================================
+ * HL-WORK-001 M3 — build-typed inspector card + workspace summary.
+ * The Build view owns kind 'build'; selecting a run card above renders
+ * THIS run's facts in the side panel instead of a stale task.
+ * ===================================================================== */
+function stageRail(stages:ReturnType<typeof deriveBuildStages>):HTMLElement{
+  const row=node('div','','hl415-progress hl415-stagerail');
+  stages.forEach(st=>{
+    const chipNode=node('span',st.label,`hl415-stage hl415-stage-${st.state}`);
+    chipNode.title=st.note||st.label;
+    if(st.note)chipNode.textContent=`${st.label} · ${st.note}`;
+    row.append(chipNode);
+  });
+  return row;
+}
+registerKindRenderer('build',(sel,body)=>{
+  const run=runs.find(r=>s(r.id)===sel.id);
+  if(!run){body.append(node('p','This implementation run is not loaded right now (it may have been removed).','hl415-status'));return}
+  const decision:Rec|undefined=decisionMap.get(sel.id)||undefined;
+  const verification:Rec|undefined=verificationMap.get(sel.id)||undefined;
+  body.append(node('strong',`${s(run.project)||'Implementation run'} ${sel.id.slice(0,8)}`));
+  body.append(node('p',`${status(run,decision)} · started ${stamp(run.created_at)} · updated ${stamp(run.updated_at)}`,'hl415-caption'));
+  body.append(stageRail(deriveBuildStages(run,decision,verification)));
+  if(s(run.error))body.append(node('p',s(run.error),'hl415-error'));
+  const outcome=testOutcome(run);
+  body.append(node('p',`Test outcome — baseline: ${outcome.baseline} · candidate: ${outcome.candidate}`,'hl415-caption'));
+  if(decision)body.append(node('p',`Review decision: ${decisionLabel(decision)} · ${stamp(decision.decided_at)}`,'hl415-good'));
+  else body.append(node('p',`Review: none recorded · next: ${wfNext(run)==='none'?'—':wfNext(run)}`,'hl415-caption'));
+  const filesLine=node('p','Changed files: loading…','hl415-caption');
+  body.append(filesLine);
+  void api(`/implementations/${encodeURIComponent(sel.id)}/review`).then((data)=>{
+    const snap=(data as Rec)?.snapshot as Rec|null|undefined;
+    filesLine.textContent=(snap&&snap.changed_files!==undefined)
+      ?`Changed files: ${s(snap.changed_files)} (candidate workspace snapshot)`
+      :'Changed files: no candidate workspace snapshot available';
+  }).catch(()=>{filesLine.textContent='Changed files: review snapshot unavailable (run not reviewable yet)'});
+  const actions=node('div','','hl415-actions');
+  actions.append(btn('Review candidate changes',()=>void openReview(run)));
+  if(s(run.plan_id))actions.append(btn('Open plan in Planning',()=>openWorkView('planning')));
+  actions.append(btn('Open in Chat',()=>{
+    window.dispatchEvent(new CustomEvent('hermes:open-in-chat',{detail:{prefill:`Discuss implementation run ${sel.id} on project ${s(run.project)||'?'}.`}}));
+  }));
+  body.append(actions);
+});
+registerSummaryProvider('build',()=>({
+  line:'Select a run card to see its facts here.',
+  chips:runs.length?[
+    {label:'runs',count:runs.length},
+    {label:'awaiting review',count:runs.filter(r=>s(r.state)==='candidate_passed'&&!decisionMap.get(s(r.id))).length},
+    {label:'failed',count:runs.filter(r=>['candidate_failed','evaluation_error','failed'].includes(s(r.state))).length},
+  ]:undefined,
+}));

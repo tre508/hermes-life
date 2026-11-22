@@ -1,0 +1,125 @@
+/* HL-AUTH-001 — Entrance gate overlay.
+   The app is hidden (visibility) until the gate resolves, so an unauthenticated
+   visitor never sees a flash of the command centre. When the gate is disabled or
+   the visitor is authenticated, gate.ts removes #hl-gate and restores the app. */
+
+#app { visibility: hidden; }
+#app.hl-gate-open { visibility: visible; }
+
+#hl-gate {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  background: radial-gradient(ellipse at 50% 40%, #17120c 0%, #070503 70%);
+  color: #e8d9b0;
+  font-family: Georgia, 'Times New Roman', serif;
+}
+
+#hl-gate .hl-gate-stage {
+  position: relative;
+  flex: 1;
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 0;
+}
+
+#hl-gate .hl-gate-img {
+  max-width: 96vw;
+  max-height: 100%;
+  object-fit: contain;   /* aspect ratio preserved, never distorted */
+  border-radius: 10px;
+  box-shadow: 0 0 60px rgba(201, 162, 39, 0.25), 0 0 18px rgba(0, 0, 0, 0.8);
+}
+
+#hl-gate .hl-gate-actions {
+  padding: 18px 0 26px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+}
+
+#hl-gate-enter {
+  padding: 10px 34px;
+  font-size: 1rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: #f4e6c0;
+  background: linear-gradient(180deg, #3a2d16, #241a0c);
+  border: 1px solid #8a6a2f;
+  border-radius: 999px;
+  cursor: pointer;
+  box-shadow: 0 0 14px rgba(201, 162, 39, 0.25);
+  transition: box-shadow 0.2s ease, border-color 0.2s ease;
+}
+
+#hl-gate-enter:hover {
+  border-color: #c9a227;
+  box-shadow: 0 0 22px rgba(201, 162, 39, 0.45);
+}
+
+#hl-gate-form {
+  position: absolute;
+  bottom: 92px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 16px 20px;
+  min-width: 280px;
+  background: rgba(10, 8, 5, 0.82);
+  border: 1px solid #8a6a2f;
+  border-radius: 10px;
+  backdrop-filter: blur(4px);
+}
+
+#hl-gate-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  font-size: 0.85rem;
+  letter-spacing: 0.08em;
+  color: #cdb98a;
+}
+
+#hl-gate-pass {
+  padding: 9px 12px;
+  font-size: 1rem;
+  color: #f4e6c0;
+  background: rgba(0, 0, 0, 0.55);
+  border: 1px solid #8a6a2f;
+  border-radius: 6px;
+  outline: none;
+}
+
+#hl-gate-pass:focus { border-color: #c9a227; }
+
+#hl-gate-submit {
+  margin-top: 4px;
+  padding: 9px 0;
+  font-size: 0.9rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: #f4e6c0;
+  background: linear-gradient(180deg, #4a3a1c, #2b2010);
+  border: 1px solid #c9a227;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+#hl-gate-submit:hover { box-shadow: 0 0 14px rgba(201, 162, 39, 0.4); }
+
+#hl-gate-error {
+  margin: 0;
+  min-height: 1.1em;
+  font-size: 0.8rem;
+  color: #e07a5f;
+  text-align: center;
+}

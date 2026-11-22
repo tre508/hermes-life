@@ -274,6 +274,16 @@ def create_app(database=None, adapter=None):
             autonomy.stop()
 
     app = FastAPI(title='Hermes Life', version='0.3.8', lifespan=lifespan)
+    # HL-AUTH-001: password-protected entrance for the public dev deployment.
+    # Inert unless HERMES_LIFE_GATE_PASSWORD_HASH is configured — local dev and
+    # tests are unaffected when the gate is off.
+    from .entrance_gate import (GateConfig, add_gate_middleware, add_gate_routes,
+                                add_passkey_routes)
+    gate = GateConfig()
+    app.state.gate = gate
+    add_gate_routes(app, gate)
+    add_passkey_routes(app, gate)
+    add_gate_middleware(app, gate)  # added last so it is the outermost boundary
     app.state.runtime = runtime
     add_project_routes(app, runtime, runtime.project_workspaces)
     add_knowledge_routes(app, runtime.project_knowledge)

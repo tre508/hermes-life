@@ -28,3 +28,10 @@
 .hl415-verdict-passed{border-left-color:#3fbf7f;border-color:#3fbf7f}
 .hl415-verdict-failed{border-left-color:#e06c6c;border-color:#e06c6c}
 .hl415-verdict-unverified{border-left-color:#d8b04a;border-color:#d8b04a}
+.hl415-card-selected{border-color:#a4e2c6;box-shadow:0 0 0 1px #a4e2c6;cursor:pointer}
+.hl415-stagerail{gap:4px}
+.hl415-stage{border-radius:5px;border:1px solid #4c6b76;font-size:11px;padding:4px 7px;max-width:100%;overflow-wrap:anywhere}
+.hl415-stage-current{background:#3b716e;color:white}
+.hl415-stage-complete{border-color:#3fbf7f;color:#a4e2c6}
+.hl415-stage-failed{border-color:#e06c6c;color:#ffb6b0}
+.hl415-stage-blocked{border-color:#d8b04a;color:#f0dca0}

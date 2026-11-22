@@ -66,6 +66,36 @@ def test_tree_lists_files_and_prunes_denylist(tmp_path, monkeypatch):
     assert data['count'] == len(data['entries'])
 
 
+def test_context_and_changes_work_without_sync(tmp_path, monkeypatch):
+    # SSHFS architecture: remote_path is never set, yet @project tasks must
+    # still work — context() points at the live host repository and changes()
+    # reviews it locally instead of failing at the sync gate.
+    client, root = _client(tmp_path, monkeypatch)
+    ws = client.app.state.runtime.project_workspaces
+    project = ws._read('alpha')
+    assert project['remote_path'] is None
+
+    ctx = ws.context('alpha')
+    assert str(root) in ctx
+    assert '(live host repository)' in ctx
+    assert 'Base commit: live host HEAD' in ctx
+    assert 'not synchronized' not in ctx.lower()
+
+    result = ws.changes('alpha')
+    assert result['workspace'].startswith(str(root))
+    assert '(live host repository)' in result['workspace']
+    assert '---GIT-STATUS---' in result['output']
+    assert '---END-DIFF---' in result['output']
+
+
+def test_context_read_only_authority_text(tmp_path, monkeypatch):
+    client, root = _client(tmp_path, monkeypatch)
+    ws = client.app.state.runtime.project_workspaces
+    ctx = ws.context('alpha', read_only=True)
+    assert 'READ-ONLY' in ctx
+    assert 'Work inside this workspace' not in ctx
+
+
 def test_file_reads_content_and_blocks_denylist_and_escape(tmp_path, monkeypatch):
     client, root = _client(tmp_path, monkeypatch)
     r = client.get('/api/projects/alpha/file', params={'path': 'src/main.py'})
@@ -91,6 +121,41 @@ def test_file_reads_content_and_blocks_denylist_and_escape(tmp_path, monkeypatch
     # Missing file: 409.
     r = client.get('/api/projects/alpha/file', params={'path': 'nope.txt'})
     assert r.status_code == 409
+
+
+def test_tree_reports_host_version(tmp_path, monkeypatch):
+    client, root = _client(tmp_path, monkeypatch)
+    r = client.get('/api/projects/alpha/tree')
+    assert r.status_code == 200, r.text
+    ver = r.json()['host_version']
+    assert isinstance(ver, dict)
+    commit = ver['commit']
+    assert commit and len(commit) <= 40
+    assert ver['dirty'] is False  # clean test repo
+    # A new untracked file makes the host working tree dirty.
+    (root / 'untracked.txt').write_text('x\n')
+    r2 = client.get('/api/projects/alpha/tree')
+    ver2 = r2.json()['host_version']
+    assert ver2['dirty'] is True
+    assert ver2['commit'] == commit
+    (root / 'untracked.txt').unlink()
+    # Git repo with no commits: rev-parse HEAD fails -> host_version must be None, not an error.
+    empty = tmp_path / 'emptyrepo'
+    empty.mkdir()
+    subprocess.run(['git', 'init'], cwd=empty, check=True, capture_output=True)
+    c2 = TestClient(create_app(tmp_path / 'life.db', FakeAdapter()))
+    c2.post('/api/projects', json={'name': 'emptyrepo', 'host_path': str(empty)})
+    r3 = c2.get('/api/projects/emptyrepo/tree')
+    assert r3.status_code == 200, r3.text
+    assert r3.json()['host_version'] is None
+
+
+def test_file_response_carries_host_version(tmp_path, monkeypatch):
+    client, root = _client(tmp_path, monkeypatch)
+    r = client.get('/api/projects/alpha/file', params={'path': 'src/main.py'})
+    assert r.status_code == 200, r.text
+    ver = r.json()['host_version']
+    assert isinstance(ver, dict) and ver['commit'] and ver['dirty'] is False
 
 
 def test_endpoints_409_for_unknown_project(tmp_path, monkeypatch):

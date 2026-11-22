@@ -112,6 +112,12 @@ function render() {
 
 let wired = false;
 
+/** Force a re-render of the inspector (views call this after their data
+ *  refresh lands so a persisted selection picks up fresh record data). */
+export function rerenderInspector() {
+    if (wired) render();
+}
+
 /** Wire the inspector to navigation + selection changes. Safe to call once. */
 export function initContextInspector() {
     if (wired) return;

@@ -2,6 +2,7 @@ import './hermes-chat.css';
 import './chat-upgrade.css';
 import './chat-clarity.css';
 import { renderHermesMarkdown } from './chat-markdown';
+import { gateLogout, gateRegisterPasskey } from './gate';
 
 type Turn={id:number;role:'user'|'assistant';content:string;created_at:string;task_id:string|null};
 type Conversation={id:string;title:string;updated_at:string};
@@ -17,7 +18,7 @@ let liveTask='';let liveText='';let liveBubble:HTMLElement|null=null;
 const root=document.createElement('div');root.id='hermes-chat-root';
 root.innerHTML=`<button id="hc-toggle" aria-label="Open Hermes chat" title="Hermes chat"><span class="hc-sigil" aria-hidden="true">✦</span><span>Chat</span></button>
 <section id="hc-panel" role="dialog" aria-label="Hermes conversation" hidden>
- <header class="hc-head"><div class="hc-brand"><span class="hc-logo" aria-hidden="true">✦</span><div class="hc-brand-copy"><strong>Hermes</strong><small id="hc-state">Connected to Hermes Life</small></div></div><div class="hc-actions"><button id="hc-new" type="button" title="New conversation"><span class="hc-action-icon" aria-hidden="true">＋</span> New Chat</button><button id="hc-history" type="button" title="Conversation history"><span class="hc-action-icon" aria-hidden="true">☷</span> Threads</button><button id="hc-close" type="button" title="Close chat"><span class="hc-action-icon" aria-hidden="true">×</span> Close</button></div></header>
+ <header class="hc-head"><div class="hc-brand"><span class="hc-logo" aria-hidden="true">✦</span><div class="hc-brand-copy"><strong>Hermes</strong><small id="hc-state">Connected to Hermes Life</small></div></div><div class="hc-actions"><button id="hc-new" type="button" title="New conversation"><span class="hc-action-icon" aria-hidden="true">＋</span> New Chat</button><button id="hc-history" type="button" title="Conversation history"><span class="hc-action-icon" aria-hidden="true">☷</span> Threads</button><button id="hc-logout" type="button" title="Log out — return to the entrance gate"><span class="hc-action-icon" aria-hidden="true">⏻</span> Logout</button><button id="hc-passkey" type="button" title="Register a passkey on this device for passwordless unlock" hidden><span class="hc-action-icon" aria-hidden="true">🔑</span> Passkey</button><button id="hc-close" type="button" title="Close chat"><span class="hc-action-icon" aria-hidden="true">×</span> Close</button></div></header>
  <nav id="hc-threads" aria-label="Previous conversations" hidden></nav>
  <main id="hc-messages" aria-live="polite"><div class="hc-empty">Start a conversation with Hermes.<br>Messages and tasks share the same thread.</div></main>
  <div id="hc-progress" hidden><span id="hc-progress-label">Hermes is working…</span><button id="hc-details">Activity ▾</button><button id="hc-stop" type="button" title="Stop current task">Stop</button></div>
@@ -266,6 +267,21 @@ window.addEventListener('hermes:open-in-chat',(ev:Event)=>{
 void initializeChatModels();
 el('hc-toggle').onclick=()=>{panel.hidden=!panel.hidden;if(!panel.hidden){void render(true);void refreshThreads();if(!socket||socket.readyState>1)connect()}};
 el('hc-close').onclick=()=>panel.hidden=true;
+el('hc-logout').onclick=()=>{void gateLogout();};
+// HL-AUTH-002: one-time passkey enrolment. The button only appears while the
+// gate is enabled, the session is live, and no credential is registered yet.
+void (async()=>{
+  const passkeyBtn=el('hc-passkey') as HTMLButtonElement;
+  try{
+    const st=await fetch('/api/entrance/status').then(r=>r.json());
+    if(st.enabled&&st.authenticated&&!st.passkey_available)passkeyBtn.hidden=false;
+  }catch{/* gate status unknown: keep the enrol button hidden */}
+  passkeyBtn.onclick=async()=>{
+    passkeyBtn.disabled=true;
+    try{await gateRegisterPasskey();passkeyBtn.hidden=true;state('Passkey registered on this device');}
+    catch(e){state(e instanceof Error?e.message:'Passkey registration failed');passkeyBtn.disabled=false;}
+  };
+})();
 el('hc-new').onclick=()=>{if(activeTask&&['queued','running'].includes(activeState)){feedback.textContent='Finish the active task before starting another conversation.';return;}conversationId='';localStorage.removeItem(stored);activeTask='';pendingRevision=null;void render();state('New conversation')};
 el('hc-history').onclick=()=>{const nav=el('hc-threads');nav.hidden=!nav.hidden;if(!nav.hidden)void refreshThreads()};
 el('hc-details').onclick=()=>el('hc-events').hidden=!el('hc-events').hidden;

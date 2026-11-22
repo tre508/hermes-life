@@ -57,10 +57,15 @@ def test_register_list_changes_sync_contract(tmp_path, monkeypatch):
         assert projects[0]['host_path'] == str(root)
         assert projects[0]['remote_path'] is None or projects[0]['remote_path'] == ''
 
-        # Changes before any sync: a 409 with a message the UI can surface.
+        # Changes before any sync: 200 against the live host repository —
+        # there is no work machine, so the sync gate never applies to review.
         r = client.get('/api/projects/alpha/changes')
-        assert r.status_code == 409
-        assert 'synchronized' in r.json()['detail'].lower()
+        assert r.status_code == 200, r.text
+        data = r.json()
+        assert data['workspace'].startswith(str(root))
+        assert 'live host repository' in data['workspace']
+        assert '---GIT-STATUS---' in data['output']
+        assert '---END-DIFF---' in data['output']
 
         # Sync without an SSH-transport adapter: 409, not a silent success.
         r = client.post('/api/projects/alpha/sync')

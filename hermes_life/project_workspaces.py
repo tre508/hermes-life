@@ -148,34 +148,52 @@ class ProjectWorkspaces:
 
     def context(self,name,read_only=False):
         project=self._read(name)
-        if not project['remote_path']:
-            raise WorkspaceError('Project is not synchronized; POST /api/projects/'+name+'/sync first')
-        spec=(f"Project requirements: {project['remote_path']}/{project['spec_path']}\n" if project['spec_path'] else '')
+        if project['remote_path']:
+            workspace=f"{project['remote_path']}"
+            base=f"Base commit: {project['commit_hash']}\n"
+        else:
+            # SSHFS architecture: no work machine exists, so the live host
+            # repository IS the workspace. The attachment endpoints already
+            # read host_path directly; the task path must agree with them.
+            root=self._root(name)
+            workspace=f'{root} (live host repository)'
+            version=self._host_version(root)
+            base=("Base commit: live host HEAD"
+                  +(f" {version['commit']} ({'dirty' if version['dirty'] else 'clean'})" if version else '')+'\n')
+        spec=(f"Project requirements: {workspace}/{project['spec_path']}\n" if project['spec_path'] else '')
         # HL-AUTO-004: the workspace instruction must match the enforced scope.
         authority=('This is a READ-ONLY task: inspect this workspace and report evidence. '
                    'Do not modify it, install packages, or change system settings.\n'
                    if read_only else
-                   'Work ONLY inside this work-machine workspace. You may investigate, modify and run tests there. '
-                   'Do not modify host paths or apply/deploy results. Report changed files, verification results and remaining risks. '
+                   'Work inside this workspace. You may investigate, modify and run tests there. '
+                   'Report changed files, verification results and remaining risks. '
                    'Edits are provisional until separately reviewed.\n')
         return ('[Hermes Life selected project workspace]\n'
-                f"Project: {name}\nWorkspace: {project['remote_path']}\n"
-                f"Base commit: {project['commit_hash']}\n{spec}"
+                f"Project: {name}\nWorkspace: {workspace}\n"
+                f"{base}{spec}"
                 + authority +
                 '[/Project workspace]\n\n')
 
     def changes(self,name):
         p=self._read(name)
-        if not p['remote_path']:raise WorkspaceError('No synchronized workspace')
-        root=shlex.quote(p['remote_path'])
-        # Binary patch output is bounded; untracked files are reported rather than silently omitted.
-        script=(f'set -eu; cd {root}; echo ---GIT-STATUS---; '
-                f'git status --porcelain; echo ---GIT-DIFF---; '
-                f'git diff --binary HEAD; echo ---END-DIFF---')
-
-        output=self._ssh(script)
+        if p['remote_path']:
+            root=p['remote_path']
+            script=(f'set -eu; cd {shlex.quote(root)}; echo ---GIT-STATUS---; '
+                    f'git status --porcelain; echo ---GIT-DIFF---; '
+                    f'git diff --binary HEAD; echo ---END-DIFF---')
+            output=self._ssh(script)
+        else:
+            # No work machine: run the same review locally against the live host repo.
+            host=self._root(name)
+            script=['sh','-c',
+                    'echo ---GIT-STATUS---; git status --porcelain; echo ---GIT-DIFF---; '
+                    'git diff --binary HEAD; echo ---END-DIFF---']
+            run=subprocess.run(script,cwd=str(host),text=True,capture_output=True,timeout=90)
+            if run.returncode:raise WorkspaceError('Git: '+run.stderr.strip()[-350:])
+            output=run.stdout.strip()
         if len(output)>500_000:raise WorkspaceError('Patch too large for API; review through Git on the work machine')
-        return {'project':name,'base_commit':p['commit_hash'],'workspace':p['remote_path'],'output':output}
+        workspace=p['remote_path'] or str(self._root(name))+' (live host repository)'
+        return {'project':name,'base_commit':p['commit_hash'],'workspace':workspace,'output':output}
 
 
     # --- HL-CHAT-006: file-context manager ---------------------------------
@@ -196,6 +214,19 @@ class ProjectWorkspaces:
             if part != parts[-1] and part in DENY_DIRS:
                 return True
         return bool(DENY_FILE.search(parts[-1]))
+
+    @staticmethod
+    def _host_version(root):
+        try:
+            commit = subprocess.run(['git', '-C', str(root), 'rev-parse', '--short', 'HEAD'],
+                                    capture_output=True, text=True, timeout=10)
+            status = subprocess.run(['git', '-C', str(root), 'status', '--porcelain'],
+                                    capture_output=True, text=True, timeout=10)
+            if commit.returncode == 0 and status.returncode == 0:
+                return {'commit': commit.stdout.strip(), 'dirty': bool(status.stdout.strip())}
+        except (OSError, subprocess.SubprocessError):
+            pass
+        return None
 
     def tree(self, name):
         root = self._root(name)
@@ -225,7 +256,8 @@ class ProjectWorkspaces:
                     truncated = True
                     break
         return {'project': name, 'root': str(root), 'count': len(entries),
-                'truncated': truncated, 'entries': entries}
+                'truncated': truncated, 'entries': entries,
+                'host_version': self._host_version(root)}
 
     def file(self, name, relpath):
         root = self._root(name)
@@ -246,7 +278,7 @@ class ProjectWorkspaces:
         content = target.read_bytes().decode('utf-8', errors='replace')
         return {'path': rel, 'size': st.st_size, 'mtime': st.st_mtime,
                 'mode': stat_module.filemode(st.st_mode), 'truncated': False,
-                'content': content}
+                'content': content, 'host_version': self._host_version(root)}
 
 
 def add_project_routes(app, runtime, manager):

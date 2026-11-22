@@ -1,0 +1,15 @@
+ERROR:    Error loading ASGI app. Attribute "app" not found in module "hermes_life.app".
+INFO:     Started server process [1139197]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://127.0.0.1:8791 (Press CTRL+C to quit)
+INFO:     127.0.0.1:51240 - "GET /api/projects HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51248 - "POST /api/projects HTTP/1.1" 409 Conflict
+INFO:     127.0.0.1:51256 - "POST /api/projects HTTP/1.1" 409 Conflict
+INFO:     127.0.0.1:53416 - "POST /api/projects HTTP/1.1" 409 Conflict
+INFO:     127.0.0.1:53432 - "GET /api/projects HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53438 - "POST /api/projects HTTP/1.1" 201 Created
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     Finished server process [1139197]

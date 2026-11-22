@@ -17,12 +17,16 @@ function setup():boolean{
   const chatPanel=panel;
   chatPanel.classList.add('hc415-chat');
   const bar=document.createElement('section');bar.id='hc-project-workspace';bar.setAttribute('aria-label','Coding project');
-  const pickerLabel=document.createElement('label');pickerLabel.htmlFor='hc-project-picker';pickerLabel.textContent='Project';
-  const picker=document.createElement('select');picker.id='hc-project-picker';picker.setAttribute('aria-label','Coding project');
+  // HL-CHAT-006 2.1: the <select> stays in the DOM as the state holder but is visually hidden;
+  // the visible control is the workspace selector button + overlay below.
+  const pickerLabel=document.createElement('label');pickerLabel.htmlFor='hc-project-picker';pickerLabel.textContent='Project';pickerLabel.className='hc415-visually-hidden';
+  const picker=document.createElement('select');picker.id='hc-project-picker';picker.setAttribute('aria-label','Coding project');picker.className='hc415-visually-hidden';picker.tabIndex=-1;picker.setAttribute('aria-hidden','true');
+  const selectorBtn=button('Working Directory: General chat','hc415-ws-selector');selectorBtn.id='hc415-ws-selector';
+  selectorBtn.title='Select the working directory for this conversation';selectorBtn.setAttribute('aria-haspopup','dialog');selectorBtn.setAttribute('aria-expanded','false');
   const workspaceButton=button('Workspace ▸','hc415-workspace-button');workspaceButton.setAttribute('aria-haspopup','dialog');
   const filesBtn=button('🗂 Files','hc415-files-button');filesBtn.title='Browse project files and attach them to the conversation';
   const hint=document.createElement('span');hint.id='hc415-project-hint';hint.setAttribute('role','status');
-  bar.append(pickerLabel,picker,filesBtn,workspaceButton,hint);form.parentElement?.insertBefore(bar,form);
+  bar.append(pickerLabel,picker,selectorBtn,filesBtn,workspaceButton,hint);form.parentElement?.insertBefore(bar,form);
 
   const drawer=document.createElement('section');drawer.id='hc415-workspace-drawer';drawer.hidden=true;drawer.setAttribute('role','dialog');drawer.setAttribute('aria-modal','true');drawer.setAttribute('aria-label','Project workspace and code review');
   const head=document.createElement('header');head.className='hc415-drawer-head';
@@ -44,6 +48,15 @@ function setup():boolean{
   drawer.append(head,info,actions,status,reviewPanel);panel.append(drawer);
 
   // HL-CHAT-006: file-context sidebar — DOM shell only; behaviour wired below.
+  // HL-CHAT-006 2.3: attachment modes. A = workspace access (paths only, Hermesha inspects
+  // with tools — the default for development conversations). B = manifest attachment
+  // (path/type/size/mtime references, contents retrievable). C = full contents inlined.
+  const MODE_KEY='hermes-life-chat-attach-mode';
+  type AttachMode='A'|'B'|'C';
+  let modeMap:Record<string,AttachMode>={};
+  try{modeMap=JSON.parse(localStorage.getItem(MODE_KEY)||'{}') as Record<string,AttachMode>}catch{modeMap={}}
+  function attachMode():AttachMode{return modeMap[choice()]||'A'}
+  function setMode(m:AttachMode){const n=choice();if(!n)return;modeMap[n]=m;localStorage.setItem(MODE_KEY,JSON.stringify(modeMap));refreshModeUI();renderAttachments();setStatus('Attachment mode '+(m==='A'?'A — workspace access':m==='B'?'B — manifest attachment':'C — inline contents'))}
   const sidebar=document.createElement('aside');sidebar.id='hc415-file-sidebar';sidebar.hidden=true;sidebar.setAttribute('aria-label','Project files');
   const sbHead=document.createElement('header');sbHead.className='hc415-side-head';
   const sbTitle=document.createElement('strong');sbTitle.textContent='Files';
@@ -56,12 +69,42 @@ function setup():boolean{
   const sbAttachCount=document.createElement('span');sbAttachCount.textContent='Attachments (0)';
   const sbClear=button('Clear all','hc415-attach-clear');sbClear.title='Remove all attachments';
   sbClear.onclick=()=>{if(!attached.size)return;attached.clear();saveAttached();renderTree();setStatus('All attachments removed')};
-  sbAttachHead.append(sbAttachCount,sbClear);
+  const sbSelectAll=button('Select all','hc415-attach-clear');sbSelectAll.title='Attach every file in the tree';
+  sbSelectAll.onclick=()=>{if(!treeData)return setStatus('Load a project tree first');let n=0;for(const e of treeData.entries)if(!attached.has(e.path)){attached.add(e.path);n++}if(n){saveAttached();renderTree()}setStatus(n?`Attached ${n} more file(s)`:'Every tree file is already attached')};
+  sbAttachHead.append(sbAttachCount,sbSelectAll,sbClear);
   const sbAttachList=document.createElement('ul');sbAttachList.id='hc415-attach-list';
-  sbAttach.append(sbAttachHead,sbAttachList);
+  const sbModeRow=document.createElement('div');sbModeRow.id='hc415-attach-mode';sbModeRow.setAttribute('role','group');sbModeRow.setAttribute('aria-label','Attachment mode');
+  const sbModeLabel=document.createElement('span');sbModeLabel.className='hc415-mode-label';sbModeLabel.textContent='Mode:';
+  const modeBtns:Record<AttachMode,HTMLButtonElement>={
+    A:button('A Access','hc415-mode-btn'),B:button('B Manifest','hc415-mode-btn'),C:button('C Inline','hc415-mode-btn')};
+  (['A','B','C'] as AttachMode[]).forEach(m=>{const b=modeBtns[m];
+    b.title=m==='A'?'Mode A — workspace access: list paths only; Hermesha inspects files with its tools (default).'
+      :m==='B'?'Mode B — manifest attachment: paths, type, size and modification time; contents retrievable on request.'
+      :'Mode C — inline: full file contents are included in the next request (context-checked).';
+    b.setAttribute('aria-pressed','false');b.onclick=()=>setMode(m);});
+  sbModeRow.append(sbModeLabel,modeBtns.A,modeBtns.B,modeBtns.C);
+  function refreshModeUI(){const m=attachMode();for(const k of ['A','B','C'] as AttachMode[])modeBtns[k].setAttribute('aria-pressed',String(k===m))}
+  refreshModeUI();
+  sbAttach.append(sbAttachHead,sbAttachList,sbModeRow);
+  const sbVer=document.createElement('span');sbVer.id='hc415-host-ver';sbVer.textContent='';sbVer.title='Git version of the host workspace the attached files were read from';
+  sbAttach.append(sbVer);
   const sbPreview=document.createElement('pre');sbPreview.id='hc415-file-preview';sbPreview.tabIndex=0;sbPreview.hidden=true;
   const sbMeter=document.createElement('div');sbMeter.id='hc415-file-meter';sbMeter.setAttribute('role','status');
   sidebar.append(sbHead,sbStatus,sbTree,sbAttach,sbPreview,sbMeter);panel.append(sidebar);
+
+  // HL-CHAT-006 2.1: SELECT WORKSPACE overlay — General Chat + registered projects,
+  // with Host (authoritative NUC repo) and Worker (execution workspace) paths labeled separately.
+  const wsSelect=document.createElement('section');wsSelect.id='hc415-ws-select';wsSelect.hidden=true;wsSelect.setAttribute('role','dialog');wsSelect.setAttribute('aria-modal','true');wsSelect.setAttribute('aria-label','Select workspace');
+  const wsHead=document.createElement('header');wsHead.className='hc415-ws-head';
+  const wsTitle=document.createElement('strong');wsTitle.textContent='SELECT WORKSPACE';
+  const wsClose=button('✕ Close','hc415-ws-close');wsHead.append(wsTitle,wsClose);
+  const wsList=document.createElement('div');wsList.id='hc415-ws-list';wsList.setAttribute('role','radiogroup');wsList.setAttribute('aria-label','Available workspaces');
+  const wsInfo=document.createElement('div');wsInfo.id='hc415-ws-info';
+  const wsActions=document.createElement('div');wsActions.className='hc415-ws-actions';
+  const wsBrowse=button('Browse registered projects','hc415-ws-browse');wsBrowse.id='hc415-ws-browse';wsBrowse.title='Open the project workspace drawer';
+  const wsExplorer=button('Open File Explorer','hc415-ws-explorer');wsExplorer.id='hc415-ws-explorer';wsExplorer.title='Browse and attach files from the selected project';
+  wsActions.append(wsBrowse,wsExplorer);
+  wsSelect.append(wsHead,wsList,wsInfo,wsActions);panel.append(wsSelect);
 
   // Keep the popup attached to the chat panel; it is visible only when deliberately opened.
   const expand=button('⤢ Expand','hc415-expand');expand.title='Expand or restore chat';
@@ -95,7 +138,7 @@ function setup():boolean{
   function current(){return projects.find(p=>p.name===choice())}
   function clearReview(){activeReview=null;confirmation.value='';reviewPanel.hidden=true;reviewMeta.textContent='';diff.textContent=''}
   function setStatus(s:string){status.textContent=s}
-  function renderHint(){const p=current();const base=!p?'General chat':p.remote_path?'Synced':'Not synced';hint.textContent=attached.size?`${base} · ${attached.size} attached`:base;info.textContent=p?`${p.name} · ${p.remote_path||'Work-machine workspace not synchronized'}`:'Select a registered project to synchronize or review changes.'}
+  function renderHint(){refreshModeUI();const p=current();const base=!p?'General chat':p.remote_path?'Synced':'Not synced';hint.textContent=attached.size?`${base} · ${attached.size} attached`:base;info.textContent=p?`${p.name} · ${p.remote_path||'Work-machine workspace not synchronized'}`:'Select a registered project to synchronize or review changes.'}
   function setBusy(value:boolean){busy=value;refresh.disabled=value;sync.disabled=value;reviewBtn.disabled=value;applyBtn.disabled=value}
   function openDrawer(){drawer.hidden=false;renderHint();workspaceButton.setAttribute('aria-expanded','true');close.focus()}
   function closeDrawer(){drawer.hidden=true;workspaceButton.setAttribute('aria-expanded','false');workspaceButton.focus()}
@@ -111,21 +154,66 @@ function setup():boolean{
   async function load(){try{
     const data=await api<{projects:Project[]}>('/api/projects');projects=data.projects;
     picker.replaceChildren(new Option('General chat',''));for(const p of projects)picker.append(new Option(p.name,p.name));
-    picker.value=projects.some(p=>p.name===selected)?selected:'';selected=choice();renderHint();
+    picker.value=projects.some(p=>p.name===selected)?selected:'';selected=choice();renderHint();renderSelector();
     if(!projects.length)setStatus('No projects registered. Register a project through the project manager API.');
   }catch(e){setStatus('Project list unavailable: '+errText(e));hint.textContent='Connection error'}}
-  picker.onchange=()=>{selected=choice();localStorage.setItem(key,selected);clearReview();renderHint();setStatus(selected?'Selected '+selected:'General chat');void refreshFileContext()};
+  // HL-CHAT-006 2.1: one shared selection path used by both the hidden <select> and the overlay.
+  function selectProject(name:string){
+    picker.value=name;selected=choice();localStorage.setItem(key,selected);clearReview();renderHint();
+    setStatus(selected?'Selected '+selected:'General chat');void refreshFileContext();
+    renderSelector();
+  }
+  picker.onchange=()=>selectProject(choice());
+  // HL-CHAT-006 2.1: workspace selector overlay behaviour.
+  function renderSelectorLabel(){
+    const p=current();
+    selectorBtn.textContent='Working Directory: '+(p?p.name:'General chat');
+    selectorBtn.classList.toggle('hc415-ws-active',!!p);
+  }
+  function renderSelector(){
+    renderSelectorLabel();
+    const sel=(name:string,label:string)=>{const b=button((choice()===name?'◉ ':'○ ')+label,'hc415-ws-option');b.setAttribute('role','radio');b.setAttribute('aria-checked',String(choice()===name));b.onclick=()=>{closeWsSelect();if(choice()!==name)selectProject(name)};return b};
+    wsList.replaceChildren(sel('','General chat'),...projects.map(p=>sel(p.name,p.name)));
+    const p=current();
+    const rows:[string,string][]=p
+      ?[['Current workspace',p.name],['Host (authoritative repository)',p.host_path],['Worker (execution workspace)',p.remote_path||'Not synchronized — open Workspace ▸ to sync']]
+      :[['Current workspace','General chat'],['Host','—'],['Worker','—']];
+    wsInfo.replaceChildren(...rows.map(([k,v])=>{
+      const row=document.createElement('div');row.className='hc415-ws-info-row';
+      const kEl=document.createElement('span');kEl.className='hc415-ws-info-key';kEl.textContent=k;
+      const vEl=document.createElement('span');vEl.className='hc415-ws-info-val';vEl.textContent=v;vEl.title=v;
+      row.append(kEl,vEl);return row}));
+    wsExplorer.disabled=!p;
+  }
+  function openWsSelect(){renderSelector();wsSelect.hidden=false;selectorBtn.setAttribute('aria-expanded','true');wsClose.focus()}
+  function closeWsSelect(){wsSelect.hidden=true;selectorBtn.setAttribute('aria-expanded','false')}
+  selectorBtn.onclick=()=>wsSelect.hidden?openWsSelect():closeWsSelect();
+  wsClose.onclick=closeWsSelect;
+  wsSelect.addEventListener('keydown',(e:KeyboardEvent)=>{
+    if(e.key==='Escape'){e.preventDefault();e.stopPropagation();closeWsSelect();return}
+    if(e.key==='Tab'){
+      const controls=Array.from(wsSelect.querySelectorAll<HTMLElement>('button:not([disabled])')).filter(n=>n.getClientRects().length>0);
+      if(!controls.length)return;const first=controls[0],last=controls[controls.length-1];
+      if(e.shiftKey&&document.activeElement===first){e.preventDefault();last.focus()}
+      else if(!e.shiftKey&&document.activeElement===last){e.preventDefault();first.focus()}
+    }
+  });
+  wsBrowse.onclick=()=>{closeWsSelect();openDrawer()};
+  wsExplorer.onclick=()=>{if(!choice())return;closeWsSelect();filesBtn.click()};
   // HL-CHAT-006: file-context manager behaviour.
   type TreeEntry={path:string;size:number;type:'file'};
-  type TreeData={root:string;count:number;truncated:boolean;entries:TreeEntry[]};
-  type FileData={path:string;size:number;mode:string;truncated:boolean;content:string};
+  type TreeData={root:string;count:number;truncated:boolean;entries:TreeEntry[];host_version?:{commit:string;dirty:boolean}|null};
+  type FileData={path:string;size:number;mtime?:number;mode:string;truncated:boolean;content:string;host_version?:{commit:string;dirty:boolean}|null};
   const ATT_KEY='hermes-life-chat-attachments';
   let treeData:TreeData|null=null;let attached=new Set<string>();let expanded=new Set<string>();
+  let hostVer:{commit:string;dirty:boolean}|null=null;
+  function verLabel(){return hostVer?`host @ ${hostVer.commit} (${hostVer.dirty?'dirty':'clean'})`:'host version unknown'}
   let attachMap:Record<string,string[]>={};
   try{attachMap=JSON.parse(localStorage.getItem(ATT_KEY)||'{}') as Record<string,string[]>}catch{attachMap={}}
   function loadAttached(){attached=new Set(attachMap[choice()]||[]);renderAttachments()}
   function saveAttached(){const name=choice();if(name){attachMap[name]=[...attached];localStorage.setItem(ATT_KEY,JSON.stringify(attachMap))}renderAttachments()}
   function renderAttachments(){
+    refreshModeUI();
     sbAttachCount.textContent=`Attachments (${attached.size})`;
     sbAttachList.replaceChildren(...[...attached].sort().map(p=>{
       const li=document.createElement('li');
@@ -134,7 +222,12 @@ function setup():boolean{
       rm.onclick=()=>{attached.delete(p);saveAttached();renderTree()};
       li.append(span,rm);return li}));
     let chars=0;for(const p of attached){const e=treeData?.entries.find(t=>t.path===p);chars+=e&&e.size?e.size:0}
-    sbMeter.textContent=attached.size?`≈ ${Math.ceil(chars/4).toLocaleString()} tokens attached`:'No files attached';
+    const m=attachMode();
+    sbVer.textContent=choice()?verLabel():'';
+    sbMeter.textContent=!attached.size?'No files attached'
+      :m==='A'?`${attached.size} file(s) available via workspace access (no contents in request)`
+      :m==='B'?`${attached.size} file(s) in manifest — ≈ ${Math.ceil((chars+attached.size*80)/4).toLocaleString()} manifest tokens`
+      :`≈ ${Math.ceil(chars/4).toLocaleString()} tokens attached (inline)`;
     renderHint();
   }
   type TreeNode={name:string;path:string;size:number|null;children:TreeNode[];isDir:boolean};
@@ -217,10 +310,10 @@ function setup():boolean{
     saveAttached();renderTree();
     setStatus((st==='all'?'Detached ':'Attached ')+files.length+' file(s) under '+node.path);
   }
-  function resetTree(){treeData=null;expanded=new Set();sbPreview.hidden=true;renderTree()}
+  function resetTree(){treeData=null;expanded=new Set();hostVer=null;sbPreview.hidden=true;renderTree()}
   async function loadTree(){
     const name=choice();if(!name){resetTree();return}
-    try{treeData=await api<TreeData>(`/api/projects/${encodeURIComponent(name)}/tree`);renderTree();renderAttachments();if(treeData.count)setStatus(`Loaded ${treeData.count} files from ${name}`)}
+    try{treeData=await api<TreeData>(`/api/projects/${encodeURIComponent(name)}/tree`);hostVer=treeData.host_version||null;renderTree();renderAttachments();if(treeData.count)setStatus(`Loaded ${treeData.count} files from ${name} — ${verLabel()}`)}
     catch(e){resetTree();setStatus('File tree unavailable: '+errText(e))}
   }
   async function refreshFileContext(){loadAttached();await loadTree()}
@@ -248,32 +341,169 @@ function setup():boolean{
   form.addEventListener('submit',(ev)=>{
     if(input.dataset.hc415Injected==='1'){delete input.dataset.hc415Injected;return}
     const name=choice();if(!name)return;const value=input.value.trim();if(!value||/^@project\s+\S+/i.test(value))return;
-    if(!current()?.remote_path){ev.preventDefault();ev.stopImmediatePropagation();setStatus('Project not synced. Open Workspace and click Sync to work machine.');openDrawer();return}
+    // SSHFS architecture: /file reads the host path directly; attachment modes do not
+    // depend on the (legacy) work-machine sync state. Surface a hint instead of blocking.
+    if(!current()?.remote_path)setStatus('Note: work-machine sync not registered — attachments still read the host workspace.');
     const paths=[...attached].sort();
     if(!paths.length){input.value=`@project ${name}\n${input.value}`;return}
-    // HL-CHAT-006: inline attached file contents above the prompt, then resubmit.
+    // HL-CHAT-006 2.3: compose per attachment mode, then resubmit.
     ev.preventDefault();ev.stopImmediatePropagation();
+    const m=attachMode();
+    const dispatch=(block:string)=>{input.value=`@project ${name}\n${block}\n\n${value}`;input.dataset.hc415Injected='1';form.dispatchEvent(new Event('submit',{cancelable:true}))};
+    if(m==='A'){
+      attachUsage={mode:'A',files:paths.length,occupied:0,estimate:0};renderCtxRow();
+      dispatch(`[Workspace access — ${name} · mode A]\nAttached at ${verLabel()}. The ${paths.length} file(s) below are available in the working directory. Their contents are NOT included here; inspect them with your file tools as needed.\n`+paths.map(p=>'- '+p).join('\n'));
+      return;
+    }
+    if(m==='B'){
+      void (async()=>{
+        setStatus('Building attachment manifest…');
+        const rows:string[]=[];const missing:string[]=[];
+        for(const p of paths){
+          try{const f=await api<FileData>(`/api/projects/${encodeURIComponent(name)}/file?path=${encodeURIComponent(p)}`);
+            if(f.host_version)hostVer=f.host_version;
+            rows.push(`${p} | ${f.mode||'file'} | ${f.size} bytes | modified ${f.mtime?new Date(f.mtime*1000).toISOString().replace('T',' ').slice(0,19):'unknown'}`);
+          }catch(e){missing.push(p+' ('+errText(e)+')')}
+        }
+        const block=`[Attached folder manifest — ${name} · mode B]\nAttached at ${verLabel()}.\nContents are not inlined. Each listed file exists in the host working directory; request its contents when needed.\npath | type | size | modified\n`+rows.join('\n')+(missing.length?`\n[Unavailable: ${missing.join('; ')}]`:'');
+        attachUsage={mode:'B',files:paths.length,occupied:0,estimate:Math.ceil(block.length/4)};renderCtxRow();
+        dispatch(block);
+      })();
+      return;
+    }
+    // Mode C — inline full contents with an explicit context-capacity check.
     void (async()=>{
       setStatus('Attaching '+paths.length+' file(s)…');
+      const win=await contextWindow();
+      // Chars budget: half the model window when known (reserve for history, prompt and
+      // answer); otherwise the historical 300 KB fallback. tokens ≈ chars/4.
+      const budget=win?Math.floor(win*4*0.5):300_000;
       const parts:string[]=[];const dropped:string[]=[];let total=0;
       for(const p of paths){
         let f:FileData|null=null;
         try{f=await api<FileData>(`/api/projects/${encodeURIComponent(name)}/file?path=${encodeURIComponent(p)}`)}
         catch(e){dropped.push(p+' ('+errText(e)+')');continue}
         if(!f)continue;
-        if(total+f.content.length>300_000){dropped.push(p+' (context budget)');continue}
+        if(total+f.content.length>budget){dropped.push(p+` (${(f.content.length/4|0).toLocaleString()} est. tokens — exceeds remaining model context capacity)`);continue}
+        if(f.host_version)hostVer=f.host_version;
         total+=f.content.length;parts.push('--- '+p+' ---\n'+f.content);
       }
-      const block='[Attached project files — '+name+']\n'+parts.join('\n\n')+(dropped.length?'\n[Not attached: '+dropped.join('; ')+']':'');
-      input.value=`@project ${name}\n${block}\n\n${value}`;
-      input.dataset.hc415Injected='1';
-      form.dispatchEvent(new Event('submit',{cancelable:true}));
+      const capNote=win?`Context check: ${Math.ceil(total/4).toLocaleString()} est. tokens of ${win.toLocaleString()} window tokens (50% attach budget).`
+        :'Context check: selected model reports no context window — using 300 KB fallback budget.';
+      const block='[Attached project files — '+name+' · mode C]\nAttached at '+verLabel()+'.\n'+capNote+'\n'+parts.join('\n\n')
+        +(dropped.length?'\n[Cannot fit in context: '+dropped.join('; ')+']':'');
+      if(dropped.length)setStatus(`${dropped.length} file(s) exceeded the model context capacity — see the note in the message.`);
+      attachUsage={mode:'C',files:parts.length,occupied:Math.ceil(total/4),estimate:0};renderCtxRow();
+      dispatch(block);
     })();
   },{capture:true});
+  // HL-CHAT-006 2.3: resolve the selected chat model's context window for Mode C checks.
+  let modelCache:{provider:string;model:string;context_window:number|null}[]|null=null;
+  async function contextWindow():Promise<number|null>{
+    try{
+      if(!modelCache)modelCache=(await api<{models:{provider:string;model:string;context_window:number|null}[]}>('/api/chat/models')).models||[];
+      const provider=localStorage.getItem('hl-chat-provider')||'';
+      const model=localStorage.getItem('hl-chat-model')||'';
+      const hit=modelCache.find(x=>x.provider===provider&&x.model===model);
+      return hit&&hit.context_window?hit.context_window:null;
+    }catch{return null}
+  }
+  // HL-CHAT-006 §4: attached-contents accounting in the context-meter details.
+  // Mode A/B attachments occupy 0 context (contents never enter the request);
+  // Mode C contents count fully once composed (doc rule, enforced here).
+  let attachUsage:{mode:AttachMode;files:number;occupied:number;estimate:number}|null=null;
+  function ensureCtxRow(){
+    const details=document.getElementById('hc-context-details');if(!details)return;
+    if(document.getElementById('hc415-ctx-row'))return;
+    const row=document.createElement('div');row.className='hc-context-details-row';row.id='hc415-ctx-row';
+    const label=document.createElement('span');label.textContent='Attached file contents';
+    const val=document.createElement('span');val.id='hc415-ctx-attach';
+    row.append(label,val);
+    const note=details.querySelector('.hc-context-details-note');
+    details.insertBefore(row,note);
+    renderCtxRow();
+  }
+  function renderCtxRow(){
+    const val=document.getElementById('hc415-ctx-attach');if(!val)return;
+    val.textContent=!attachUsage?'0 — no files composed into the last request'
+      :attachUsage.mode==='C'?`${attachUsage.occupied.toLocaleString()} est. tokens inlined (${attachUsage.files} file(s) · mode C)`
+      :`0 occupied — mode ${attachUsage.mode} (${attachUsage.files} file(s)${attachUsage.estimate?`, manifest ≈ ${attachUsage.estimate.toLocaleString()} tokens`:''})`;
+    const row=document.getElementById('hc415-ctx-row');
+    if(row)row.title='HL-CHAT-006 rule: files available via workspace access (A) or manifest (B) occupy no model context until their contents are inlined (C).';
+  }
+  // HL-CHAT-006 §3: "Files consulted" — after each assistant response, scan the
+  // response text for the exact paths the preceding user bubble's attachment
+  // header listed, and render a Files consulted footer listing the hits.
+  // Reflects referenced files only — not merely files made available.
+  let consultedObserver:MutationObserver|null=null;
+  function consultRecord(bubble:Element):{name:string;paths:string[]}|null{
+    let prev=bubble.previousElementSibling;
+    while(prev&&!(prev.classList.contains('hc-bubble')&&prev.classList.contains('user')))prev=prev.previousElementSibling;
+    if(!prev)return null;
+    const text=prev.querySelector('.hc-body')?.textContent||'';
+    const mA=text.match(/\[Workspace access — (.+?) · mode A\]/);
+    const mB=text.match(/\[Attached folder manifest — (.+?) · mode B\]/);
+    const mC=text.match(/\[Attached project files — (.+?) · mode C\]/);
+    const m=mA||mB||mC;if(!m)return null;
+    const paths:string[]=[];
+    if(mA){
+      for(const line of text.slice(mA.index).split('\n').slice(1)){
+        if(!line.trim())break; // blank line separates the block from the user's own message
+        const mm=line.match(/^- (.+)$/);if(!mm)continue; // prose lines (e.g. "Attached at host @ …") are not paths
+        paths.push(mm[1].trim());
+      }
+    }else if(mB){
+      // Anchor on the "modified\n" column-header terminator so the slice starts
+      // at the first row; slice after just "modified" would begin at the newline
+      // and break the loop on an empty first line.
+      const at=text.indexOf('modified\n',mB.index);
+      if(at>=0)for(const line of text.slice(at+'modified\n'.length).split('\n')){
+        if(!line.trim())break;
+        const p=line.split('|')[0].trim();if(p)paths.push(p);
+      }
+    }else{
+      for(const mm of text.matchAll(/^--- (.+?) ---$/gm))paths.push(mm[1]);
+    }
+    return {name:m[1],paths:[...new Set(paths)]};
+  }
+  function markConsulted(){
+    const msgs=document.getElementById('hc-messages');if(!msgs)return;
+    for(const bubble of Array.from(msgs.querySelectorAll('article.hc-bubble.assistant')) as HTMLElement[]){
+      if(bubble.classList.contains('hc-streaming'))continue;
+      if(bubble.dataset.hc415Consulted==='1')continue;
+      bubble.dataset.hc415Consulted='1';
+      const rec=consultRecord(bubble);if(!rec||!rec.paths.length)continue;
+      const body=bubble.querySelector('.hc-body');if(!body)continue;
+      const text=body.textContent||'';
+      const hits=rec.paths.slice().sort((a,b)=>b.length-a.length).filter(p=>text.includes(p));
+      if(!hits.length)continue;
+      const foot=document.createElement('div');foot.className='hc415-consulted';
+      const head=document.createElement('strong');head.textContent='Files consulted';
+      const ul=document.createElement('ul');
+      for(const h of [...new Set(hits)].sort((a,b)=>a.localeCompare(b))){const li=document.createElement('li');li.textContent=h;ul.append(li)}
+      foot.append(head,ul);bubble.append(foot);
+    }
+  }
+  function startWatchers():boolean{
+    ensureCtxRow();
+    const msgs=document.getElementById('hc-messages');if(!msgs)return false;
+    if(!consultedObserver){
+      consultedObserver=new MutationObserver(()=>{try{markConsulted()}catch(e){(window as any).__hc415err=String((e as Error)?.stack||e)}});
+      consultedObserver.observe(msgs,{childList:true,subtree:true,characterData:true});
+    }
+    markConsulted();
+    return true;
+  }
+  if(!startWatchers()){
+    const w=new MutationObserver(()=>{try{if(startWatchers())w.disconnect()}catch(e){(window as any).__hc415err=String((e as Error)?.stack||e)}});
+    w.observe(document.documentElement,{childList:true,subtree:true});
+  }
   void load();loadAttached();
   if((mode as ChatMode)==='full'&&!sidebar.hidden&&choice())void refreshFileContext();
   return true;
 }
-if(!setup()){
-  const observer=new MutationObserver(()=>{if(setup())observer.disconnect()});observer.observe(document.documentElement,{childList:true,subtree:true});
-}
+try{
+  if(!setup()){
+    const observer=new MutationObserver(()=>{try{if(setup())observer.disconnect()}catch(e){(window as any).__hc415err=String((e as Error)?.stack||e)}});observer.observe(document.documentElement,{childList:true,subtree:true});
+  }
+}catch(e){(window as any).__hc415err=String((e as Error)?.stack||e)}
