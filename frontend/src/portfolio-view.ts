@@ -13,7 +13,7 @@
  */
 
 import { registerKindRenderer, registerSummaryProvider } from './context-inspector.ts';
-import { setSelection } from './navigation-state.ts';
+import { setSelection, openWorkView, openWorkspace } from './navigation-state.ts';
 
 type Project = {
     id: string; name: string; origin: string; remote_path: string; status: string;
@@ -278,7 +278,7 @@ function registeredCard(project: RegisteredProject): HTMLElement {
     inspect.type = 'button';
     inspect.addEventListener('click', () => {
         // Typed selection: the Context Inspector renders this registry row.
-        setSelection('projects', { kind: 'project', id: project.name });
+        setSelection('overview', { kind: 'project', id: project.name });
     });
     controls.append(inspect);
 
@@ -372,7 +372,7 @@ function projectCard(project: Project): HTMLElement {
         selectedProject = project.name;
         renderDetail(project.name);
         // Sidebar shows the project too (registry facts + portfolio summary).
-        setSelection('projects', { kind: 'project', id: project.name });
+        setSelection('overview', { kind: 'project', id: project.name });
     });
     controls.append(open);
     if (action) {
@@ -536,11 +536,33 @@ registerKindRenderer('project', (sel, body) => {
     }
     if (auto) {
         body.append(node('p', projectSummary(auto, state.milestonesByProject[auto.name] ?? [])));
+        // Depth: current operations, outcomes and next actions from the same
+        // autonomy records the Projects view renders — not a second truth.
+        const ms = state.milestonesByProject[auto.name] ?? [];
+        const done = ms.filter(m => m.state === 'completed').length;
+        const failed = ms.filter(m => m.state === 'failed').length;
+        const active = ms.filter(m => !['completed', 'failed', 'cancelled'].includes(m.state));
+        if (active.length) {
+            body.append(node('p', `Current operations (${active.length}):`));
+            const ul = document.createElement('ul');
+            for (const m of active.slice(0, 5)) ul.append(node('li', `${m.title} — ${m.state}`));
+            body.append(ul);
+        } else body.append(node('p', 'No active milestones.', 'hint'));
+        if (done || failed) body.append(node('p', `Outcomes: ${done} completed · ${failed} failed.`));
+        const evidence = node('p', `Evidence: execution records in Activity${failed ? ', failure evidence in Build' : ''}.`, 'hint');
+        body.append(evidence);
+        const actions = document.createElement('div');
+        actions.append(node('button', 'Open execution records in Activity'));
+        actions.lastElementChild!.addEventListener('click', () => void openWorkspace('activity'));
+        const b2 = node('button', 'Open Build for implementation runs');
+        b2.addEventListener('click', () => openWorkView('builds'));
+        actions.append(b2);
+        body.append(actions);
     }
     body.append(node('p', 'Sync and change-review actions are on the project card.', 'hint'));
 });
 
-registerSummaryProvider('projects', () => ({
+registerSummaryProvider('overview', () => ({
     line: 'Select a project card to see it here.',
     chips: registered.length ? [{ label: 'registered', count: registered.length }] : undefined,
 }));
@@ -579,7 +601,7 @@ function wireRegisterForm(): void {
 }
 
 export function installPortfolio(): void {
-    const panel = $('workview-projects');
+    const panel = $('workview-overview');
     if (!panel || panel.dataset.portfolioInstalled === '1') return;
     panel.dataset.portfolioInstalled = '1';
     statusEl = $('portfolio-status');

@@ -20,12 +20,12 @@
  */
 
 export type Workspace = 'world' | 'home' | 'conversations' | 'attention' | 'work' | 'activity' | 'results' | 'system' | 'knowledge' | 'research';
-export type WorkView = 'tasks' | 'discover' | 'goals' | 'planning' | 'build' | 'projects';
+export type WorkView = 'overview' | 'discoveries' | 'goals' | 'plans' | 'tasks' | 'builds' | 'reviews' | 'results';
 export type TaskView = 'overview' | 'investigation' | 'plan' | 'changes' | 'tests' | 'evidence';
 export type ActivityFilter = 'selected' | 'all';
 
 export const WORKSPACES: readonly Workspace[] = ['world', 'home', 'conversations', 'attention', 'work', 'activity', 'results', 'system', 'knowledge', 'research'] as const;
-export const WORK_VIEWS: readonly WorkView[] = ['tasks', 'discover', 'goals', 'planning', 'build', 'projects'] as const;
+export const WORK_VIEWS: readonly WorkView[] = ['overview', 'discoveries', 'goals', 'plans', 'tasks', 'builds', 'reviews', 'results'] as const;
 export const TASK_VIEWS: readonly TaskView[] = ['overview', 'investigation', 'plan', 'changes', 'tests', 'evidence'] as const;
 
 export interface NavigationState {
@@ -97,14 +97,17 @@ function setState(partial: Partial<NavigationState>) {
 export type SelectionKind = 'task' | 'discovery' | 'goal' | 'plan' | 'build' | 'project' | 'room';
 export interface Selection { kind: SelectionKind; id: string; }
 
-/** Domain kinds each Work view can legitimately display in the inspector. */
+/** Domain kinds each Work view can legitimately display in the inspector.
+ *  Names follow the spec's Work tabs (§4); `results` displays the selected task. */
 export const VIEW_SELECTION_KINDS: Record<WorkView, readonly SelectionKind[]> = {
-    tasks: ['task'],
-    discover: ['discovery'],
+    overview: ['project'],
+    discoveries: ['discovery'],
     goals: ['goal'],
-    planning: ['plan'],
-    build: ['build'],
-    projects: ['project'],
+    plans: ['plan'],
+    tasks: ['task'],
+    builds: ['build'],
+    reviews: ['build'],
+    results: ['task'],
 };
 
 /** Selection scopes: each Work view, plus the Home/World workspace (room picks). */
@@ -205,13 +208,23 @@ export function parseNavQuery(query: string): Partial<NavigationState> {
     const partial: Partial<NavigationState> = {};
 
     const view = params.get('view');
+    let forcedWorkView: WorkView | undefined;
     if (isWorkspace(view)) {
         // Memory folded into Knowledge (nav regroup): old deep links follow.
-        partial.workspace = view === 'system' ? 'knowledge' : view;
+        if (view === 'system') partial.workspace = 'knowledge';
+        // Results folded into Work (§4/§13): ?view=results lands in Work → Results.
+        else if (view === 'results') { partial.workspace = 'work'; forcedWorkView = 'results'; }
+        else partial.workspace = view;
     }
 
+    // Workview renames (spec §4): old deep links keep working.
+    const LEGACY_WORKVIEWS: Record<string, WorkView> = {
+        discover: 'discoveries', planning: 'plans', build: 'builds', projects: 'overview',
+    };
     const workview = params.get('workview');
     if (isWorkView(workview)) partial.workView = workview;
+    else if (workview && LEGACY_WORKVIEWS[workview]) partial.workView = LEGACY_WORKVIEWS[workview];
+    if (forcedWorkView) partial.workView = forcedWorkView;
 
     const task = params.get('task');
     if (task) partial.selectedTaskId = task;
@@ -385,7 +398,9 @@ export function openTask(taskId: string | null, options?: {
         conversationId: options?.conversationId ?? null,
         projectId: options?.projectId ?? null,
     });
-    if (dest === 'results') setState({ workspace: 'results' });
+    // Results is an integrated Work destination (spec §4/§13), not a separate
+    // workspace: opening a result lands in Work → Results.
+    if (dest === 'results') setState({ workspace: 'work', workView: 'results' });
     else if (state.workspace !== 'work') setState({ workspace: 'work', workView: 'tasks' });
 
     // A selection change is meaningful navigation only when the task

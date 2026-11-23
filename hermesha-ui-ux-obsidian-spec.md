@@ -1,4 +1,4 @@
-tj# HERMESHA — Unified UI/UX, World, Work Graph & Obsidian Memory Bank
+t# HERMESHA — Unified UI/UX, World, Work Graph & Obsidian Memory Bank
 
 **Status:** Proposed design specification; implementation and existing Obsidian integration are **not verified**.
 

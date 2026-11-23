@@ -65,17 +65,23 @@ export function clearSelection(view: WorkView) {
 function render() {
     const { panel, body } = panelElements();
     if (!panel || !body) return;
+    const ctxHome = $('ctx-home');
     const ws = getCurrentWorkspace();
+    const onWorld = ws === 'home' || ws === 'world';
+    // One contextual surface at a time: on Home/World a room selection REPLACES
+    // the home block (persona / new task / current work) rather than stacking
+    // under it; elsewhere the home block is hidden entirely.
+    const roomSel = onWorld ? getValidSelection('home') : null;
+    if (ctxHome) ctxHome.hidden = !(onWorld && !roomSel);
+
     // The inspector serves Work views and, since P2, Home/World room picks.
-    if (ws !== 'work' && ws !== 'home' && ws !== 'world') {
+    if (!onWorld && ws !== 'work') {
         panel.hidden = true;
         return;
     }
-    if (ws === 'home' || ws === 'world') {
-        // Home/World: the inspector only appears once a room is selected — the
-        // ctx-home block owns the empty state (persona, new task, current work).
+    if (onWorld) {
+        // Home/World: the inspector only appears once a room is selected.
         // Room selections persist under the home scope key.
-        const roomSel = getValidSelection('home');
         if (!roomSel) {
             panel.hidden = true;
             return;

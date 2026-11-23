@@ -1,12 +1,12 @@
 /**
  * P1 — Work workspace wiring tests.
  *
- * HL-CONV-001 removed the duplicate Task Board composer (Chat is the
- * single conversational surface), so the composer state machine tests
- * became a stale duplicate of removed logic. They are replaced by
- * static-source checks that the shipped modules implement the hand-off:
- * no composer in Work, `hermes:open-in-chat` wired in Chat, and the
- * thread view offering the same jump.
+ * HL-CONV-001 removed the duplicate Task Board composer because a second
+ * surface that POSTs /api/tasks duplicates the send path. convo-redesign.md §6
+ * brought the composer back as a state-adaptive *entry point* that hands its
+ * text to Chat (`hermes:open-in-chat` + submit:true) instead of POSTing — so
+ * the invariant HL-CONV-001 protected still holds: ONE conversation, ONE send
+ * path. These checks pin that contract.
  */
 import { test, describe } from 'node:test';
 import assert from 'node:assert';
@@ -18,16 +18,28 @@ const here = dirname(fileURLToPath(import.meta.url));
 const work = readFileSync(join(here, '../src/work-workspace.ts'), 'utf8');
 const chat = readFileSync(join(here, '../src/hermes-chat.ts'), 'utf8');
 const thread = readFileSync(join(here, '../src/conv-thread.ts'), 'utf8');
+const composer = readFileSync(join(here, '../src/task-composer.ts'), 'utf8');
+const review = readFileSync(join(here, '../src/phase415-review.ts'), 'utf8');
 
-describe('HL-CONV-001 — single conversation surface', () => {
-  test('Work no longer mounts a duplicate conversation composer', () => {
-    assert.doesNotMatch(work, /buildComposerShell|task-detail-composer-text|mountComposer/);
-    assert.match(work, /buildChatHandoff/);
+describe('HL-CONV-001 (revised) — one conversation, one send path', () => {
+  test('Work mounts the state-adaptive task composer (§6)', () => {
+    assert.match(work, /mountTaskComposer\(/);
+    assert.match(work, /task-composer-host/);
+    assert.doesNotMatch(work, /buildComposerShell/);
   });
 
-  test('Work hand-off dispatches hermes:open-in-chat with the task conversation', () => {
-    assert.match(work, /hermes:open-in-chat/);
-    assert.match(work, /conversation_id:\s*convId/);
+  test('the composer is a second ENTRY POINT, not a second write path', () => {
+    // It hands text to Chat; it must never POST /api/tasks itself.
+    assert.match(composer, /hermes:open-in-chat/);
+    assert.match(composer, /submit: true/);
+    assert.doesNotMatch(composer, /fetch\(\s*[`'"]\/api\/tasks/);
+    assert.doesNotMatch(work, /fetch\(\s*[`'"]\/api\/tasks/);
+  });
+
+  test('the composer carries the task conversation on the hand-off', () => {
+    assert.match(composer, /conversation_id/);
+    assert.match(composer, /task_id/);
+    assert.match(work, /conversationId: convId/);
   });
 
   test('Chat listens for hermes:open-in-chat and resolves task_id via /api/tasks', () => {
@@ -92,6 +104,38 @@ describe('P1 actionable buttons — derives from chain state', () => {
 
   test('null chain produces no buttons (idle row)', () => {
     assert.deepStrictEqual(buttonsFor(null), []);
+  });
+});
+
+describe('§5 completed-implementation actions (convo-redesign.md)', () => {
+  test('the task panel offers test results and revision, deep-linked', () => {
+    assert.match(work, /View test results →/);
+    assert.match(work, /Request revision →/);
+    assert.match(work, /hermes:open-review/);
+    assert.match(review, /addEventListener\('hermes:open-review'/);
+  });
+
+  test('the revision mutation has exactly ONE owner (the candidate review)', () => {
+    // The request needs the snapshot hash, per-criterion verdicts and reviewer
+    // feedback. The task panel holds none of them, so it must not re-implement
+    // the call — it deep-links instead.
+    assert.match(review, /revisions\/retry/);
+    assert.match(review, /snapshot_sha256/);
+    assert.match(review, /revision_requested/);
+    assert.doesNotMatch(work, /revisions\/retry/);
+    assert.doesNotMatch(work, /snapshot_sha256/);
+  });
+
+  test('Submit for approval is absent — no implementation-approval route exists', () => {
+    assert.doesNotMatch(work, /Submit for approval/i);
+    const backend = readFileSync(join(here, '../../hermes_life/app.py'), 'utf8');
+    assert.doesNotMatch(backend, /implementations\/\{ident\}\/approve/);
+  });
+
+  test('the deep-link targets the real run card and the builds subview', () => {
+    assert.match(work, /hl415-run-\$\{runId\}/);
+    assert.match(work, /openWorkView\('builds'\)/);
+    assert.match(work, /setSelection\('builds', \{ kind: 'build', id: runId \}\)/);
   });
 });
 

@@ -42,6 +42,10 @@ export interface TownRenderer {
   setMotion(on: boolean): void;
   /** Re-measure the host box. The container resizes without a window resize event. */
   resize(): void;
+  /** Zoom the world to a room (renderers with spatial focus). Optional. */
+  focusRoom?(roomKey: string): void;
+  /** Return to the whole-facility framing. Optional. */
+  overview?(): void;
   /** Introspection for tests and acceptance runs — never read by the UI. */
   positions(): RendererPoint[];
   /** Renders drawn so far; 0 for the static renderer, which has no clock. */

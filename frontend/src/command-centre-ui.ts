@@ -2,7 +2,7 @@
  * Does not fetch/mutate application state or duplicate existing workspace controllers.
  * Uses navigation-state.ts for canonical navigation intents.
  */
-import { openWorkspace, openWorkView } from './navigation-state.ts';
+import { openWorkspace, openWorkView, type WorkView } from './navigation-state.ts';
 
 const roomToLocation: Record<string, string | null> = {
   'control': 'town_square', 'director': 'planning_house',
@@ -105,7 +105,7 @@ document.querySelectorAll<HTMLButtonElement>('#primary-nav button[data-hc-workvi
     const workview = btn.dataset.hcWorkview;
     if (!workview) return;
     // Canonical intent: open Work workspace with specific subview
-    openWorkView(workview as 'tasks' | 'discover' | 'goals' | 'planning' | 'build');
+    openWorkView(workview as WorkView);
   });
 });
 

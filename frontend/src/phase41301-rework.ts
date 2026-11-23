@@ -7,6 +7,7 @@
 import './phase41301-rework.css';
 import { makeRefresh } from './refresh-feedback.ts';
 import { openWorkView, openTask } from './navigation-state.ts';
+import { registerKindRenderer } from './context-inspector.ts';
 type R=Record<string,unknown>;
 const $=(id:string)=>document.getElementById(id);
 const val=(x:unknown)=>String(x??'');
@@ -81,9 +82,20 @@ const refresh=makeRefresh({
  load:async()=>{const [d,q]=await Promise.all([endpoint('/discoveries'),endpoint('/curiosity/workflow')]);return {d,q}},
  apply:(data)=>{const {d,q}=data as {d:unknown,q:unknown};ds=records(d,['discoveries','items','records']);qs=records(q,['curiosity','questions','items','records'])},
  count:(data)=>{const {d,q}=data as {d:unknown,q:unknown};return records(d,['discoveries','items','records']).length+records(q,['curiosity','questions','items','records']).length},
+
  noun:'findings & questions',
  onChange:()=>render(),
 });
+ // PHASE-DEPTH: discovery inspector card - provenance, evidence, next action.
+ registerKindRenderer('discovery',(sel,body)=>{
+  const dsc=ds.find(x=>val(x.id)===sel.id);
+  if(!dsc){body.append(node('p','hl413r-muted','This discovery is not loaded right now (it may have been removed).'));return}
+  body.append(node('strong','',val(dsc.title)||`Discovery ${sel.id.slice(0,8)}`));
+  body.append(node('p','hl413r-muted',`State: ${val(dsc.state)}${val(dsc.project)?` - project ${val(dsc.project)}`:''}`));
+  const ev=val(dsc.evidence||dsc.excerpt||dsc.summary);if(ev)body.append(node('p','',ev.length>400?ev.slice(0,400)+'...':ev));
+  if(val(dsc.file_path)||val(dsc.path))body.append(node('p','hl413r-muted',`Source: ${val(dsc.file_path||dsc.path)}${val(dsc.line)?':'+val(dsc.line):''}`));
+  body.append(btn('Open in Discover',()=>openWorkView('discoveries')));
+ });
 function render(){
  status.textContent=refresh.phase==='loading'?'Updating…':refresh.phase==='error'?'Connection error':'Discovery dashboard';
  status.dataset.state=refresh.phase==='error'?'error':refresh.phase==='loading'?'loading':'ok';
@@ -139,9 +151,9 @@ function render(){
     card.append(node('p','hl413r-muted',`Investigation: ${investigation || 'not started'}${r.goal_id||r.discovery_goal_id?' · Goal '+val(r.discovery_goal_id||r.goal_id).slice(0,8):''}${quality==='excluded'?' · Needs review: '+qualityReason:''}`));
     if(r.can_investigate===true&&stage(r)==='active'){buttons.append(btn('Investigate',()=>void investigate(r)))}
     if(r.task_id){buttons.append(btn('View findings',()=>openTask(val(r.task_id), { destination: 'results' })))}
-    if(r.plan_id){buttons.append(btn('View plan',()=>openWorkView('planning')))}
-    if(r.workflow&&wfNext(r)==='start_build'){buttons.append(btn('Start build',()=>openWorkView('planning')))}
-    if(wfNext(r)==='open_review'){buttons.append(btn('Review candidate',()=>openWorkView('build')))}
+    if(r.plan_id){buttons.append(btn('View plan',()=>openWorkView('plans')))}
+    if(r.workflow&&wfNext(r)==='start_build'){buttons.append(btn('Start build',()=>openWorkView('plans')))}
+    if(wfNext(r)==='open_review'){buttons.append(btn('Review candidate',()=>openWorkView('builds')))}
     for(const command of ['open','deferred','dismissed']){
       const button=btn(command==='open'?'Reopen':command==='deferred'?'Defer':'Dismiss',()=>void mutate('curiosity',r,command));
       button.disabled=!r.id||command===state(r);buttons.append(button)

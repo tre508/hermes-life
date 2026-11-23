@@ -1,8 +1,6 @@
 /* Phase 4.2 — Hermes World-matched messaging panel. Scoped to chat root. */
 #hermes-chat-root{--hc-bg:#0b242e;--hc-panel:#102b35;--hc-raised:#193744;--hc-border:#527f83;--hc-muted:#9bb6be;--hc-text:#e4f3f4;--hc-mint:#9ce5c7;position:fixed;z-index:9999;right:20px;bottom:20px;font-family:system-ui,-apple-system,"Segoe UI",sans-serif;color:var(--hc-text);font-size:14px;line-height:1.45}
 #hermes-chat-root *{box-sizing:border-box}
-#hc-toggle{display:inline-flex;align-items:center;gap:9px;background:#123f45;color:#e1fff2;border:1px solid #54a691;border-radius:999px;padding:12px 18px;font:700 14px inherit;box-shadow:0 8px 26px #0007;cursor:pointer}
-#hc-toggle .hc-sigil{font-size:20px;color:var(--hc-mint)}
 #hc-panel{position:absolute;right:0;bottom:64px;width:min(560px,calc(100vw - 24px));height:min(690px,calc(100dvh - 100px));background:linear-gradient(150deg,#092631 0%,#0d222b 95%);border:1px solid #73aa9d;border-radius:22px;box-shadow:0 20px 65px #000b,0 0 0 2px #7ab0a322;overflow:hidden;display:flex;flex-direction:column;min-height:290px}
 #hc-panel[hidden],#hc-events[hidden],#hc-threads[hidden],#hc-progress[hidden]{display:none!important}
 .hc-head{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:16px 18px;background:linear-gradient(90deg,#0a222c,#12313c);border-bottom:1px solid #4c8382;flex:0 0 auto;min-width:0}
@@ -19,9 +17,57 @@
 .hc-bubble small{font-size:10px;color:#a4c1c7;padding:0 5px;font-variant-numeric:tabular-nums}.hc-bubble-actions{display:flex;align-items:center;gap:5px;opacity:.82;flex-wrap:wrap}.hc-bubble:hover .hc-bubble-actions,.hc-bubble:focus-within .hc-bubble-actions{opacity:1}.hc-bubble-actions button{font:500 11px system-ui,sans-serif;border:1px solid transparent;border-radius:5px;background:transparent;color:#a6dfd4;cursor:pointer;padding:3px 6px}.hc-bubble-actions button:hover{background:#20434a;border-color:#4c8482}
 #hc-form{display:flex;align-items:flex-end;padding:14px 17px;gap:11px;background:#102a34;border-top:1px solid #426e72;flex:0 0 auto;min-width:0}#hc-input{flex:1 1 auto;min-width:0;background:#193744;color:#edfafa;border:1px solid #62888d;border-radius:13px;padding:11px 13px;resize:vertical;max-height:160px;min-height:43px;font:14px system-ui,sans-serif;outline:none}#hc-input::placeholder{color:#a5bec9}#hc-input:focus{border-color:#a2e7c9;box-shadow:0 0 0 2px #9ce5c722}#hc-send{display:inline-flex;align-items:center;justify-content:center;gap:7px;border:1px solid #b6eed4;border-radius:10px;background:#97dfbf;color:#06272a;min-height:43px;padding:0 15px;font:700 13px system-ui,sans-serif;cursor:pointer;flex-shrink:0}#hc-send:hover:not(:disabled){background:#b4f3d6}#hc-send:disabled{opacity:.5;cursor:not-allowed}
 #hc-progress{padding:9px 17px;background:#163b42;border-top:1px solid #2f696a;display:flex;align-items:center;justify-content:space-between;gap:9px;font-size:12px;color:#c5e9e1}#hc-details{background:transparent;border:1px solid #4d8b83;color:#b9e4d9;border-radius:7px;padding:5px 9px;cursor:pointer;font-size:11px}#hc-events{flex:0 0 125px;overflow:auto;background:#071b25;color:#a7cdd1;font:11px ui-monospace,monospace;padding:10px 14px}#hc-events div{padding:3px 0;border-bottom:1px solid #ffffff14}#hc-feedback{color:#ffc0ba;font-size:12px;padding:5px 17px;background:#102a34}#hc-feedback:empty{display:none}
-#hc-toggle:focus-visible,#hc-send:focus-visible,#hc-details:focus-visible,#hc-panel button:focus-visible{outline:2px solid #b4efd5;outline-offset:2px}
+#hc-send:focus-visible,#hc-details:focus-visible,#hc-panel button:focus-visible{outline:2px solid #b4efd5;outline-offset:2px}
 @media(max-width:600px){#hermes-chat-root{right:9px;bottom:9px}#hc-panel{bottom:56px;width:calc(100vw - 18px);height:calc(100dvh - 77px);border-radius:16px}.hc-head{padding:12px;gap:8px}.hc-actions{gap:4px}.hc-actions button{padding:6px;font-size:11px}.hc-logo{width:29px;height:29px;font-size:18px}.hc-brand{gap:6px}.hc-brand strong{font-size:16px}.hc-brand small{font-size:9px}#hc-messages{padding:15px 12px}.hc-bubble{max-width:92%}#hc-form{padding:11px;gap:8px}#hc-send{padding:0 11px}}
 @media(max-width:370px){.hc-actions button{font-size:0;min-width:31px}.hc-actions button .hc-action-icon{font-size:16px}.hc-brand small{display:none}}
+/* Chat audit §2/§5 — collapsed chrome. The provider/context/usage block is
+   reference material; collapsed by default so the conversation owns the height.
+   The head carries the thread title, not the product name. */
+#hc-model-details{flex:0 0 auto;background:#0e2630;border-bottom:1px solid #33545f}
+#hc-model-details>summary{cursor:pointer;list-style:none;padding:4px 18px;color:#9bb6be;font:600 11.5px system-ui,sans-serif;letter-spacing:.03em;user-select:none}
+#hc-model-details>summary::-webkit-details-marker{display:none}
+#hc-model-details>summary::before{content:'▸ ';color:#7ab0a3}
+#hc-model-details[open]>summary::before{content:'▾ '}
+#hc-model-details>summary:hover{color:#e4f3f4}
+/* Account/security actions are not chat-frequency actions (audit §7). */
+.hc-account{position:relative;flex:0 0 auto}
+.hc-account>summary{cursor:pointer;list-style:none;display:inline-flex;align-items:center;gap:5px;min-height:33px;padding:6px 9px;background:#15323d;border:1px solid #588a83;border-radius:8px;color:#e6f8ef;font:600 12px system-ui,sans-serif;white-space:nowrap}
+.hc-account>summary::-webkit-details-marker{display:none}
+.hc-account>summary:hover{background:#20515a;border-color:#9ce5c7}
+.hc-account[open]>summary{background:#20515a}
+.hc-account>button{display:block;width:100%;margin-top:4px}
+/* The thread title is the heading; keep it from being pushed out by actions. */
+.hc-brand-copy strong{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:min(46vw,520px)}
+#hc-threads button[aria-current="true"]{background:#24505a;box-shadow:inset 2px 0 0 #9ce5c7}
+/* Audit §3: the scroll region must never be squeezed to nothing — the fixed
+   chrome used to collapse it and clip the composer behind overflow:hidden. */
+#hc-messages{min-height:140px}
+#hc-events{flex:0 1 auto;max-height:26vh}
+#hc-progress,#hc-project-workspace{flex:0 0 auto}
+/* Audit §9: the composer is the centre of the experience, not a one-line box.
+   Auto-growing textarea, an explicit tool row, and a footer that names the
+   working context and the model beside Send/Stop. Trimmed hard: the audit also
+   demands the conversation keep its height, so the composer must earn its rows. */
+#hc-form{display:block;padding:8px 14px 10px;background:#0e2530;border-top:1px solid #33545f;flex:0 0 auto;min-width:0}
+.hc-composer-box{display:flex;flex-direction:column;gap:6px;border:1px solid #426e72;border-radius:14px;background:#0b222c;padding:8px 10px;transition:border-color .15s ease}
+.hc-composer-box:focus-within{border-color:#7ab0a3;box-shadow:0 0 0 2px #9ce5c722}
+#hc-input{width:100%;min-height:46px;max-height:42vh;resize:none;overflow-y:auto;background:transparent;border:0;padding:2px 2px 0;font:15.5px/1.5 Inter,system-ui,sans-serif;color:#edfafa;outline:none}
+#hc-input::placeholder{color:#8fb0b8}
+#hc-input:focus{box-shadow:none;border-color:transparent}
+.hc-composer-tools{display:flex;align-items:center;gap:6px;flex-wrap:wrap;line-height:1.3}
+#hc-attach,#hc-composer-workspace{display:inline-flex;align-items:center;gap:5px;padding:3px 8px;border-radius:8px;border:1px solid #3c6a70;background:#15323d;color:#cfe9e2;font:600 11.5px/1.3 system-ui,sans-serif;cursor:pointer}
+#hc-attach:hover,#hc-composer-workspace:hover{background:#20515a;border-color:#9ce5c7}
+#hc-composer-hint{margin-left:auto;font-size:11px;line-height:1.3;color:#7f9aa0}
+.hc-composer-foot{display:flex;align-items:center;gap:8px;flex-wrap:wrap;border-top:1px solid #1f3d47;padding-top:6px;line-height:1.3}
+#hc-composer-context,#hc-composer-model{display:inline-flex;align-items:center;gap:5px;max-width:min(320px,42%);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:3px 8px;border-radius:999px;border:1px solid #2f4f5a;background:#122b35;color:#a9c6c0;font:500 11.5px/1.3 system-ui,sans-serif;cursor:pointer}
+#hc-composer-context:hover,#hc-composer-model:hover{border-color:#7ab0a3;color:#e4f3f4}
+/* Audit §9C: Send is primary, not the loudest thing on screen. */
+#hc-send{margin-left:auto;display:inline-flex;align-items:center;justify-content:center;gap:6px;border:1px solid #6fae95;border-radius:10px;background:#1d5b4c;color:#eafff6;min-height:28px;line-height:1.2;padding:0 14px;font:600 13px system-ui,sans-serif;cursor:pointer;flex-shrink:0}
+#hc-send:hover:not(:disabled){background:#246b58;border-color:#9ce5c7}
+#hc-send[data-mode="stop"]{background:#5a2b28;border-color:#c1796f;color:#ffe9e4}
+#hc-send[data-mode="stop"]:hover{background:#6d3630}
+#hc-send:disabled{opacity:.5;cursor:not-allowed}
+@media(max-width:600px){#hc-composer-hint{display:none}#hc-composer-context,#hc-composer-model{max-width:100%}}
 @media(prefers-reduced-motion:reduce){#hc-messages{scroll-behavior:auto}}
 
 /* PHASE47_STREAMING: live Hermes text, distinct from persisted final message. */

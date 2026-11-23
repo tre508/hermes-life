@@ -71,22 +71,25 @@ test('superseded .work-management stack is gone from CSS and HTML', () => {
     assert.doesNotMatch(html, /work-management/);
 });
 
-test('six exclusive workview panels + outlet exist in the document', () => {
-    for (const id of ['workview-outlet', 'workview-tasks', 'workview-discover', 'workview-goals', 'workview-planning', 'workview-build', 'workview-projects']) {
+test('eight exclusive workview panels + outlet exist in the document', () => {
+    for (const id of ['workview-outlet', 'workview-overview', 'workview-discoveries', 'workview-goals', 'workview-plans', 'workview-tasks', 'workview-builds', 'workview-reviews', 'workview-results']) {
         assert.match(html, new RegExp(`id="${id}"`), `missing #${id}`);
     }
     // Only the Tasks panel ships visible by default; the rest are hidden.
     const panels = html.match(/<section id="workview-[a-z]+" class="workview-panel"[^>]*>/g) ?? [];
-    assert.equal(panels.length, 6);
+    assert.equal(panels.length, 8);
     const hiddenCount = panels.filter(p => p.includes('hidden')).length;
-    assert.equal(hiddenCount, 5, 'exactly five panels start hidden');
+    assert.equal(hiddenCount, 7, 'exactly seven panels start hidden');
 });
 
-test('global Work panels (Discover/Goals/Planning/Build/Projects) own their scroll', () => {
-    assert.match(css, /#workview-discover:not\(\[hidden\]\),[^}]*overflow-y:\s*auto/);
+test('global Work panels (Overview/Discoveries/Goals/Plans/Builds/Reviews/Results) own their scroll', () => {
+    assert.match(css, /#workview-overview:not\(\[hidden\]\),/);
+    assert.match(css, /#workview-discoveries:not\(\[hidden\]\),[^}]*overflow-y:\s*auto/);
     assert.match(css, /#workview-goals:not\(\[hidden\]\),/);
-    assert.match(css, /#workview-planning:not\(\[hidden\]\),/);
-    assert.match(css, /#workview-build:not\(\[hidden\]\)[,{][^}]*overflow-y:\s*auto/);
+    assert.match(css, /#workview-plans:not\(\[hidden\]\),/);
+    assert.match(css, /#workview-builds:not\(\[hidden\]\),/);
+    assert.match(css, /#workview-reviews:not\(\[hidden\]\),/);
+    assert.match(css, /#workview-results:not\(\[hidden\]\)\s*\{[^}]*overflow-y:\s*auto/);
 });
 
 test('single Command Centre identity: one #primary-nav, one #game, seven roles/eight rooms untouched', () => {

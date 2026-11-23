@@ -15,13 +15,12 @@ function setup():boolean{
   if(!panel||!form||!input)return false;
   if(document.getElementById('hc-project-workspace'))return true;
   const chatPanel=panel;
-  chatPanel.classList.add('hc415-chat');
   const bar=document.createElement('section');bar.id='hc-project-workspace';bar.setAttribute('aria-label','Coding project');
   // HL-CHAT-006 2.1: the <select> stays in the DOM as the state holder but is visually hidden;
   // the visible control is the workspace selector button + overlay below.
   const pickerLabel=document.createElement('label');pickerLabel.htmlFor='hc-project-picker';pickerLabel.textContent='Project';pickerLabel.className='hc415-visually-hidden';
   const picker=document.createElement('select');picker.id='hc-project-picker';picker.setAttribute('aria-label','Coding project');picker.className='hc415-visually-hidden';picker.tabIndex=-1;picker.setAttribute('aria-hidden','true');
-  const selectorBtn=button('Working Directory: General chat','hc415-ws-selector');selectorBtn.id='hc415-ws-selector';
+  const selectorBtn=button('Workspace: General chat','hc415-ws-selector');selectorBtn.id='hc415-ws-selector';
   selectorBtn.title='Select the working directory for this conversation';selectorBtn.setAttribute('aria-haspopup','dialog');selectorBtn.setAttribute('aria-expanded','false');
   const workspaceButton=button('Workspace ▸','hc415-workspace-button');workspaceButton.setAttribute('aria-haspopup','dialog');
   const filesBtn=button('🗂 Files','hc415-files-button');filesBtn.title='Browse project files and attach them to the conversation';
@@ -106,32 +105,19 @@ function setup():boolean{
   wsActions.append(wsBrowse,wsExplorer);
   wsSelect.append(wsHead,wsList,wsInfo,wsActions);panel.append(wsSelect);
 
-  // Keep the popup attached to the chat panel; it is visible only when deliberately opened.
-  const expand=button('⤢ Expand','hc415-expand');expand.title='Expand or restore chat';
-  const headActions=panel.querySelector('.hc-head .hc-actions');headActions?.prepend(expand);
-  // HL-CHAT-005: expand cycles float -> wide -> full-window workspace; Restore returns to float.
-  type ChatMode='float'|'wide'|'full';
-  let mode:ChatMode='float';
-  const storedMode=(()=>{const v=localStorage.getItem('hermes-life-chat-mode');return v==='wide'||v==='full'?v:(localStorage.getItem('hermes-life-chat-expanded')==='1'?'wide':'float')})();
-  function applyMode(next:ChatMode){
-    const scroller=document.getElementById('hc-messages');
-    const atBottom=!scroller||scroller.scrollHeight-scroller.scrollTop-scroller.clientHeight<40;
-    if(mode==='full'&&next!=='full'){document.body.classList.remove('hc415-fullscreen-open');chatPanel.removeEventListener('keydown',onPanelKey)}
-    mode=next;
-    chatPanel.classList.toggle('hc415-expanded',next==='wide');
-    chatPanel.classList.toggle('hc415-fullscreen',next==='full');
-    expand.textContent=next==='full'?'⤡ Restore':next==='wide'?'⤢ Fullscreen':'⤢ Expand';
-    expand.title=next==='full'?'Restore floating chat':next==='wide'?'Open full-window workspace':'Expand chat';
-    expand.setAttribute('aria-pressed',String(next!=='float'));
-    localStorage.setItem('hermes-life-chat-mode',next);
-    localStorage.setItem('hermes-life-chat-expanded',next==='float'?'0':'1');
-    if(next==='full'){document.body.classList.add('hc415-fullscreen-open');chatPanel.addEventListener('keydown',onPanelKey);
-      sidebar.hidden=localStorage.getItem('hermes-life-chat-sidebar')==='0'||!choice()}
-    if(atBottom&&scroller)scroller.scrollTop=scroller.scrollHeight;
+  // Chat audit §8: the floating assistant is retired, so there is no float/wide/
+  // fullscreen mode machine and no Expand control. The single presentation is
+  // the Conversations workspace; the file-context sidebar (HL-CHAT-006) is just
+  // a column that opens and closes inside it.
+  function sidebarWanted():boolean{return localStorage.getItem('hermes-life-chat-sidebar')!=='0'&&!!choice()}
+  function showSidebar(open:boolean,persist=true){
+    if(persist)localStorage.setItem('hermes-life-chat-sidebar',open?'1':'0');
+    sidebar.hidden=!open;
+    if(open)void refreshFileContext();
   }
-  function onPanelKey(e:KeyboardEvent){if(e.key==='Escape'&&mode==='full'){e.preventDefault();applyMode('float')}}
-  applyMode(storedMode);
-  expand.onclick=()=>applyMode(mode==='float'?'wide':mode==='wide'?'full':'float');
+  // Escape closes the sidebar, matching the Hide button.
+  chatPanel.addEventListener('keydown',(e:KeyboardEvent)=>{if(e.key==='Escape'&&!sidebar.hidden){e.preventDefault();showSidebar(false)}});
+  showSidebar(sidebarWanted(),false);
 
   let projects:Project[]=[];let selected=localStorage.getItem(key)||'';let activeReview:Review|null=null;let busy=false;
   function choice(){return picker.value}
@@ -317,8 +303,8 @@ function setup():boolean{
     catch(e){resetTree();setStatus('File tree unavailable: '+errText(e))}
   }
   async function refreshFileContext(){loadAttached();await loadTree()}
-  sbHide.onclick=()=>{localStorage.setItem('hermes-life-chat-sidebar','0');sidebar.hidden=true};
-  filesBtn.onclick=()=>{localStorage.setItem('hermes-life-chat-sidebar','1');if((mode as ChatMode)!=='full')applyMode('full');sidebar.hidden=false;void refreshFileContext()};
+  sbHide.onclick=()=>showSidebar(false);
+  filesBtn.onclick=()=>showSidebar(true);
   refresh.onclick=()=>{if(!busy)void load()};
   sync.onclick=async()=>{const name=choice();if(!name)return setStatus('Select a project first');setBusy(true);clearReview();setStatus('Synchronizing committed Git contents…');try{
     await post(`/api/projects/${encodeURIComponent(name)}/sync`);setStatus('Synchronized work-machine workspace: '+name);await load();
@@ -499,7 +485,7 @@ function setup():boolean{
     w.observe(document.documentElement,{childList:true,subtree:true});
   }
   void load();loadAttached();
-  if((mode as ChatMode)==='full'&&!sidebar.hidden&&choice())void refreshFileContext();
+  if(!sidebar.hidden&&choice())void refreshFileContext();
   return true;
 }
 try{

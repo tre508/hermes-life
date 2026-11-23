@@ -108,6 +108,24 @@ export function installTown(): void {
     const purpose = document.createElement('p');
     purpose.textContent = locationPurpose(loc);
     body.append(head, title, purpose);
+    // Spec §8: how much of this room's work is autonomous vs user-directed.
+    const autonomous = here.filter(res => isAutonomousTask(res.taskId)).length;
+    const origin = document.createElement('p');
+    origin.className = 'hint';
+    origin.textContent = here.length
+      ? `Work origin: ${autonomous} autonomous · ${here.length - autonomous} user-directed`
+      : 'No residents assigned here.';
+    body.append(origin);
+    // Spec §4: the room card carries the room's own workspace action.
+    const place = TOWN_LOCATIONS[loc];
+    if (place) {
+      const openBtn = document.createElement('button');
+      openBtn.type = 'button';
+      openBtn.className = 'ctx-open-workspace';
+      openBtn.textContent = 'Open ' + place.view + ' workspace';
+      openBtn.addEventListener('click', () => openView(place.view));
+      body.append(openBtn);
+    }
     const activity = here.filter(res => res.state === 'working' || res.state === 'queued');
     const workHead = document.createElement('p');
     workHead.innerHTML = '<em>Linked active work</em>';
@@ -166,9 +184,25 @@ export function installTown(): void {
     document.getElementById('game')?.classList.toggle('town-still', !motion);
     renderUi();
   });
-  // An element this module does not own: its listener must come off again on a remount.
+  // Room/resident popovers are dismissible: the ×, Escape, and leaving the room
+  // all close them. Real rooms render in the contextual inspector; the floating
+  // #world-room-panel is the presentation-only Break Room surface.
+  const hideResidentCard = () => { if (ui) { ui.selection.replaceChildren(); ui.selection.hidden = true; } };
+  const hideRoomPanel = () => {
+    const panel = document.getElementById('world-room-panel');
+    if (panel) panel.hidden = true;
+    setSelection('home', null);
+    renderer?.overview?.();
+    hideResidentCard();
+  };
   const closeRoom = document.getElementById('world-room-close');
-  if (closeRoom) listen(closeRoom, 'click', () => ui?.selection.replaceChildren());
+  if (closeRoom) listen(closeRoom, 'click', hideRoomPanel);
+  listen(document, 'keydown', (e) => {
+    if ((e as KeyboardEvent).key !== 'Escape') return;
+    const panel = document.getElementById('world-room-panel');
+    if (panel && !panel.hidden) hideRoomPanel();
+    else hideResidentCard();
+  });
 
   // A visible tab polls; a hidden one keeps its last authoritative picture instead.
   every(REFRESH_MS, () => { if (!document.hidden) void refresh(); });
@@ -250,30 +284,30 @@ function storedMotion(): boolean {
 }
 
 function buildUi(host: HTMLElement): Ui {
-  // The status block goes under the canvas (sibling of #game); only the resident popover overlays
-  // the art, because it is anchored to a click and is dismissible.
-  const stage = host.closest('.world-wrap') || host.parentElement || host;
+  // The World's operational status belongs in the ONE global status strip
+  // (spec §5) — not a block wedged between the canvas and the composer. All ids
+  // are unchanged, so renderUi() keeps updating the same elements.
+  const stage = document.getElementById('status-world')
+    || host.closest('.world-wrap') || host.parentElement || host;
   const wrap = document.createElement('div');
   wrap.className = 'town-hud';
   wrap.innerHTML = [
-    '<div class="town-hud-left">',
-    '<p class="town-line"><span id="town-connection" class="town-conn">Connecting…</span>',
-    ' <span id="town-counts" class="town-counts"></span></p>',
-    '<p id="town-summary" class="town-summary" role="status" aria-live="polite">Reading backend records…</p>',
-    '<details id="town-board" class="town-board"><summary>All roles (text view)</summary>',
+    '<span id="town-connection" class="town-conn">Connecting…</span>',
+    '<span id="town-counts" class="town-counts"></span>',
+    '<span id="town-summary" class="town-summary" role="status" aria-live="polite">Reading backend records…</span>',
+    '<details id="town-board" class="town-board town-more"><summary>Roles</summary>',
     '<div id="town-rows" class="town-rows"></div></details>',
-    '<details id="town-bubble-history" class="town-bubble-history"><summary>Recent bubble activity</summary>',
+    '<details id="town-bubble-history" class="town-bubble-history town-more"><summary>Bubbles</summary>',
     '<div id="town-bubble-history-list" class="town-bubble-history__list"></div>',
     '</details>',
-    '</div>',
-    '<div class="town-hud-right"><button id="town-motion" type="button" aria-pressed="false">Motion: on</button></div>',
+    '<button id="town-motion" type="button" aria-pressed="false">Motion: on</button>',
   ].join('');
   // The phase-4.6 live status banner was absolutely positioned inside #game, where it covered the
   // top of the town (the Archive and its neighbours). It keeps its element and behaviour but now
   // sits with the town status block, outside the art.
   const banner = document.querySelector<HTMLElement>('.hermes-live-status');
   const bannerHome = banner?.parentElement ?? null;
-  if (banner) wrap.querySelector('.town-hud-left')?.prepend(banner);
+  if (banner) wrap.prepend(banner);
   stage.append(wrap);
   const selection = document.createElement('aside');
   selection.id = 'town-selection';
@@ -504,7 +538,7 @@ function clock(timestamp: number): string {
 
 // --------------------------------------------------------------------------- interaction
 
-import { openWorkspace, openWorkView, openTask, setSelection } from './navigation-state.ts';
+import { openWorkspace, openWorkView, openTask, setSelection, type WorkView } from './navigation-state.ts';
 import { registerKindRenderer, rerenderInspector, KIND_LABEL } from './context-inspector';
 
 function openView(view: string): void {
@@ -520,39 +554,30 @@ function openView(view: string): void {
     return;
   }
   const workview: Record<string, string> = {
-    discovery: 'discover', planning: 'planning', build: 'build',
+    discovery: 'discoveries', planning: 'plans', build: 'builds',
     goals: 'goals', tasks: 'tasks',
   };
   const subview = workview[view];
   if (subview) {
-    openWorkView(subview as 'tasks' | 'discover' | 'goals' | 'planning' | 'build');
+    openWorkView(subview as WorkView);
   }
 }
 
 function showBuilding(location: LocationId): void {
   const place = TOWN_LOCATIONS[location];
   if (!place || !ui) return;
-  // P2: a room pick is a canonical typed selection in the home scope, so the
-  // SAME contextual inspector ring that Work uses receives the room card.
-  setSelection('home', { kind: 'room', id: location });
-  const role = ROLES.find(r => ROSTER[r].location === location);
-  const resident = role ? town.residents[role] : null;
-  const title = document.getElementById('world-room-title');
-  const description = document.getElementById('world-room-description');
-  const info = document.getElementById('room-info');
-  const open = document.getElementById('world-room-open') as HTMLButtonElement | null;
+  // Spec §4: a room pick is a canonical typed selection in the home scope, so the
+  // SAME contextual inspector Work uses renders the room card (location, purpose,
+  // work origin, linked work, open-workspace action). The floating
+  // #world-room-panel is reserved for the presentation-only Break Room.
   const panel = document.getElementById('world-room-panel');
-  if (title) title.textContent = locationLabel(location);
-  if (description) {
-    description.textContent = locationPurpose(location) + (resident ? ` Now: ${resident.label} (${ACTIVITY_WORDS[resident.state]}).` : '');
-  }
+  if (panel) panel.hidden = true;
+  setSelection('home', { kind: 'room', id: location });
+  const info = document.getElementById('room-info');
   if (info) info.textContent = `${locationLabel(location)}: ${locationPurpose(location)}`;
-  if (open) {
-    open.textContent = 'Open ' + place.view + ' workspace';
-    open.onclick = () => openView(place.view);
-  }
-  if (panel) panel.hidden = false;
+  renderer?.focusRoom?.(location);  // spec §2/§11: zoom to the selected room
   ui.selection.replaceChildren();
+  ui.selection.hidden = true;
 }
 
 function showResident(role: Role): void {
@@ -571,6 +596,10 @@ function showResident(role: Role): void {
   const facts = document.createElement('ul');
   const rows: Array<[string, string]> = [
     ['Place', roomForRole(role).label],
+    // Spec §8: the three kinds of work must be distinguishable. A task linked to
+    // an investigation goal is autonomous; otherwise it was user-directed.
+    ['Origin', isAutonomousTask(resident.taskId)
+      ? 'Autonomous — investigation goal' : 'User-directed — chat or manual goal'],
     ['Project/task', resident.project || resident.taskId || '—'],
     ['Workflow id', resident.workflowId || '—'],
     ['Last event', resident.eventType ? `${resident.eventType} (#${resident.sequence})` : '—'],
@@ -603,7 +632,7 @@ function showResident(role: Role): void {
   const close = document.createElement('button');
   close.type = 'button';
   close.textContent = 'Close';
-  close.addEventListener('click', () => ui!.selection.replaceChildren());
+  close.addEventListener('click', () => { ui!.selection.replaceChildren(); ui!.selection.hidden = true; });
   actions.append(close);
   card.append(heading, state, facts, actions);
   ui.selection.replaceChildren(card);

@@ -31,32 +31,32 @@ test('selection is typed per workview and isolated between views', () => {
     setSelection('tasks', { kind: 'task', id: 't-1' });
     assert.deepEqual(getSelection('tasks'), { kind: 'task', id: 't-1' });
     // Other views own their own (empty) selection — no leakage.
-    assert.equal(getSelection('build'), null);
-    assert.equal(getSelection('projects'), null);
-    assert.equal(getValidSelection('build'), null);
+    assert.equal(getSelection('builds'), null);
+    assert.equal(getSelection('overview'), null);
+    assert.equal(getValidSelection('builds'), null);
 });
 
 test('a foreign-kind selection never validates for a view', () => {
     setSelection('tasks', { kind: 'task', id: 't-2' });
-    assert.equal(viewAccepts('build', { kind: 'task', id: 't-2' }), false);
-    assert.equal(getValidSelection('build'), null);
+    assert.equal(viewAccepts('builds', { kind: 'task', id: 't-2' }), false);
+    assert.equal(getValidSelection('builds'), null);
     assert.equal(viewAccepts('tasks', { kind: 'task', id: 't-2' }), true);
     setSelection('tasks', { kind: 'task', id: 't-2' });
     assert.equal(getValidSelection('tasks')?.id, 't-2');
 });
 
 test('selections persist to localStorage and reload', () => {
-    setSelection('projects', { kind: 'project', id: 'hl-demo' });
+    setSelection('overview', { kind: 'project', id: 'hl-demo' });
     const raw = JSON.parse(mem.get(HERMES_SELECTIONS_KEY)!) as Record<string, unknown>;
-    assert.deepEqual(raw.projects, { kind: 'project', id: 'hl-demo' });
+    assert.deepEqual(raw.overview, { kind: 'project', id: 'hl-demo' });
 });
 
 test('clearing a selection empties it and persists', () => {
-    setSelection('projects', { kind: 'project', id: 'hl-demo' });
-    setSelection('projects', null);
-    assert.equal(getSelection('projects'), null);
+    setSelection('overview', { kind: 'project', id: 'hl-demo' });
+    setSelection('overview', null);
+    assert.equal(getSelection('overview'), null);
     const raw = JSON.parse(mem.get(HERMES_SELECTIONS_KEY)!) as Record<string, unknown>;
-    assert.equal(raw.projects, null);
+    assert.equal(raw.overview, null);
 });
 
 test('selection change listeners fire only on real changes', async () => {
@@ -72,7 +72,7 @@ test('selection change listeners fire only on real changes', async () => {
 test('every workview has a domain kind mapping', async () => {
     const { VIEW_SELECTION_KINDS, WORK_VIEWS } = await import('../src/navigation-state.ts');
     for (const v of WORK_VIEWS) assert.ok(VIEW_SELECTION_KINDS[v]?.length === 1, `view ${v} lacks domain kind`);
-    assert.deepEqual(VIEW_SELECTION_KINDS.build, ['build']);
+    assert.deepEqual(VIEW_SELECTION_KINDS.builds, ['build']);
 });
 
 test('inspector kind labels cover all selection kinds', () => {

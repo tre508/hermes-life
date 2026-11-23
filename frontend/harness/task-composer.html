@@ -1,0 +1,83 @@
+<!doctype html>
+<!--
+  Task composer harness — convo-redesign.md §4/§6.
+
+  Renders the Work task composer in every interaction state it can derive, so
+  the state machine is inspectable without needing a live task in each state.
+
+  Run the frontend (`./hermes-life.sh start`), then open:
+      http://127.0.0.1:5173/harness/task-composer.html
+
+  Each card shows the derived mode plus the composer exactly as the task detail
+  mounts it. Sending dispatches the same `hermes:open-in-chat` hand-off the real
+  page uses, so clicking Send here is a no-op beyond the hand-off (no Chat panel
+  is mounted on this page).
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Task composer harness — convo-redesign §6</title>
+<link rel="stylesheet" href="/src/unified-layout.css">
+<style>
+  /* The real stylesheet scopes the composer under #app, so the harness needs
+     #app to exist — but without the shell's grid, which has no children here. */
+  #app {
+    display: block !important;
+    height: auto !important;
+    grid-template-areas: none !important;
+    grid-template-rows: none !important;
+    overflow: visible !important;
+  }
+  body { margin: 0; padding: 22px; background: #0b1720; color: #dceae7; font-family: Inter, system-ui, sans-serif; }
+  h1 { font-size: 15px; letter-spacing: .04em; text-transform: uppercase; color: #e1d6bc; margin: 0 0 4px; }
+  .lede { color: #7f9aa0; font-size: 12px; margin: 0 0 18px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(400px, 1fr)); gap: 18px; }
+  .case { border: 1px solid #1c3a47; border-radius: 10px; padding: 12px; background: #0d1a22; }
+  .case h2 { font-size: 12px; color: #7f9aa0; margin: 0 0 10px; font-weight: 600; }
+  .case code { color: #a8e7d5; }
+</style>
+</head>
+<body>
+<div id="app">
+  <h1>Task composer — interaction states</h1>
+  <p class="lede">convo-redesign.md §4/§6 · the copy and data-mode derive from task state + chain next_action.</p>
+  <div class="grid" id="grid"></div>
+</div>
+<script type="module">
+  import { mountTaskComposer, composerCopyFor } from '/src/task-composer.ts';
+
+  const CASES = [
+    { name: 'no conversation yet',        input: { hasConversation: false } },
+    { name: 'queued',                     input: { state: 'queued', hasConversation: true } },
+    { name: 'running',                    input: { state: 'running', hasConversation: true } },
+    { name: 'completed',                  input: { state: 'completed', hasConversation: true } },
+    { name: 'failed',                     input: { state: 'failed', hasConversation: true } },
+    { name: 'cancelled',                  input: { state: 'cancelled', hasConversation: true } },
+    { name: 'awaiting_approval',          input: { state: 'awaiting_approval', hasConversation: true } },
+    { name: 'blocked',                    input: { state: 'blocked', hasConversation: true } },
+    { name: 'chain wants a plan decision', input: { state: 'running', nextAction: 'approve_plan', hasConversation: true } },
+  ];
+
+  const grid = document.getElementById('grid');
+  for (const c of CASES) {
+    const box = document.createElement('section');
+    box.className = 'case';
+    const h = document.createElement('h2');
+    h.append(`${c.name} → mode `);
+    const code = document.createElement('code');
+    code.textContent = `"${composerCopyFor(c.input).mode}"`;
+    h.append(code);
+    box.append(h);
+    const host = document.createElement('div');
+    host.className = 'task-composer-host';
+    box.append(host);
+    grid.append(box);
+    mountTaskComposer(host, () => ({
+      ...c.input,
+      taskId: 'task-1efade12',
+      conversationId: c.input.hasConversation ? 'conv-1efade12' : null,
+    }));
+  }
+</script>
+</body>
+</html>

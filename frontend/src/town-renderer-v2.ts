@@ -18,6 +18,11 @@ import { ROLES, ROSTER, type Activity, type LocationId, type Role, type TownStat
 import type { RendererPoint, TownRenderer } from './town-renderer';
 import { DESIGN, mountInto, stateWordFor } from './town-renderer';
 import { locationLabel } from './town-vocabulary';
+import {
+  frameBounds, roomBounds, lerpPose,
+  OVERVIEW_ELEVATION, OVERVIEW_AZIMUTH, FOCUS_ELEVATION, FOCUS_AZIMUTH, DEFAULT_FOV,
+  type Bounds, type CameraPose,
+} from './town-camera';
 
 // --------------------------------------------------------------------- layout
 
@@ -857,37 +862,85 @@ export function createV2Renderer(host: HTMLElement, opts: { motion: boolean }): 
   const track: Track = resource => { disposables.push(resource); return resource; };
   const textureCache = new Map<string, THREE.Texture>();
   scene.background = starfield(track);
-  scene.fog = new THREE.Fog(0x0a1220, 60, 120);
+  scene.fog = new THREE.Fog(0x0a1220, 120, 320);
 
-  // Near top-down orthographic camera — the mock's floor-plan eye.
-  const ELEVATION = 72;
-  const AZIMUTH = 0;
-  const DISTANCE = 90;
-  const CENTER_Y = 1;
-  const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 300);
-  {
-    const rad = Math.PI / 180;
-    const elevation = ELEVATION * rad;
-    const azimuth = AZIMUTH * rad;
-    const dir = new THREE.Vector3(
-      Math.cos(elevation) * Math.sin(azimuth),
-      Math.sin(elevation),
-      Math.cos(elevation) * Math.cos(azimuth));
-    camera.position.copy(dir.multiplyScalar(DISTANCE).add(new THREE.Vector3(0, CENTER_Y, 0)));
-    camera.lookAt(0, CENTER_Y, 0);
+  // Perspective "operations-centre" eye (spec §11, decided 2026-11-23): a raised
+  // three-quarter view, not the old top-down floor plan. Framing is a
+  // bounding-sphere fit (town-camera.ts) so the facility fills the stage and
+  // nothing is clipped; the pose is driven by mode (overview | focus).
+  const camera = new THREE.PerspectiveCamera(DEFAULT_FOV, 1, 0.1, 600);
+
+  const FACILITY: Bounds = (() => {
+    let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
+    for (const room of ROOMS) {
+      minX = Math.min(minX, room.x - room.w / 2 - 1.2);
+      maxX = Math.max(maxX, room.x + room.w / 2 + 1.2);
+      minZ = Math.min(minZ, room.z - room.d / 2 - 0.8);
+      maxZ = Math.max(maxZ, room.z + room.d / 2 + 2.6); // headroom for label plates
+    }
+    // maxY covers the residents: a 1.7-unit figure at 2x scale, plus its state
+    // badge at y=1.9 local, reaches ~3.8 world units — the old 2.4 clipped heads.
+    return { minX, maxX, minY: 0, maxY: 3.9, minZ, maxZ };
+  })();
+
+  type CamMode = 'overview' | 'focus';
+  let camMode: CamMode = 'overview';
+  let focusedRoomId: string | null = null;
+  let pose: CameraPose | null = null;
+  let poseFrom: CameraPose | null = null;
+  let poseTo: CameraPose | null = null;
+  let poseT = 1;
+  const CAM_SECONDS = 0.55;
+
+  const applyPose = (p: CameraPose) => {
+    camera.position.set(p.position.x, p.position.y, p.position.z);
+    camera.lookAt(p.target.x, p.target.y, p.target.z);
+    camera.fov = p.fov;
+    camera.updateProjectionMatrix();
     camera.updateMatrixWorld(true);
-  }
+  };
+
+  const desiredPose = (aspect: number): CameraPose => {
+    if (camMode === 'focus' && focusedRoomId) {
+      const room = ROOMS.find(r => r.id === focusedRoomId);
+      if (room) {
+        return frameBounds(roomBounds(room), {
+          aspect, margin: 1.5, elevationDeg: FOCUS_ELEVATION, azimuthDeg: FOCUS_AZIMUTH,
+        });
+      }
+    }
+    return frameBounds(FACILITY, {
+      aspect, margin: 1.03, elevationDeg: OVERVIEW_ELEVATION, azimuthDeg: OVERVIEW_AZIMUTH,
+    });
+  };
+
+  /** Move the camera to the pose for the current mode. Animates when motion is on. */
+  const setPoseForMode = (animate: boolean) => {
+    const rect = host.getBoundingClientRect();
+    const aspect = rect.height > 0 ? Math.max(0.2, rect.width / rect.height) : 1.5;
+    const next = desiredPose(aspect);
+    if (pose && animate && motion) {
+      poseFrom = pose; poseTo = next; poseT = 0;
+    } else {
+      pose = next; applyPose(next);
+    }
+  };
 
   // Lighting: soft sky base, one white key from the top, warm bounce. Floors are
   // lit generously so interiors read at the top-down eye (the mock's rooms are
   // clearly lit, not silhouetted).
-  scene.add(new THREE.HemisphereLight(0xd8e6f0, 0x35291c, 1.05));
-  const key = new THREE.DirectionalLight(0xfff2e2, 2.6);
+  scene.add(new THREE.HemisphereLight(0xd8e6f0, 0x35291c, 1.25));
+  const key = new THREE.DirectionalLight(0xfff2e2, 2.3);
   key.position.set(6, 24, 4);
   scene.add(key);
-  const warm = new THREE.DirectionalLight(0xff9a5c, 0.65);
+  const warm = new THREE.DirectionalLight(0xff9a5c, 0.7);
   warm.position.set(-8, 10, 8);
   scene.add(warm);
+  // Soft fill from the operator's side so the raised perspective view keeps near
+  // walls and furniture legible instead of silhouetted.
+  const fill = new THREE.DirectionalLight(0xbfd8e6, 0.5);
+  fill.position.set(-10, 8, 16);
+  scene.add(fill);
 
   const m = makeMaterials(track);
 
@@ -915,6 +968,17 @@ export function createV2Renderer(host: HTMLElement, opts: { motion: boolean }): 
   // A shared window texture: every room's rear window shows the same
   // starfield/nebula view the backdrop uses (the amendment's space-facing windows).
   textureCache.set('window', starfield(track));
+
+  // Focus affordance (spec §11): a soft ring under the selected room.
+  const focusRing = new THREE.Mesh(
+    new THREE.RingGeometry(0.86, 1.0, 56),
+    new THREE.MeshBasicMaterial({ color: 0x7fd4ff, transparent: true, opacity: 0.32, side: THREE.DoubleSide, depthWrite: false }));
+  focusRing.rotation.x = -Math.PI / 2;
+  focusRing.position.y = 0.22;
+  focusRing.visible = false;
+  scene.add(focusRing);
+  track(focusRing.geometry);
+  track(focusRing.material as THREE.Material);
 
   // --- residents ----------------------------------------------------------------
   const figures: Figure[] = ROLES.map(role => {
@@ -959,9 +1023,10 @@ export function createV2Renderer(host: HTMLElement, opts: { motion: boolean }): 
     figure.to = { ...spot };
     figure.group.position.set(spot.x, 0, spot.z);
     figure.group.rotation.y = spot.yaw;
-    // 1.5x: at the top-down camera a 1.7-unit figure is ~25 px on a 1080p panel —
-    // invisible. Scaling the whole figure (body, pill, badges) keeps proportions.
-    figure.group.scale.setScalar(1.5);
+    // 2x: at the perspective operations-centre eye a 1.7-unit figure still reads
+    // small on a wide stage; scaling the whole figure (body, pill, badges) keeps
+    // proportions and keeps residents legible without a floor-plan zoom.
+    figure.group.scale.setScalar(2.0);
     return figure;
   });
 
@@ -1076,51 +1141,27 @@ export function createV2Renderer(host: HTMLElement, opts: { motion: boolean }): 
   })));
   mountInto(host, access, 'data-town-access');
 
-  // --- framing: fill the host box with the world ---------------------------------
-  // 6% margin per side and an explicit bottom margin for the label plates, so
-  // nothing — walls, labels, name pills — is ever clipped by the canvas edge.
-  const FIT = 0.88;
-  const worldPoint = new THREE.Vector3();
-  const camRight = new THREE.Vector3().setFromMatrixColumn(camera.matrixWorld, 0);
-  const camUp = new THREE.Vector3().setFromMatrixColumn(camera.matrixWorld, 1);
-  const measure = () => {
-    let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
-    for (const room of ROOMS) {
-      for (const [dx, dz] of [[-room.w / 2 - 1.2, -room.d / 2 - 0.4], [room.w / 2 + 1.2, -room.d / 2 - 0.4],
-        [-room.w / 2 - 1.2, room.d / 2 + 2.6], [room.w / 2 + 1.2, room.d / 2 + 2.6]]) {
-        worldPoint.set(room.x + dx, 0.4, room.z + dz).sub(new THREE.Vector3(0, CENTER_Y, 0));
-        const x = worldPoint.dot(camRight);
-        const y = worldPoint.dot(camUp);
-        minX = Math.min(minX, x); maxX = Math.max(maxX, x);
-        minY = Math.min(minY, y); maxY = Math.max(maxY, y);
-      }
-    }
-    return { minX, maxX, minY, maxY };
-  };
+  // --- framing: fill the host box with the world (perspective) --------------------
   const resize = () => {
     const rect = host.getBoundingClientRect();
     const width = Math.round(rect.width);
     const height = Math.round(rect.height);
     if (width < 2 || height < 2) return;
-    // A very wide, short host box letterboxes the world into invisible side
-    // bands. Cap the drawn canvas at a sensible maximum aspect and center it —
-    // the world fills the canvas it actually gets instead of a 3:1 host box.
-    const MAX_ASPECT = 1.9;
+    // The world fills the canvas it actually gets. Only a truly extreme host box
+    // is capped; the facility is wide, so a tight cap just leaves dark side bands.
+    const MAX_ASPECT = 2.6;
     const drawW = width > height * MAX_ASPECT ? Math.round(height * MAX_ASPECT) : width;
     canvas.style.width = `${drawW}px`;
     canvas.style.height = `${height}px`;
     const aspect = drawW / height;
-    const { minX, maxX, minY, maxY } = measure();
-    const midX = (minX + maxX) / 2;
-    const midY = (minY + maxY) / 2;
-    const halfW = (maxX - minX) / 2;
-    const halfH = (maxY - minY) / 2;
-    const span = Math.max(halfH / FIT, halfW / (aspect * FIT));
-    camera.left = midX - span * aspect;
-    camera.right = midX + span * aspect;
-    camera.top = midY + span;
-    camera.bottom = midY - span;
+    camera.aspect = aspect;
     camera.updateProjectionMatrix();
+    // Re-fit the CURRENT mode for the new aspect, immediately: a panel opening is
+    // a re-frame, not a crop.
+    const next = desiredPose(aspect);
+    pose = next;
+    poseFrom = null; poseTo = null; poseT = 1;
+    applyPose(next);
     renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.5));
     renderer.setSize(drawW, height, true);
     if (!motion) draw();
@@ -1248,6 +1289,14 @@ export function createV2Renderer(host: HTMLElement, opts: { motion: boolean }): 
     }
   };
 
+  const stepCamera = (dt: number) => {
+    if (poseT >= 1 || !poseFrom || !poseTo) return;
+    poseT = Math.min(1, poseT + dt / CAM_SECONDS);
+    pose = lerpPose(poseFrom, poseTo, poseT);
+    applyPose(pose);
+    if (poseT >= 1) { poseFrom = null; poseTo = null; }
+  };
+
   const loop = (timestamp: number) => {
     handle = window.requestAnimationFrame(loop);
     if (document.hidden) { previous = null; return; }
@@ -1255,12 +1304,45 @@ export function createV2Renderer(host: HTMLElement, opts: { motion: boolean }): 
     previous = timestamp;
     clockMs += dt * 1000;
     advance(dt);
+    stepCamera(dt);
     draw();
   };
   if (motion) handle = window.requestAnimationFrame(loop);
   else draw();
 
   resize();
+
+  const resolveRoom = (key: string): Room | null => {
+    const direct = ROOMS.find(r => r.id === key);
+    if (direct) return direct;
+    // Accept a LocationId too (town:building passes one): resolve via the role
+    // whose roster location matches.
+    const role = ROLES.find(r => ROSTER[r].location === key);
+    if (role) return ROOMS.find(r => r.role === role) ?? null;
+    return null;
+  };
+
+  /** Zoom to a room (spec §2/§11 focus mode). */
+  const focusRoom = (key: string) => {
+    const room = resolveRoom(key);
+    if (!room) return;
+    camMode = 'focus';
+    focusedRoomId = room.id;
+    focusRing.visible = true;
+    focusRing.position.set(room.x, 0.22, room.z);
+    focusRing.scale.setScalar(Math.max(room.w, room.d) * 0.62);
+    setPoseForMode(true);
+    if (!motion) draw();
+  };
+
+  /** Return to the whole-facility framing. */
+  const overview = () => {
+    camMode = 'overview';
+    focusedRoomId = null;
+    focusRing.visible = false;
+    setPoseForMode(true);
+    if (!motion) draw();
+  };
 
   return {
     kind: '3d',
@@ -1316,6 +1398,8 @@ export function createV2Renderer(host: HTMLElement, opts: { motion: boolean }): 
       }
     },
     resize,
+    focusRoom,
+    overview,
     positions(): RendererPoint[] {
       return figures.map(figure => {
         const projected = new THREE.Vector3(figure.group.position.x, 0.8, figure.group.position.z)

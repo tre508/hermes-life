@@ -3,6 +3,7 @@ import './chat-upgrade.css';
 import './chat-clarity.css';
 import { renderHermesMarkdown } from './chat-markdown';
 import { gateLogout, gateRegisterPasskey } from './gate';
+import { groupThreads } from './thread-groups';
 
 type Turn={id:number;role:'user'|'assistant';content:string;created_at:string;task_id:string|null};
 type Conversation={id:string;title:string;updated_at:string};
@@ -16,17 +17,29 @@ let activeTask='';let activeState='idle';let lastSeq=0;let socket:WebSocket|null
 let liveTask='';let liveText='';let liveBubble:HTMLElement|null=null;
 
 const root=document.createElement('div');root.id='hermes-chat-root';
-root.innerHTML=`<button id="hc-toggle" aria-label="Open Hermes conversation" title="Ask Hermesha anything"><span class="hc-sigil" aria-hidden="true">✦</span><span>Ask Hermesha anything…</span></button>
-<section id="hc-panel" role="dialog" aria-label="Hermes conversation" hidden>
- <header class="hc-head"><div class="hc-brand"><span class="hc-logo" aria-hidden="true">✦</span><div class="hc-brand-copy"><strong>Hermes</strong><small id="hc-state">Connected to Hermes Life</small></div></div><div class="hc-actions"><button id="hc-new" type="button" title="New conversation"><span class="hc-action-icon" aria-hidden="true">＋</span> New Chat</button><button id="hc-history" type="button" title="Conversation history"><span class="hc-action-icon" aria-hidden="true">☷</span> Threads</button><button id="hc-logout" type="button" title="Log out — return to the entrance gate"><span class="hc-action-icon" aria-hidden="true">⏻</span> Logout</button><button id="hc-passkey" type="button" title="Register a passkey on this device for passwordless unlock" hidden><span class="hc-action-icon" aria-hidden="true">🔑</span> Passkey</button><button id="hc-close" type="button" title="Close chat"><span class="hc-action-icon" aria-hidden="true">×</span> Close</button></div></header>
- <nav id="hc-threads" aria-label="Previous conversations" hidden></nav>
+root.innerHTML=`<section id="hc-panel" role="region" aria-label="Hermes conversation">
+ <aside id="hc-thread-sidebar" aria-label="Conversation history">
+  <div class="hc-thread-head"><strong>Conversations</strong><button id="hc-new" type="button" title="Start a new conversation"><span aria-hidden="true">＋</span> New chat</button></div>
+  <input id="hc-thread-filter" type="search" placeholder="Search threads" aria-label="Search conversations" autocomplete="off">
+  <nav id="hc-threads" aria-label="Previous conversations"></nav>
+ </aside>
+ <div class="hc-main">
+ <header class="hc-head"><div class="hc-brand"><span class="hc-logo" aria-hidden="true">✦</span><div class="hc-brand-copy"><strong id="hc-thread-title">New conversation</strong><small id="hc-state">Hermesha · connected</small></div></div><div class="hc-actions"><details class="hc-account"><summary title="Account and security"><span class="hc-action-icon" aria-hidden="true">⏻</span> Account</summary><button id="hc-logout" type="button" title="Log out — return to the entrance gate"><span class="hc-action-icon" aria-hidden="true">⏻</span> Logout</button><button id="hc-passkey" type="button" title="Register a passkey on this device for passwordless unlock" hidden><span class="hc-action-icon" aria-hidden="true">🔑</span> Passkey</button></details></div></header>
  <main id="hc-messages" aria-live="polite"><div class="hc-empty">Start a conversation with Hermes.<br>Messages and tasks share the same thread.</div></main>
  <div id="hc-progress" hidden><span id="hc-progress-label">Hermes is working…</span><button id="hc-details">Activity ▾</button><button id="hc-stop" type="button" title="Stop current task">Stop</button></div>
  <div id="hc-events" hidden></div>
  <div id="hc-feedback" role="status"></div>
- <form id="hc-form"><textarea id="hc-input" rows="1" placeholder="Message Hermes…" aria-label="Message Hermes"></textarea><button id="hc-send" type="submit" title="Send message"><span aria-hidden="true">➤</span> Send</button></form>
+ <form id="hc-form"><div class="hc-composer-box"><textarea id="hc-input" rows="1" placeholder="Ask Hermesha to build, explain, fix, or research…" aria-label="Message Hermesha"></textarea><div class="hc-composer-tools"><button id="hc-attach" type="button" title="Browse project files and attach them"><span aria-hidden="true">＋</span> Attach</button><button id="hc-composer-workspace" type="button" title="Open the registered-project workspace drawer"><span aria-hidden="true">🗂</span> Workspace</button><span id="hc-composer-hint">Enter to send · Shift+Enter for a new line</span></div><div class="hc-composer-foot"><button id="hc-composer-context" type="button" title="Change the working context"><span aria-hidden="true">◆</span> <span id="hc-composer-context-label">General chat</span></button><button id="hc-composer-model" type="button" title="Change provider and model"><span aria-hidden="true">✦</span> <span id="hc-composer-model-label">Worker default</span></button><button id="hc-send" type="submit" title="Send message"><span aria-hidden="true">➤</span> Send</button></div></div></form>
+ </div>
 </section>`;
-document.body.append(root);
+/* Chat audit §8: the floating assistant is RETIRED. There is exactly ONE chat
+   presentation — the full-page Conversations workspace — so the single chat
+   root mounts straight into #chat-focus-host and never moves again. The
+   workspace's own hidden state governs when it is on screen; there is no
+   launcher to reveal it and no Close to hide it, so the workspace can never
+   become a dead end (the failure mode the old toggle/Close pair created). */
+root.classList.add('in-focus-host');
+(document.getElementById('chat-focus-host')||document.body).append(root);
 const el=(id:string)=>document.getElementById(id)!;
 const panel=el('hc-panel'),messages=el('hc-messages'),feedback=el('hc-feedback');
 
@@ -115,7 +128,14 @@ modelBar.innerHTML=`<div class="hc-model-row">
 <span class="hc-metric" id="hc-cost-label">Cost: unavailable</span>
 <span class="hc-metric" id="hc-balance-label">Balance: unavailable</span>
 </div>`;
-panel.querySelector('.hc-head')?.after(modelBar);
+// convo-redesign/chat-audit §2: the provider, context and usage block is
+// reference material, not conversation. Collapse it behind a disclosure so the
+// scroll region gets its height back; the values stay one click away.
+const modelDetails=document.createElement('details'); modelDetails.id='hc-model-details';
+const modelSummary=document.createElement('summary');
+modelSummary.textContent='Model & usage';
+modelDetails.append(modelSummary,modelBar);
+panel.querySelector('.hc-head')?.after(modelDetails);
 const retryModels=document.createElement('button');retryModels.type='button';retryModels.id='hc-retry-models';retryModels.textContent='↻ Models';retryModels.title='Reload provider and model catalog';modelBar.append(retryModels);
 retryModels.onclick=()=>void initializeChatModels();
 type ChatModel={provider:string;model:string;label:string;context_window:number|null};
@@ -208,7 +228,16 @@ async function refreshChatBalance(){
 }
 
 function state(text:string){el('hc-state').textContent=text;}
-function setRunning(running:boolean){(el('hc-send') as HTMLButtonElement).disabled=running;el('hc-progress').hidden=!running;}
+/** Audit §9F: the composer must switch Send → Stop while a task is running,
+ *  instead of disabling itself and leaving Stop buried in the progress strip. */
+function setRunning(running:boolean){
+  const send=el('hc-send') as HTMLButtonElement;
+  send.disabled=false;
+  send.dataset.mode=running?'stop':'send';
+  send.innerHTML=running?'<span aria-hidden="true">■</span> Stop':'<span aria-hidden="true">➤</span> Send';
+  send.title=running?'Stop the running task':'Send message';
+  el('hc-progress').hidden=!running;
+}
 async function request<T>(path:string,options?:RequestInit):Promise<T>{const res=await fetch(path,options);if(!res.ok){let info='';try{info=JSON.stringify(await res.json())}catch{}throw new Error(`HTTP ${res.status} ${info}`)}return await res.json() as T;}
 function followBottom(){return messages.scrollHeight-messages.scrollTop-messages.clientHeight<110;}
 function addBubble(role:'user'|'assistant',content:string,at?:string,taskId?:string|null,turnId?:number){const stick=followBottom();const section=document.createElement('article');section.className='hc-bubble '+role;
@@ -246,6 +275,7 @@ let hcRenderGeneration=0;
 async function render(forceBottom=false){
   const generation=++hcRenderGeneration;
   const thread=conversationId;
+  paintThreadTitle();
   const topBefore=messages.scrollTop;
   const follow=forceBottom||followBottom()||messages.querySelector('.hc-empty')!==null||messages.childElementCount===0;
   const restore=()=>{requestAnimationFrame(()=>{
@@ -270,7 +300,40 @@ async function render(forceBottom=false){
     restore();
   }catch(err){feedback.textContent='History unavailable: '+String(err)}
 }
-async function refreshThreads(){try{const data=await request<{conversations:Conversation[]}>('/api/conversations');const nav=el('hc-threads');nav.replaceChildren();for(const t of data.conversations){const b=document.createElement('button');b.textContent=t.title||'Conversation';b.title=t.updated_at;b.onclick=()=>{conversationId=t.id;localStorage.setItem(stored,t.id);nav.hidden=true;clearStream();activeTask='';restoreChatSelection();void render(true)};nav.append(b)}}catch(err){feedback.textContent=String(err)}}
+const threadTitles=new Map<string,string>();
+/** chat-audit §5: the head must name the thread you are reading, not the product. */
+function paintThreadTitle(){const t=el('hc-thread-title');if(!t)return;const known=conversationId?threadTitles.get(conversationId):'';t.textContent=known||(conversationId?`Conversation ${conversationId.slice(0,8)}`:'New conversation');}
+/* Chat audit §6: conversation history is primary navigation, not a popover.
+   The list is a real column: searchable, grouped by day, and it marks the
+   open thread. One fetch fills a cache; the search field filters it locally so
+   typing does not re-hit the API on every keystroke. */
+let threadCache:Conversation[]=[];
+function renderThreadList(){
+  const nav=el('hc-threads');
+  const groups=groupThreads(threadCache,(el('hc-thread-filter') as HTMLInputElement).value);
+  nav.replaceChildren();
+  if(!groups.length){
+    const p=document.createElement('p');p.className='hc-thread-empty';
+    p.textContent=threadCache.length?'No thread matches that search.':'No conversations yet — send a message to start one.';
+    nav.append(p);return;
+  }
+  for(const g of groups){
+    const h=document.createElement('h3');h.className='hc-thread-group';h.textContent=g.bucket;nav.append(h);
+    for(const t of g.threads){
+      const btn=document.createElement('button');
+      btn.type='button';btn.className='hc-thread-item';btn.title=t.title||'Conversation';
+      const name=document.createElement('span');name.className='hc-thread-name';name.textContent=t.title||'Conversation';
+      const when=document.createElement('span');when.className='hc-thread-when';
+      const d=new Date(t.updated_at);
+      when.textContent=isNaN(d.getTime())?'':d.toLocaleTimeString(undefined,{hour:'2-digit',minute:'2-digit'});
+      btn.append(name,when);
+      if(t.id===conversationId)btn.setAttribute('aria-current','true');
+      btn.onclick=()=>{conversationId=t.id;localStorage.setItem(stored,t.id);clearStream();activeTask='';restoreChatSelection();paintThreadTitle();void render(true);void refreshThreads()};
+      nav.append(btn);
+    }
+  }
+}
+async function refreshThreads(){try{const data=await request<{conversations:Conversation[]}>('/api/conversations');threadCache=data.conversations||[];for(const t of threadCache)threadTitles.set(t.id,t.title||'');renderThreadList();paintThreadTitle()}catch(err){feedback.textContent=String(err)}}
 async function pollTask(){if(!activeTask)return;try{const t=await request<Task>('/api/tasks/'+encodeURIComponent(activeTask));activeState=t.state;state('Task '+t.state);const running=['queued','running','pending'].includes(t.state);setRunning(running);if(!running){const finishedId=activeTask;activeTask='';await renderFinished();void refreshChatUsage(finishedId);}}catch(err){feedback.textContent=String(err)}}
 async function renderFinished(){clearStream();await render(true);}
 function eventItem(e:Evt){if(e.task_id!==activeTask)return;if(e.sequence<=lastSeq)return;lastSeq=e.sequence;if(e.type==='hermes.text'){const delta=e.payload?.text;if(typeof delta==='string'){if(hasExplicitThoughtMarker(e.payload))showExplicitThought(e.task_id||'',delta);else streamBubble(e.task_id||'',delta);}return;}
@@ -282,7 +345,7 @@ function connect(){socket?.close();const ws=new WebSocket(`${location.protocol==
 // with the conversation to continue and optional prefill text. If only
 // a task_id is known, we resolve its conversation via /api/tasks/{id}.
 window.addEventListener('hermes:open-in-chat',(ev:Event)=>{
-  const d=((ev as CustomEvent<{conversation_id?:string;task_id?:string;prefill?:string}>).detail||{}) as {conversation_id?:string;task_id?:string;prefill?:string};
+  const d=((ev as CustomEvent<{conversation_id?:string;task_id?:string;prefill?:string;submit?:boolean}>).detail||{}) as {conversation_id?:string;task_id?:string;prefill?:string;submit?:boolean};
   const open=async(convId:string|undefined)=>{
     panel.hidden=false;clearStream();activeTask='';activeState='idle';
     if(convId){conversationId=convId;localStorage.setItem(stored,convId);}
@@ -290,14 +353,17 @@ window.addEventListener('hermes:open-in-chat',(ev:Event)=>{
     void render(true);void refreshThreads();
     if(!socket||socket.readyState>1)connect();
     void refreshChatUsage(d.task_id || '');
-    if(d.prefill){const box=el('hc-input') as HTMLTextAreaElement;box.value=d.prefill;box.focus();feedback.textContent='Draft opened in Chat — review and press Send.';}
+    if(d.prefill){const box=el('hc-input') as HTMLTextAreaElement;box.value=d.prefill;box.focus();if(d.submit){el('hc-form').dispatchEvent(new Event('submit',{cancelable:true}));}else{feedback.textContent='Draft opened in Chat — review and press Send.';}}
   };
   void open(d.conversation_id);
   if(!d.conversation_id&&d.task_id){void request<Task&{conversation_id?:string}>(`/api/tasks/${encodeURIComponent(d.task_id)}`).then(t=>{if(t.conversation_id){conversationId=t.conversation_id;localStorage.setItem(stored,conversationId);clearStream();activeTask='';void render(true);void refreshThreads();}else{feedback.textContent='This task has no conversation thread yet.';}}).catch(e=>{feedback.textContent=String(e)});}
 });
 void initializeChatModels();
-el('hc-toggle').onclick=()=>{panel.hidden=!panel.hidden;if(!panel.hidden){void render(true);void refreshThreads();if(!socket||socket.readyState>1)connect()}};
-el('hc-close').onclick=()=>panel.hidden=true;
+/* The chat is brought to life by its workspace becoming active, never by a
+   launcher. Ownership of the refresh path stays here; main.v2 only announces
+   the intent, so state never changes hands. */
+function openChat(){void render(true);void refreshThreads();if(!socket||socket.readyState>1)connect()}
+window.addEventListener('hermes:chat-open',()=>openChat());
 el('hc-logout').onclick=()=>{void gateLogout();};
 // HL-AUTH-003: passkey enrolment. The button appears while the gate is
 // enabled and the session is live, and STAYS visible after the first
@@ -320,7 +386,7 @@ void (async()=>{
   };
 })();
 el('hc-new').onclick=()=>{if(activeTask&&['queued','running'].includes(activeState)){feedback.textContent='Finish the active task before starting another conversation.';return;}conversationId='';localStorage.removeItem(stored);activeTask='';pendingRevision=null;void render();state('New conversation')};
-el('hc-history').onclick=()=>{const nav=el('hc-threads');nav.hidden=!nav.hidden;if(!nav.hidden)void refreshThreads()};
+el('hc-thread-filter').addEventListener('input',renderThreadList);
 el('hc-details').onclick=()=>el('hc-events').hidden=!el('hc-events').hidden;
 // HL-CHAT-004 §2.4: clicking the context meter toggles the expanded details panel.
 el('hc-context-row').onclick=()=>{const d=el('hc-context-details');d.hidden=!d.hidden;};
@@ -334,6 +400,37 @@ el('hc-stop').onclick=async()=>{
     feedback.textContent='Stop failed: '+String(err);
   }
 };
-el('hc-form').addEventListener('submit',async ev=>{ev.preventDefault();const box=el('hc-input') as HTMLTextAreaElement;const prompt=box.value.trim();if(!prompt||activeTask)return;feedback.textContent='';setRunning(true);try{const t=await request<Task&{conversation_id:string}>('/api/tasks',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({prompt,conversation_id:conversationId||null,...chatModelSelection(),...(pendingRevision?{revision_of:pendingRevision.id,revision_text:pendingRevision.content}:{})})});conversationId=t.conversation_id;localStorage.setItem(stored,conversationId);clearStream();activeTask=t.id;activeState=t.state;void refreshChatUsage(t.id);box.value='';pendingRevision=null;await render();state('Hermes is working');}catch(err){feedback.textContent='Not submitted: '+String(err);setRunning(false)}});
+el('hc-form').addEventListener('submit',async ev=>{ev.preventDefault();const box=el('hc-input') as HTMLTextAreaElement;const prompt=box.value.trim();if(!prompt||activeTask)return;feedback.textContent='';setRunning(true);try{const t=await request<Task&{conversation_id:string}>('/api/tasks',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({prompt,conversation_id:conversationId||null,...chatModelSelection(),...(pendingRevision?{revision_of:pendingRevision.id,revision_text:pendingRevision.content}:{})})});conversationId=t.conversation_id;localStorage.setItem(stored,conversationId);clearStream();activeTask=t.id;activeState=t.state;void refreshChatUsage(t.id);box.value='';autogrow();pendingRevision=null;await render();state('Hermes is working');}catch(err){feedback.textContent='Not submitted: '+String(err);setRunning(false)}});
 (el('hc-input') as HTMLTextAreaElement).addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();el('hc-form').dispatchEvent(new Event('submit',{cancelable:true}))}});
+/* Audit §9A/§9B: the composer grows with the prompt instead of staying a
+   one-line box, capped so a long prompt can never swallow the conversation. */
+function autogrow(){const box=el('hc-input') as HTMLTextAreaElement;box.style.height='auto';const cap=Math.round(window.innerHeight*0.42);box.style.height=Math.min(box.scrollHeight,cap)+'px';}
+(el('hc-input') as HTMLTextAreaElement).addEventListener('input',autogrow);
+window.addEventListener('resize',()=>autogrow());
+/* Audit §9D/§9E + §10: name the working context and the model in the composer,
+   delegating to the controls that already own them rather than duplicating
+   them. The web UI has no custom-command feature, so no command-menu control is
+   offered — the audit's own rule is not to expose capabilities that do not
+   exist. */
+/* The project-bar controls are created by phase412 with their identifier as a
+   CLASS (its `button(label, className)` helper), except the workspace selector,
+   which is given a real id. Resolve either, or the chip silently does nothing. */
+const byClassOrId=(id:string)=>document.getElementById(id)||document.querySelector<HTMLElement>('.'+id);
+el('hc-attach').onclick=()=>{byClassOrId('hc415-files-button')?.click()};
+el('hc-composer-workspace').onclick=()=>{byClassOrId('hc415-workspace-button')?.click()};
+el('hc-composer-context').onclick=()=>{byClassOrId('hc415-ws-selector')?.click()};
+el('hc-composer-model').onclick=()=>{const d=document.getElementById('hc-model-details') as HTMLDetailsElement|null;if(d){d.open=true;d.scrollIntoView({block:'nearest'})}};
+function syncComposerLabels(){
+  const raw=document.getElementById('hc415-ws-selector')?.textContent||'';
+  const ctx=raw.replace(/^\s*(Working Directory|Workspace):\s*/i,'').trim();
+  if(ctx)el('hc-composer-context-label').textContent=ctx;
+  const sel=document.getElementById('hc-model') as HTMLSelectElement|null;
+  const label=(sel?.selectedOptions?.[0]?.textContent||'').trim();
+  el('hc-composer-model-label').textContent=label||'Worker default';
+}
+setInterval(syncComposerLabels,1500);
+/* Audit §9F: the same control stops a run in flight. */
+(el('hc-send') as HTMLButtonElement).addEventListener('click',ev=>{
+  if((el('hc-send') as HTMLButtonElement).dataset.mode==='stop'){ev.preventDefault();el('hc-stop').click();}
+});
 setInterval(()=>{if(activeTask)void pollTask()},1500);

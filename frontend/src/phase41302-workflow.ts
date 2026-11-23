@@ -5,6 +5,7 @@
  */
 import './phase41302-workflow.css';
 import { makeRefresh } from './refresh-feedback.ts';
+import { registerKindRenderer } from './context-inspector.ts';
 import { openWorkView, openTask } from './navigation-state.ts';
 type Obj=Record<string,unknown>;
 type Group='waiting'|'running'|'completed'|'stopped'|'all';
@@ -63,6 +64,15 @@ function setupGoals(){
  const refresh=makeRefresh({
   load:()=>api('/goals'), apply:(d)=>{data=records(d,['goals','items'])},
   count:(d)=>records(d,['goals','items']).length, noun:'goals', onChange:()=>render()});
+ // PHASE-DEPTH: goal inspector card — state, origin prompt, next actions.
+ registerKindRenderer('goal',(sel,body)=>{
+  const g=data.find(x=>str(x.id)===sel.id);
+  if(!g){body.append(txt('p','This goal is not loaded right now (it may have been removed).'));return}
+  body.append(txt('strong',str(g.title)||`Goal ${sel.id.slice(0,8)}`));
+  body.append(txt('p',`State: ${str(g.state)} · priority ${str(g.priority)} · created ${date(g.created_at)}`));
+  const p=str(g.prompt);if(p)body.append(txt('p',p.length>300?p.slice(0,300)+'…':p));
+  body.append(button('Open in Goals',()=>openWorkView('goals')));
+ });
  // UI-01: the controls this tab keeps visible must actually act. The previous main.ts wired
  // #goals-refresh, #autonomy-toggle and #goal-form; the per-tab refactor kept the markup and lost
  // the handlers, so a goal could not be created and the scheduler could not be operated. Nothing
@@ -132,8 +142,8 @@ function setupGoals(){
    if(goal.task_id){actions.append(button('View answer & evidence',()=>taskOpen(str(goal.task_id))))}
    else{actions.append(txt('span','No execution task linked yet.','hl413-flow-meta'))}
    const action=nextAction(goal);
-   if(action==='open_review')actions.append(button('Review candidate',()=>openWorkView('build')));
-   if(action==='start_build'||action==='approve_plan')actions.append(button('Open in Build',()=>openWorkView('build')));
+   if(action==='open_review')actions.append(button('Review candidate',()=>openWorkView('builds')));
+   if(action==='start_build'||action==='approve_plan')actions.append(button('Open in Build',()=>openWorkView('builds')));
    if(['pending','interrupted'].includes(recordState(goal))){const b=button('Cancel',()=>{if(!window.confirm('Cancel this goal?'))return;setBusy(b,api(`/goals/${encodeURIComponent(str(goal.id))}/cancel`,'POST'),()=>void refresh.run(),m=>{notice=m;render()})});actions.append(b)}
    if(['failed','interrupted'].includes(recordState(goal))){const b=button('Retry',()=>{setBusy(b,api(`/goals/${encodeURIComponent(str(goal.id))}/retry`,'POST'),()=>void refresh.run(),m=>{notice=m;render()})});actions.append(b)}
    card.append(actions);entries.append(card);

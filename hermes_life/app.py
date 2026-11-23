@@ -28,12 +28,21 @@ from .conversation_recall import Recall
 from .vault_memory import VaultMemory  # PHASE49_VAULT_MEMORY
 from .memory_service import MemoryService, add_memory_routes  # P4_OBSIDIAN_ADAPTER
 from .knowledge_library import KnowledgeLibrary
+from .search import add_search_routes  # HERMESHA §2/§3/§5 global search aggregate
 from .project_workspaces import ProjectWorkspaces, add_project_routes, SELECTOR  # PHASE411_PROJECT_WORKSPACES
 from .project_knowledge import ProjectKnowledge, add_knowledge_routes  # PHASE414_PROJECT_KNOWLEDGE
 from .project_approvals import add_approval_routes  # PHASE412_APPROVALS
 from .maintenance import MaintenanceService
 from .study import StudyService, create_study_service
 from .chat_models import ChatModels
+
+#: convo-redesign.md §10 — for a follow-up in an existing conversation, continue
+#: the previous Hermes CLI session (`hermes chat --resume <id>`) instead of
+#: replaying the earlier turns as text. OFF by default: the resume path cannot be
+#: exercised without a live work-machine session, so it is opted into per
+#: deployment and verified against the real worker before it is relied on.
+RESUME_SESSIONS = os.getenv('HERMES_LIFE_RESUME_SESSIONS', '').strip().lower() in ('1', 'true', 'yes', 'on')
+
 
 class GoalInput(BaseModel):
     title: str = Field(min_length=1, max_length=160)
@@ -50,6 +59,10 @@ class TaskInput(BaseModel):
     revision_text: str | None = None
     provider: str | None = None
     model: str | None = None
+    #: Explicit session to continue (convo-redesign.md §10). Takes precedence
+    #: over the conversation's most recent session; without it, resume is only
+    #: attempted when HERMES_LIFE_RESUME_SESSIONS is enabled.
+    resume_session_id: str | None = None
 
 class Runtime:
     def __init__(self, database, adapter=None):
@@ -81,6 +94,10 @@ class Runtime:
         self.analysis_adapters = dict(self.delegates)
         self.analysis_adapter = self.analysis_adapters['read_only']
         self.vault_memory.adapter = self.analysis_adapter  # extraction answers in JSON, not in persona
+        #: Task id → explicit CLI session to continue, set by POST /api/tasks
+        #: (convo-redesign.md §10). Popped by run_task; never persisted, because
+        #: the task row records the session the CLI reports on exit instead.
+        self.resume_overrides = {}
         self.project_workspaces = ProjectWorkspaces(self)
         self.project_knowledge = ProjectKnowledge(self)
         self.maintenance = MaintenanceService(self)
@@ -137,7 +154,16 @@ class Runtime:
                     self.chat_models.observe(ident, payload)
                 self.store.emit(name, payload, ident)
             conversation_id = self.conversations.conversation_for_task(ident)
-            context = self.conversations.context(conversation_id, ident) if conversation_id else ''
+            # convo-redesign.md §10: continue the conversation's previous Hermes
+            # CLI session when one is available. The session already carries the
+            # earlier turns, so replaying them as text would duplicate them —
+            # the text context is therefore skipped while resuming. Recall and
+            # vault memory stay: they are Hermes Life knowledge, not session
+            # history, so the session does not already hold them.
+            resume = self.resume_overrides.pop(ident, None)
+            if resume is None and RESUME_SESSIONS and conversation_id:
+                resume = self.conversations.latest_session_id(conversation_id, exclude_task=ident)
+            context = self.conversations.context(conversation_id, ident) if conversation_id and not resume else ''
             # Select a registered project from chat or goal prompts using @project slug.
             selected = SELECTOR.search(prompt)
             if selected:
@@ -148,11 +174,16 @@ class Runtime:
 
             recall = self.recall.retrieve(prompt, conversation_id) if conversation_id else ''
             recall += self.vault_memory.retrieve_notes(prompt)
+            # Only pass `resume` when there is something to resume. Adapters that
+            # predate the kwarg (and every duck-typed adapter stub) accept the
+            # documented signature only, so an unconditional `resume=None` turns
+            # their tasks into TypeErrors — i.e. silent failures.
+            run_kwargs = {'resume': resume} if resume else {}
             if choice and scope == 'interactive':
                 result = adapter.run(recall + context + prompt, on_event, ident,
-                                     provider=choice['provider'], model=choice['model'])
+                                     provider=choice['provider'], model=choice['model'], **run_kwargs)
             else:
-                result = adapter.run(recall + context + prompt, on_event, ident)
+                result = adapter.run(recall + context + prompt, on_event, ident, **run_kwargs)
             self.store.update_task(ident, 'completed', **result)
             self.record_experience(ident, 'completed', prompt)
             if conversation_id:
@@ -290,6 +321,7 @@ def create_app(database=None, adapter=None):
     add_project_routes(app, runtime, runtime.project_workspaces)
     add_knowledge_routes(app, runtime.project_knowledge)
     add_memory_routes(app, runtime)  # P4_OBSIDIAN_ADAPTER
+    add_search_routes(app, runtime)  # HERMESHA §2/§3/§5: one global search aggregate
     add_approval_routes(app, runtime.project_workspaces)
     app.state.autonomy = autonomy
     app.state.autonomy_policy = autonomy_policy
@@ -1275,6 +1307,11 @@ def create_app(database=None, adapter=None):
         try:
             task = runtime.store.create_task(payload.prompt)
             runtime.chat_models.save(task['id'], selected_chat_model)
+            if payload.resume_session_id and task:
+                # §10: explicit continuation target for this one task. Consumed
+                # by run_task and never persisted — the task row keeps the
+                # session the CLI reports on exit.
+                runtime.resume_overrides[task['id']] = payload.resume_session_id
             cid = runtime.conversations.add_user_turn(payload.prompt,payload.conversation_id,task['id'])
             if payload.revision_of is not None:
                 runtime.recall.assert_revision(cid, payload.revision_of, payload.revision_text, task['id'])

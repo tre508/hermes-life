@@ -194,6 +194,16 @@ export function readDraft(conv: string | null): string {
   return asString(localStorage.getItem(draftKey(conv)));
 }
 
+/** Persist a draft by conversation id without instantiating a composer.
+ *  Surfaces that route into Chat instead of POSTing (the Work task composer,
+ *  the World composer) still share this ONE draft ledger, so a half-typed
+ *  reply survives navigation between Work / Activity / Results. */
+export function writeDraft(conv: string | null, text: string): void {
+  const key = draftKey(conv);
+  if (text) localStorage.setItem(key, text);
+  else localStorage.removeItem(key);
+}
+
 /** Manually wipe a draft (e.g. user explicitly cancels). */
 export function clearDraft(conv: string | null): void {
   localStorage.removeItem(draftKey(conv));

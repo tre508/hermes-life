@@ -16,6 +16,10 @@
  *
  * Data boundaries (spec §5): all four sources are the Hermes work graph /
  * database, not the vault, not derived animation state.
+ *
+ * Deliberately NOT implemented: a "permission requests" attention category
+ * (spec §9). No pending-request surface exists — /api/approvals is a grants
+ * ledger, not a request queue — so the category is omitted rather than faked.
  */
 import { openWorkView, openWorkspace, setSelection } from './navigation-state.ts';
 
@@ -104,8 +108,8 @@ function reviewItem(run_: Rec): AttentionItem {
         authority: 'Review decision (accept applies the candidate separately; reject or request revision keeps host source untouched).',
         actionLabel: 'Open in Build review',
         run: () => {
-            openWorkView('build');
-            setSelection('build', { kind: 'build', id });
+            openWorkView('builds');
+            setSelection('builds', { kind: 'build', id });
         },
     };
 }
@@ -124,8 +128,8 @@ function blockedItem(run_: Rec): AttentionItem {
         authority: 'Your call: reevaluate, request a revision, or accept the blockage.',
         actionLabel: 'Open in Build review',
         run: () => {
-            openWorkView('build');
-            setSelection('build', { kind: 'build', id });
+            openWorkView('builds');
+            setSelection('builds', { kind: 'build', id });
         },
     };
 }
@@ -140,7 +144,10 @@ function memoryItem(rev: Rec): AttentionItem {
         evidence: s(rev.evidence_excerpt) || 'No evidence excerpt was stored with this review.',
         authority: 'Memory resolution decides what the agent may keep treating as true.',
         actionLabel: 'Resolve in Memory',
-        run: () => { void openWorkspace('system'); },
+        // Memory folded into Knowledge in the nav regroup; the review list lives
+        // in Knowledge's #memory-section. 'system' no longer has a workspace
+        // section, so routing there would blank the main pane.
+        run: () => { void openWorkspace('knowledge'); },
     };
 }
 

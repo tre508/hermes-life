@@ -1,6 +1,13 @@
 /* HL-CHAT-002B: high-contrast, differentiated readable output. */
 #hc-panel .hc-bubble.assistant { max-width:100%; width:100%; align-self:stretch; }
 #hc-panel .hc-bubble.assistant .hc-body { font-family:Inter,ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif; font-size:17px; line-height:1.76; letter-spacing:.004em; color:#eff9ff; max-width:76ch; padding:12px 16px; background:rgba(16,39,53,.54); border:1px solid rgba(115,173,190,.20); border-radius:11px; overflow-wrap:break-word; }
+/* Chat audit §1: 76ch is the right measure for prose and the wrong one for
+   technical output. Code, diffs, tables and logs break out of it — the whole
+   point of a wide workspace is not having to scroll a diff sideways. */
+#hc-panel .hc-bubble .hc-body:has(pre),
+#hc-panel .hc-bubble .hc-body:has(table),
+#hc-panel .hc-bubble .hc-body:has(> pre) { max-width:min(100%,1180px); }
+#hc-panel .hc-bubble .hc-body pre { max-width:100%; overflow-x:auto; }
 #hc-panel .hc-message-role { display:flex; align-items:center; gap:9px; margin:19px 0 6px; font-family:Inter,ui-sans-serif,system-ui,sans-serif; font-size:15px; font-weight:750; letter-spacing:.02em; }
 #hc-panel .hc-message-role--response { color:#82F0D0; }
 #hc-panel .hc-message-role--thought { color:#C4A7FF; }

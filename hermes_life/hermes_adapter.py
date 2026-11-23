@@ -69,8 +69,14 @@ cat > "$prompt_file"
 """
 
 
-def _agent_command(toolsets=None, provider=None, model=None):
+def _agent_command(toolsets=None, provider=None, model=None, resume=None):
     command = f'{GUEST_HERMES} chat --query-file "$prompt_file" --format stream-json'
+    # convo-redesign.md §10: continue the conversation's previous CLI session.
+    # `--resume` is accepted by `hermes chat` (id, or 'latest'); the id is the
+    # one the CLI reported on the previous turn and Hermes Life stored on the
+    # task row. Quoted because a title may be used in place of an id.
+    if resume:
+        command += ' --resume ' + shlex.quote(str(resume))
     if toolsets:
         command += ' -t ' + toolsets
     if provider:
@@ -80,11 +86,11 @@ def _agent_command(toolsets=None, provider=None, model=None):
     return command
 
 
-def remote_script(profile='interactive', provider=None, model=None):
+def remote_script(profile='interactive', provider=None, model=None, resume=None):
     """Build the guest shell script that runs exactly one Hermes turn."""
     if profile not in PROFILES:
         raise ValueError('Unknown capability profile: ' + str(profile))
-    return _SCRIPT_HEAD + _agent_command(PROFILES[profile], provider, model) + '\n'
+    return _SCRIPT_HEAD + _agent_command(PROFILES[profile], provider, model, resume) + '\n'
 
 
 class HermesAdapter:
@@ -150,14 +156,14 @@ class HermesAdapter:
         except (OSError, subprocess.TimeoutExpired):
             return False
 
-    def run(self, prompt, event_callback, task_id=None, provider=None, model=None):
+    def run(self, prompt, event_callback, task_id=None, provider=None, model=None, resume=None):
         if (provider or model) and self.profile != 'interactive':
             raise HermesError('Model overrides are restricted to interactive chat')
         if not self.available():
             raise HermesError(f'Hermes unavailable via {self.transport} transport')
         if self.transport == 'ssh':
             # The prompt is sent over stdin, not a command-line argument or a host-side file.
-            command = self._ssh_base() + ['sh -c ' + shlex.quote(remote_script(self.profile, provider, model))]
+            command = self._ssh_base() + ['sh -c ' + shlex.quote(remote_script(self.profile, provider, model, resume))]
         else:
             # A restricted scope is enforced by the guest's session toolset; the legacy
             # local transport cannot apply it, so it refuses rather than running with
@@ -171,6 +177,7 @@ class HermesAdapter:
                 file = Path(tmp) / 'prompt.txt'
                 file.write_text(prompt, encoding='utf-8')
                 command = [self.executable, 'chat', '--query-file', str(file), '--format', 'stream-json']
+                if resume: command.extend(['--resume', str(resume)])
                 if provider: command.extend(['--provider', provider])
                 if model: command.extend(['--model', model])
                 return self._execute(command, None, event_callback, task_id)

@@ -136,9 +136,9 @@ test('serializeNavQuery omits workview outside Work and marks activity filter', 
 });
 
 test('parseNavQuery accepts valid enums and ignores invalid ones', () => {
-    const good = nav.parseNavQuery('view=work&workview=planning&task=t9');
+    const good = nav.parseNavQuery('view=work&workview=plans&task=t9');
     assert.equal(good.workspace, 'work');
-    assert.equal(good.workView, 'planning');
+    assert.equal(good.workView, 'plans');
     assert.equal(good.selectedTaskId, 't9');
 
     const bad = nav.parseNavQuery('view=banana&workview=hack&task=');
@@ -148,8 +148,9 @@ test('parseNavQuery accepts valid enums and ignores invalid ones', () => {
 });
 
 test('round-trip: parse(serialize(state)) preserves workspace/workview/task', () => {
-    for (const ws of ['world', 'home', 'work', 'activity', 'results', 'knowledge'] as const) {
-        for (const wv of ['tasks', 'discover', 'goals', 'planning', 'build'] as const) {
+    // 'results' is folded into Work (spec §4/§13) — see the redirect test below.
+    for (const ws of ['world', 'home', 'work', 'activity', 'knowledge'] as const) {
+        for (const wv of ['overview', 'discoveries', 'goals', 'plans', 'tasks', 'builds', 'reviews', 'results'] as const) {
             const q = nav.serializeNavQuery({
                 workspace: ws, workView: wv, selectedTaskId: 'tid-1',
                 taskView: 'overview', activityFilter: 'all',
@@ -173,12 +174,12 @@ test('regroup: ?view=system (Memory) redirects to knowledge', () => {
 // ---------------------------------------------------------------------------
 
 test('initial URL deep link restores workspace/subview/task and pushes nothing extra', async () => {
-    resetHistory('view=work&workview=planning&task=abc-123');
+    resetHistory('view=work&workview=plans&task=abc-123');
     const deepLinked = nav.initHistory();
     assert.equal(deepLinked, true, 'deep link detected');
     const snap = nav.getNavigationState();
     assert.equal(snap.workspace, 'work');
-    assert.equal(snap.workView, 'planning');
+    assert.equal(snap.workView, 'plans');
     assert.equal(snap.selectedTaskId, 'abc-123');
     // No push happened for the initial parse (entries stay flat).
     assert.ok(store.entries.length <= 1, `expected at most one stamped entry, got ${store.entries.length}`);
@@ -234,15 +235,15 @@ test('Back returns to the previous workspace/subview/task deterministically', as
     resetHistory('');
     nav.resetNavigation({ replace: true }); // fresh module state for isolation
     nav.openWorkspace('work');
-    nav.openWorkView('planning');
+    nav.openWorkView('plans');
     nav.openTask('task-x', { destination: 'work' });
     assert.equal(nav.getCurrentWorkspace(), 'work');
     assert.equal(nav.getSelectedTaskId(), 'task-x');
 
-    (g.history as FakeHistory).back(); // back to workview=planning, no task
+    (g.history as FakeHistory).back(); // back to workview=plans, no task
     let snap = nav.getNavigationState();
     assert.equal(snap.workspace, 'work');
-    assert.equal(snap.workView, 'planning');
+    assert.equal(snap.workView, 'plans');
     assert.equal(snap.selectedTaskId, null);
 
     (g.history as FakeHistory).back(); // back to work, tasks
@@ -272,7 +273,22 @@ test('openActivityForTask encodes the selected filter in the URL', () => {
 test('popstate restores task from URL even without an embedded state snapshot', () => {
     resetHistory('view=results&task=url-only-task');
     firePopstate({ state: null }); // e.g. a foreign history entry
-    assert.equal(nav.getCurrentWorkspace(), 'results');
+    // ?view=results is folded into Work → Results (spec §4/§13).
+    assert.equal(nav.getCurrentWorkspace(), 'work');
+    assert.equal(nav.getNavigationState().workView, 'results');
     // No validator registered here → optimistic acceptance.
     assert.equal(nav.getSelectedTaskId(), 'url-only-task');
+});
+
+test('regroup: ?view=results (Results) folds into Work → Results', () => {
+    const parsed = nav.parseNavQuery('view=results');
+    assert.equal(parsed.workspace, 'work');
+    assert.equal(parsed.workView, 'results');
+});
+
+test('rename: legacy workview deep links map to the renamed tabs (spec §4)', () => {
+    assert.equal(nav.parseNavQuery('view=work&workview=discover').workView, 'discoveries');
+    assert.equal(nav.parseNavQuery('view=work&workview=planning').workView, 'plans');
+    assert.equal(nav.parseNavQuery('view=work&workview=build').workView, 'builds');
+    assert.equal(nav.parseNavQuery('view=work&workview=projects').workView, 'overview');
 });

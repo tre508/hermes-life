@@ -120,7 +120,7 @@ function renderPlanning(){const root=$('hl415-planning');if(!root)return;root.re
     card.append(wrap)
   }
   if(r)actions.append(btn('View in Build',()=>{
-      openWorkView('build');
+      openWorkView('builds');
       // Scroll to the run card after the view switch (handled by navigation-state subscriber)
       setTimeout(() => {
         document.getElementById('hl415-run-'+s(r.id))?.scrollIntoView({block:'nearest'});
@@ -147,9 +147,9 @@ function renderBuild(){const root=$('hl415-build');if(!root)return;root.replaceC
   // HL-WORK-001 M3: selecting a run card is a typed build selection — the
   // inspector shows THIS run, never the last-touched task. The card stays
   // fully interactive; selection is a click anywhere on it.
-  if(getSelection('build')?.id===s(run.id))card.classList.add('hl415-card-selected');
+  if(getSelection('builds')?.id===s(run.id))card.classList.add('hl415-card-selected');
   card.addEventListener('click',()=>{
-    setSelection('build',{kind:'build',id:s(run.id)});
+    setSelection('builds',{kind:'build',id:s(run.id)});
     document.querySelectorAll<HTMLElement>('.hl415-card-selected').forEach(x=>x.classList.remove('hl415-card-selected'));
     card.classList.add('hl415-card-selected');
   });
@@ -261,7 +261,7 @@ function renderReview(){let root=$('hl415-review');if(!root){root=node('section'
 function renderAll(){renderPlanning();renderBuild();
  // A persisted build selection rendered before run data landed; re-render
  // now that runs/decisions/verifications are loaded.
- if(getSelection('build'))rerenderInspector();
+ if(getSelection('builds'))rerenderInspector();
 }
 const refreshCtl=makeRefresh({
  load:async()=>{
@@ -319,6 +319,43 @@ function stageRail(stages:ReturnType<typeof deriveBuildStages>):HTMLElement{
   });
   return row;
 }
+// PHASE-DEPTH: plan inspector card — approval state, requirements, linked
+// implementation, next permissible operation. Same records as Planning/Build.
+registerKindRenderer('plan',(sel,body)=>{
+  const plan=plans.find(p=>s(p.id)===sel.id);
+  if(!plan){body.append(node('p','This plan is not loaded right now (it may have been removed).','hl415-status'));return}
+  const run=track(plan);const decision=run?decisionMap.get(s(run.id)):undefined;const spec=report(plan);
+  body.append(node('strong',`Plan ${sel.id.slice(0,8)}${s(plan.project)?` · ${s(plan.project)}`:''}`));
+  // Approval state (why it exists + where it stands).
+  body.append(node('p',`State: ${s(plan.state)} — ${stateMessage(plan)}`,'hl415-caption'));
+  // Requirements: acceptance criteria the implementation will be judged on.
+  const criteria=arr(spec.acceptance_criteria);const steps=arr(spec.steps);
+  if(criteria.length||steps.length){
+    body.append(node('h4','Requirements'));
+    const ul=node('ul');(criteria.length?criteria:steps).slice(0,8).forEach(v=>ul.append(node('li',v)));
+    body.append(ul);
+  } else body.append(node('p','No compiled requirements yet.','hl415-caption'));
+  // Linked implementation + its outcome.
+  if(run){
+    body.append(node('p',`Linked implementation: ${s(run.id).slice(0,8)} · ${s(run.state)}${decision?` · decision: ${decisionLabel(decision)}`:''}`,'hl415-caption'));
+  } else body.append(node('p','No implementation run linked yet.','hl415-caption'));
+  // Next permissible operation — driven by the same state machine as Work.
+  const actions=node('div','','hl415-actions');
+  const st=s(plan.state);
+  if(st==='proposed'){
+    actions.append(btn('Approve plan',()=>{
+      if(!confirm('Approve this plan? Approval authorizes isolated implementation only; it does not modify host source.'))return;
+      void action(`/investigation-plans/${encodeURIComponent(s(plan.id))}/approve`,'POST');
+    }));
+  } else if(run&&s(run.state)==='candidate_passed'&&!decision){
+    actions.append(btn('Review candidate changes',()=>void openReview(run)));
+  } else if(!run&&st==='approved'){
+    actions.append(node('p','Next: start the isolated implementation in Planning (project name required).','hl415-caption'));
+  }
+  actions.append(btn('Open in Planning',()=>openWorkView('plans')));
+  body.append(actions);
+});
+
 registerKindRenderer('build',(sel,body)=>{
   const run=runs.find(r=>s(r.id)===sel.id);
   if(!run){body.append(node('p','This implementation run is not loaded right now (it may have been removed).','hl415-status'));return}
@@ -342,13 +379,13 @@ registerKindRenderer('build',(sel,body)=>{
   }).catch(()=>{filesLine.textContent='Changed files: review snapshot unavailable (run not reviewable yet)'});
   const actions=node('div','','hl415-actions');
   actions.append(btn('Review candidate changes',()=>void openReview(run)));
-  if(s(run.plan_id))actions.append(btn('Open plan in Planning',()=>openWorkView('planning')));
+  if(s(run.plan_id))actions.append(btn('Open plan in Planning',()=>openWorkView('plans')));
   actions.append(btn('Open in Chat',()=>{
     window.dispatchEvent(new CustomEvent('hermes:open-in-chat',{detail:{prefill:`Discuss implementation run ${sel.id} on project ${s(run.project)||'?'}.`}}));
   }));
   body.append(actions);
 });
-registerSummaryProvider('build',()=>({
+registerSummaryProvider('builds',()=>({
   line:'Select a run card to see its facts here.',
   chips:runs.length?[
     {label:'runs',count:runs.length},
@@ -356,3 +393,17 @@ registerSummaryProvider('build',()=>({
     {label:'failed',count:runs.filter(r=>['candidate_failed','evaluation_error','failed'].includes(s(r.state))).length},
   ]:undefined,
 }));
+
+// convo-redesign.md §5: the Work task panel deep-links here for "Request
+// revision" instead of firing the decision itself. The revision request needs
+// the candidate snapshot hash, the per-criterion verdicts and reviewer feedback
+// — none of which the task panel holds — so this surface stays the single owner
+// of that mutation.
+window.addEventListener('hermes:open-review',((ev: Event)=>{
+  const id=s((ev as CustomEvent<{run_id?:string}>).detail?.run_id);
+  if(!id)return;
+  const run=runs.find(r=>s(r.id)===id);
+  if(run){void openReview(run);return}
+  error=`Implementation run ${id.slice(0,8)} is not loaded — open Build and refresh.`;
+  renderAll();
+}) as EventListener);

@@ -28,8 +28,14 @@ import './command-centre-ui';
 import './knowledge-workspace';
 import { refreshAttention } from './attention-center';
 import './research-workspace';
+import './global-search';
+import './director-panel';
+import './world-composer';
+import './work-reviews';
+// Chat audit §8: the old overlay stylesheet held the floating/docked/fullscreen
+// presentations. With one presentation it has been deleted outright.
 import { initContextInspector } from './context-inspector';
-import { openWorkspace, openWorkView, openTask, openResult, openActivityForTask, openActivityAll, onNavigationChange, initHistory, handleLegacyOpenTask } from './navigation-state.ts';
+import { openWorkspace, openWorkView, openTask, openResult, openActivityForTask, openActivityAll, onNavigationChange, initHistory, handleLegacyOpenTask, type WorkView } from './navigation-state.ts';
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string): T | null => document.getElementById(id) as T | null;
 const str = (v: unknown): string => (typeof v === 'string' ? v : v == null ? '' : String(v));
@@ -63,8 +69,10 @@ onNavigationChange((nav) => {
     // Regroup: world is the immersive environment; home is the overview
     // workspace; everything else keeps its previous presentation.
     setLayout(id === 'world' ? 'world' : (id === 'work' || id === 'home') ? 'workspace' : 'focus');
-    const ctxHome = $('ctx-home');
-    if (ctxHome) ctxHome.hidden = !(id === 'home' || id === 'world');
+    // #ctx-home / #ctx-inspector visibility is owned by context-inspector
+    // (one contextual surface at a time).
+    // A room popover belongs to the World: leaving it dismisses the surface.
+    if (id !== 'world') { const roomPanel = $('world-room-panel'); if (roomPanel) roomPanel.hidden = true; }
     // #ctx-inspector visibility/render is owned by context-inspector.
     if (id !== 'activity') setActivityTaskFilter(null);
     // Conversations is a chat PRESENTATION state, not a second chat system:
@@ -73,9 +81,9 @@ onNavigationChange((nav) => {
     // Leaving reparents it back to <body> as the corner dock. The thread,
     // drafts and conversation id never change owners.
     setChatFocus(id === 'conversations');
-    // Results deep-link / Back-Forward restore: load the canonical task.
-    // Passive guard — only fetch when the viewed task actually changed.
-    if (id === 'results' && nav.selectedTaskId && viewedTaskId !== nav.selectedTaskId) {
+    // Results is an integrated Work destination (spec §4/§13): load the canonical
+    // task when the Results subview is shown. Passive guard — only when changed.
+    if (nav.workspace === 'work' && nav.workView === 'results' && nav.selectedTaskId && viewedTaskId !== nav.selectedTaskId) {
         setFollowLive(false);
         void loadTask(nav.selectedTaskId);
     }
@@ -129,12 +137,12 @@ document.addEventListener('click', (e) => {
     const target = (e.target as HTMLElement).closest('#work-subnav button[data-workview]') as HTMLButtonElement | null;
     if (target) {
         const view = target.dataset.workview;
-        if (view) openWorkView(view as 'tasks' | 'discover' | 'goals' | 'planning' | 'build');
+        if (view) openWorkView(view as WorkView);
     }
 }, true);
 window.addEventListener('hermes:workview', ((ev: Event) => {
     const view = (ev as CustomEvent<{ view?: string }>).detail?.view;
-    if (view) openWorkView(view as 'tasks' | 'discover' | 'goals' | 'planning' | 'build');
+    if (view) openWorkView(view as WorkView);
 }) as EventListener);
 
 // Phase 4 left-rail Chat shim: the dedicated Conversations workspace replaced
@@ -163,6 +171,25 @@ $('nav-collapse')?.addEventListener('click', () => {
     try { localStorage.setItem(NAV_COLLAPSED_KEY, collapsed ? '1' : '0'); } catch { /* storage unavailable */ }
 });
 
+// ---- narrow-screen navigation drawer (spec §2) ----
+// Below the breakpoint the rail is an icon strip; this toggle opens the full
+// rail as an overlay drawer. Scrim click, Escape, and choosing a destination
+// all close it.
+const navDrawerToggle = $('nav-drawer-toggle');
+const navScrim = $('nav-scrim');
+function setNavDrawer(open: boolean) {
+    app.classList.toggle('nav-drawer-open', open);
+    navDrawerToggle?.setAttribute('aria-expanded', String(open));
+    if (navScrim) navScrim.hidden = !open;
+}
+navDrawerToggle?.addEventListener('click', () => setNavDrawer(!app.classList.contains('nav-drawer-open')));
+navScrim?.addEventListener('click', () => setNavDrawer(false));
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape') setNavDrawer(false); });
+document.addEventListener('click', (e) => {
+    if (!app.classList.contains('nav-drawer-open')) return;
+    if ((e.target as HTMLElement).closest('#primary-nav button')) setNavDrawer(false);
+}, true);
+
 // ---- authoritative bottom strip: running count + latest visible event ----
 // A task is "running" only while a real task.started event is outstanding —
 // the count is derived from the event stream, never from animation or hopes.
@@ -172,33 +199,27 @@ function taskTerminal(type: string): boolean {
     return type === 'task.completed' || type === 'task.failed' || type === 'task.cancelled';
 }
 
-// Open the floating Hermes conversation from anywhere.
+// Chat audit §8: the floating assistant is retired, so this is a NAVIGATION
+// control, not a panel toggle — it takes you to the one chat presentation,
+// the Conversations workspace.
 const headerChat = $('header-chat-open');
-headerChat?.addEventListener('click', () => {
-    const toggle = $<HTMLButtonElement>('hc-toggle');
-    if (toggle) toggle.click();
-});
+headerChat?.addEventListener('click', () => { openWorkspace('conversations'); });
 
 // ============================= chat focus (Conversations) =============================
-// Presentation-only reparenting of the single chat system. State inside
-// hermes-chat.ts (conversation id, drafts, streaming buffers) is untouched;
-// moving a connected DOM node preserves listeners and children.
+// One chat system, ONE presentation (chat audit §8). #hermes-chat-root mounts
+// into #chat-focus-host at module load and stays there, so there is nothing to
+// reparent and nothing to reveal. This only tells the chat module that its
+// workspace is on screen now, so it can run its own refresh path.
 function setChatFocus(focused: boolean) {
-    const host = $('chat-focus-host');
-    const chatRoot = $('hermes-chat-root');
-    if (!host || !chatRoot) return;
-    const panel = chatRoot.querySelector<HTMLElement>('#hc-panel');
-    const wasFocused = app.classList.contains('chat-focus');
     app.classList.toggle('chat-focus', focused);
-    chatRoot.classList.toggle('in-focus-host', focused);
-    if (focused && !host.contains(chatRoot)) host.append(chatRoot);
-    if (!focused && wasFocused && !host.contains(chatRoot)) document.body.append(chatRoot);
-    if (focused) {
-        // Route through the chat module's own toggle so entering focus runs
-        // its refresh path (render + threads + socket) under its ownership.
-        const toggle = chatRoot.querySelector<HTMLButtonElement>('#hc-toggle');
-        if (panel?.hidden) toggle?.click();
+    // The header Chat button points at this workspace, so mark it as current
+    // rather than leaving it looking inert on the page it navigates to.
+    const chatBtn = $('header-chat-open');
+    if (chatBtn) {
+        if (focused) chatBtn.setAttribute('aria-current', 'page');
+        else chatBtn.removeAttribute('aria-current');
     }
+    if (focused) window.dispatchEvent(new CustomEvent('hermes:chat-open'));
 }
 
 // ============================= global status =============================

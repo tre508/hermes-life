@@ -1,0 +1,183 @@
+<!doctype html>
+<!--
+  State harness — conversation-history column (chat audit §6).
+
+  Open:  http://127.0.0.1:5173/harness/thread-sidebar.html
+
+  Why this exists: the evaluation gate blanks data-dependent UI in a headless
+  load (and the /api/conversations response is behind the gate), so the list
+  states cannot be inspected in a normal page load. This fixture drives the REAL
+  groupThreads() from /src/thread-groups.ts with synthetic threads and renders it
+  through the REAL stylesheets, one card per state.
+
+  One card per state, exhaustive:
+    populated + grouped + active thread
+    search hit / search miss / no conversations at all
+    narrow (stacked) presentation
+
+  Harness-only shortcut: the production CSS keys the column off
+  #hc-thread-sidebar / #hc-threads, so every card reuses those ids. Duplicate ids
+  are invalid HTML; they are harmless here because this page has no scripting
+  that resolves them by id. Do not copy this pattern into shipped markup.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>State harness — conversation-history sidebar</title>
+<link rel="stylesheet" href="/src/hermes-chat.css">
+<link rel="stylesheet" href="/src/phase415-workspace.css">
+<link rel="stylesheet" href="/src/unified-layout.css">
+<style>
+  /* The real stylesheet scopes most rules under #app, so the harness needs an
+     #app element — but WITHOUT the shell's grid, which has no children here. */
+  #app {
+    display: block !important;
+    height: auto !important;
+    grid-template-areas: none !important;
+    grid-template-rows: none !important;
+    overflow: visible !important;
+  }
+  body { margin: 0; padding: 22px; background: #0b1720; color: #dceae7; font-family: Inter, system-ui, sans-serif; color-scheme: dark; }
+  h1 { font-size: 15px; letter-spacing: .04em; text-transform: uppercase; color: #e1d6bc; margin: 0 0 4px; }
+  .lede { color: #7f9aa0; font-size: 12px; margin: 0 0 18px; max-width: 78ch; line-height: 1.6; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 16px; align-items: start; }
+  .case { border: 1px solid #1c3a47; border-radius: 10px; padding: 12px; background: #0d1a22; }
+  .case h2 { font-size: 12px; color: #7f9aa0; margin: 0 0 4px; font-weight: 600; }
+  .case .state { display: block; color: #a8e7d5; font: 11px/1.5 ui-monospace, monospace; margin: 0 0 10px; }
+  /* The sidebar is a flex item (flex: 0 0 238px), so each card needs a flex
+     frame with a definite height. */
+  .frame { display: flex; height: 360px; background: #0b222c; border: 1px solid #1c3a47; border-radius: 10px; overflow: hidden; }
+  /* SIMULATION of the ≤820px media query in unified-layout.css, which cannot be
+     triggered inside a wide harness viewport. Keep in sync with that rule. */
+  .frame.stacked { flex-direction: column; height: 300px; }
+  .frame.stacked #hc-thread-sidebar { flex: 0 0 auto; border-right: 0; border-bottom: 1px solid #315d63; }
+  .frame.stacked #hc-threads { max-height: 132px; overflow-x: auto; flex-direction: row; }
+  .frame.stacked .hc-thread-group, .frame.stacked .hc-thread-empty { display: none; }
+  .frame.stacked .hc-thread-item { width: auto; }
+</style>
+</head>
+<body>
+<div id="app">
+  <h1>Conversation-history sidebar</h1>
+  <p class="lede">
+    Every card is rendered by the real <code>groupThreads()</code> from
+    <code>/src/thread-groups.ts</code> through the real stylesheets. Clock is injected,
+    so bucket boundaries are deterministic: the "boundary" card is pinned to 23 Nov 2026 00:10
+    and includes a thread written at 23:50 the previous evening.
+  </p>
+  <div class="grid" id="grid"></div>
+</div>
+<script type="module">
+  import { groupThreads } from '/src/thread-groups.ts';
+
+  const at = (y, m, d, h, min = 0) => new Date(y, m - 1, d, h, min).toISOString();
+  const t = (id, title, updated_at) => ({ id, title, updated_at });
+
+  const NOW = new Date(2026, 10, 23, 12, 0);           // 23 Nov 2026, noon
+  const BOUNDARY = new Date(2026, 10, 23, 0, 10);      // 23 Nov 2026, 00:10
+
+  const FULL = [
+    t('t1', 'Implementation Status Audit', at(2026, 11, 23, 11, 40)),
+    t('t2', 'Wire the composer modes',      at(2026, 11, 23, 9, 5)),
+    t('t3', 'Retire the floating assistant', at(2026, 11, 23, 8, 15)),
+    t('y1', 'Fix the login gate redirect',  at(2026, 11, 22, 18, 30)),
+    t('y2', 'Playlist import regression',   at(2026, 11, 22, 10, 0)),
+    t('w1', 'Architecture review: memory service', at(2026, 11, 19, 14, 0)),
+    t('w2', 'Sprint planning',              at(2026, 11, 18, 9, 30)),
+    t('o1', 'Old scroll-position bug',      at(2026, 10, 28, 16, 45)),
+  ];
+  const BOUNDARY_SET = [
+    t('b1', 'Late-night refactor', at(2026, 11, 22, 23, 50)),
+    t('b2', 'Just after midnight', at(2026, 11, 23, 0, 5)),
+  ];
+
+  const CASES = [
+    { name: 'populated — grouped by day', state: '8 threads · active = t1', threads: FULL, query: '', active: 't1' },
+    { name: 'search hit', state: 'query "login"', threads: FULL, query: 'login' },
+    { name: 'search miss', state: 'query "no-such-thread"', threads: FULL, query: 'no-such-thread' },
+    { name: 'no conversations at all', state: '[] — first run', threads: [], query: '' },
+    { name: 'day boundary', state: 'now = 23 Nov 00:10 (not noon)', threads: BOUNDARY_SET, query: '', now: BOUNDARY },
+    { name: 'narrow — stacked', state: 'simulated ≤820px', threads: FULL, query: '', stacked: true },
+  ];
+
+  const grid = document.getElementById('grid');
+
+  for (const c of CASES) {
+    const box = document.createElement('section');
+    box.className = 'case';
+
+    const h = document.createElement('h2');
+    h.textContent = c.name;
+    const state = document.createElement('span');
+    state.className = 'state';
+    state.textContent = c.state;
+    box.append(h, state);
+
+    const frame = document.createElement('div');
+    frame.className = 'frame' + (c.stacked ? ' stacked' : '');
+
+    const aside = document.createElement('aside');
+    aside.id = 'hc-thread-sidebar';
+    aside.setAttribute('aria-label', 'Conversation history');
+
+    const head = document.createElement('div');
+    head.className = 'hc-thread-head';
+    const strong = document.createElement('strong');
+    strong.textContent = 'Conversations';
+    const newBtn = document.createElement('button');
+    newBtn.id = 'hc-new';
+    newBtn.type = 'button';
+    newBtn.textContent = '＋ New chat';
+    head.append(strong, newBtn);
+
+    const filter = document.createElement('input');
+    filter.id = 'hc-thread-filter';
+    filter.type = 'search';
+    filter.placeholder = 'Search threads';
+    filter.value = c.query;
+    filter.setAttribute('aria-label', 'Search conversations');
+
+    const nav = document.createElement('nav');
+    nav.id = 'hc-threads';
+    nav.setAttribute('aria-label', 'Previous conversations');
+
+    // The REAL derivation — not a hand-written mock of the output.
+    const groups = groupThreads(c.threads, c.query, c.now || NOW);
+    if (!groups.length) {
+      const p = document.createElement('p');
+      p.className = 'hc-thread-empty';
+      p.textContent = c.threads.length
+        ? 'No thread matches that search.'
+        : 'No conversations yet — send a message to start one.';
+      nav.append(p);
+    }
+    for (const g of groups) {
+      const gh = document.createElement('h3');
+      gh.className = 'hc-thread-group';
+      gh.textContent = g.bucket;
+      nav.append(gh);
+      for (const th of g.threads) {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'hc-thread-item';
+        const name = document.createElement('span');
+        name.className = 'hc-thread-name';
+        name.textContent = th.title || 'Conversation';
+        const when = document.createElement('span');
+        when.className = 'hc-thread-when';
+        const d = new Date(th.updated_at);
+        when.textContent = isNaN(d.getTime()) ? '' : `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+        btn.append(name, when);
+        if (c.active && th.id === c.active) btn.setAttribute('aria-current', 'true');
+        nav.append(btn);
+      }
+    }
+
+    aside.append(head, filter, nav);
+    frame.append(aside);
+    box.append(frame);
+    grid.append(box);
+  }
+</script>
+</body>
+</html>

@@ -96,6 +96,24 @@ class ConversationMemory:
             row=self.store.connection.execute('SELECT conversation_id FROM hl_conversation_turns WHERE task_id=? AND role="user" ORDER BY id DESC LIMIT 1',(task_id,)).fetchone()
         return row['conversation_id'] if row else None
 
+    def latest_session_id(self,conversation_id,exclude_task=None):
+        """The most recent Hermes CLI session recorded for this conversation.
+
+        Tasks store the session id the CLI reported on exit, so a follow-up in
+        the same conversation can resume that session instead of replaying the
+        turns as text (convo-redesign.md §10). The task being run is excluded so
+        a task can never resume itself.
+        """
+        if not conversation_id:return None
+        clause=' AND t.id != ?' if exclude_task else ''
+        params=[conversation_id]+([exclude_task] if exclude_task else [])
+        with self.store.lock:
+            row=self.store.connection.execute(
+                'SELECT t.session_id FROM tasks t JOIN hl_conversation_turns c ON c.task_id=t.id '
+                'WHERE c.conversation_id=? AND t.session_id IS NOT NULL AND t.session_id != \'\''+clause+
+                ' ORDER BY t.created_at DESC LIMIT 1',params).fetchone()
+        return row['session_id'] if row else None
+
     def list(self):
         with self.store.lock:
             return [dict(x) for x in self.store.connection.execute('SELECT * FROM hl_conversations ORDER BY updated_at DESC LIMIT 100').fetchall()]

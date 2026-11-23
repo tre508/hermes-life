@@ -22,7 +22,8 @@
  */
 import { type LifeStage, type Chain, type TaskRec } from './task-lifecycle.ts';
 import { mountThread, type Turn } from './conv-thread.ts';
-import { openWorkView, openTask, openActivityForTask, onNavigationChange, getCurrentWorkView, registerTaskValidator, setSelection } from './navigation-state.ts';
+import { mountTaskComposer, type TaskComposerHandle } from './task-composer.ts';
+import { openWorkView, openTask, openActivityForTask, onNavigationChange, getCurrentWorkView, registerTaskValidator, setSelection, type WorkView } from './navigation-state.ts';
 import { registerKindRenderer, registerSummaryProvider } from './context-inspector.ts';
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string): T | null => document.getElementById(id) as T | null;
@@ -41,6 +42,7 @@ let currentStages: LifeStage[] = [];
 // Thread handle per task selection. Rebuilt when selection changes.
 type ConvHandles = {
     thread: ReturnType<typeof mountThread> | null;
+    composer: TaskComposerHandle | null;
 };
 let convHandles: ConvHandles | null = null;
 
@@ -72,6 +74,7 @@ function showTaskNotFound(id: string) {
     selectedConversationId = null;
     if (convHandles) {
         try { convHandles.thread?.dispose(); } catch { /* noop */ }
+        try { convHandles.composer?.dispose(); } catch { /* noop */ }
         convHandles = null;
     }
     const host = $('task-detail-container');
@@ -186,6 +189,7 @@ function backToList() {
     updateSelection(null);
     if (convHandles) {
         try { convHandles.thread?.dispose(); } catch { /* noop */ }
+        try { convHandles.composer?.dispose(); } catch { /* noop */ }
         convHandles = null;
     }
     renderContext(null);
@@ -214,12 +218,31 @@ function openResults(id: string) {
     openTask(id, { destination: 'results' });
 }
 
+/** §5: land on the implementation run's card in Builds, which shows the
+ *  candidate/baseline test outcome plus the verification verdicts. */
+function openBuildRun(runId: string) {
+    openWorkView('builds');
+    setSelection('builds', { kind: 'build', id: runId });
+    // The card mounts on the next render tick; scroll once it exists.
+    window.setTimeout(() => {
+        document.getElementById(`hl415-run-${runId}`)?.scrollIntoView({ block: 'nearest' });
+    }, 0);
+}
+
+/** §5: the candidate review owns the revision decision. Deep-link to it rather
+ *  than firing the mutation from here — the review holds the snapshot hash,
+ *  criteria verdicts and feedback field the request requires. */
+function openCandidateReview(runId: string) {
+    openWorkView('builds');
+    window.dispatchEvent(new CustomEvent('hermes:open-review', { detail: { run_id: runId } }));
+}
+
 function jumpTo(stageKey: string) {
     const targets: Record<string, string> = {
-        plan: 'planning', build: 'build', investigate: 'discover', review: 'build',
+        plan: 'plans', build: 'builds', investigate: 'discoveries', review: 'builds',
     };
     const view = targets[stageKey];
-    openWorkView(view as 'tasks' | 'discover' | 'goals' | 'planning' | 'build');
+    openWorkView(view as WorkView);
 }
 
 // Legacy per-stage renderer kept so the Work subnav (Discover / Planning /
@@ -244,20 +267,20 @@ function renderStage(key: string, t: TaskRec, c: Chain | null) {
         const reason = c ? esc(str(c.reason || '')) : '';
         body.push(card('Investigation', `<p class="stage-status">${note}</p>${reason ? `<p class="stage-reason">${reason}</p>` : ''}`));
         if (c) body[0].insertAdjacentHTML('beforeend', `<button type="button" class="stage-action" data-jump="discover">Open Discover →</button>`);
-        body[0].querySelector('[data-jump="discover"]')?.addEventListener('click', () => { openWorkView('discover'); });
+        body[0].querySelector('[data-jump="discover"]')?.addEventListener('click', () => { openWorkView('discoveries'); });
         return body;
     }
     if (key === 'plan' || key === 'build' || key === 'test' || key === 'review') {
         const s = currentStages.find(x => x.key === key);
         const label = { plan: 'Plan', build: 'Build', test: 'Test', review: 'Review' }[key];
         const detail = s?.note ? `<p class="stage-reason">${esc(s.note)}</p>` : (c && str(c.reason) ? `<p class="stage-reason">${esc(str(c.reason))}</p>` : '');
-        const actionView = key === 'plan' || key === 'build' ? key : key === 'review' ? 'build' : 'work';
+        const actionView = key === 'plan' ? 'plans' : key === 'build' || key === 'review' ? 'builds' : 'tasks';
         body.push(card(label!,
             `<p class="stage-status">${esc(s?.state === 'complete' ? 'Complete' : s?.state === 'current' ? 'In progress' : s?.state === 'failed' ? 'Failed' : s?.state === 'blocked' ? 'Blocked' : 'Awaiting the prior stage')}</p>` + detail +
             `<button type="button" class="stage-action" data-open-rel="${actionView}">Manage in Work →</button>`));
         body[0].querySelector('[data-open-rel]')?.addEventListener('click', (e) => {
-            const view = (e.currentTarget as HTMLElement).dataset.openRel || 'work';
-            openWorkView(view as 'tasks' | 'discover' | 'goals' | 'planning' | 'build');
+            const view = (e.currentTarget as HTMLElement).dataset.openRel || 'tasks';
+            openWorkView(view as WorkView);
         });
         if (s?.state === 'current') body[0].insertAdjacentHTML('beforeend', `<button type="button" class="stage-action" data-open-live="1">Open this task in Results →</button>`);
         body[0].querySelector('[data-open-live]')?.addEventListener('click', () => openResults(str(t.id)));
@@ -298,10 +321,6 @@ function updateDynamicParts(t: TaskRec, c: Chain | null) {
         actionPanelHost.replaceChildren(renderActionPanel(t, c));
     }
 
-    // Update the chat hand-off bar (label text reflects the thread).
-    const bar = $('task-detail-container')?.querySelector('.task-chat-handoff');
-    if (bar instanceof HTMLElement) updateChatHandoffCopy(bar, t);
-
     // Update context panel
     renderContext(str(t.id));
 }
@@ -316,6 +335,7 @@ function renderDetail(id: string) {
     // own DOM and listener set; we want a clean slate on task switch).
     if (convHandles) {
         try { convHandles.thread?.dispose(); } catch { /* noop */ }
+        try { convHandles.composer?.dispose(); } catch { /* noop */ }
         convHandles = null;
     }
 
@@ -341,58 +361,36 @@ function renderDetail(id: string) {
     shell.append(threadHost);
 
     const composerHost = node('div', '', 'task-composer-host');
-    composerHost.append(buildChatHandoff(cId));
     shell.append(composerHost);
 
     host.append(shell);
 
     const convId = cId || null;
     selectedConversationId = convId;
-    if (convId) {
-        const thread = mountThread({
+
+    // convo-redesign.md §6: a persistent, state-adaptive composer in the task
+    // workspace. It hands text to Chat (`hermes:open-in-chat` + submit:true) so
+    // there is still exactly one conversation and one send path.
+    const composer = mountTaskComposer(composerHost, () => ({
+        state: t.state,
+        nextAction: c ? c.next_action : '',
+        taskId: String(t.id),
+        conversationId: convId,
+    }));
+
+    const thread = convId
+        ? mountThread({
             host: threadHost,
             getConversation: async () => ({ conversation_id: convId }),
             getFilterTaskId: () => String(t.id),
             onTaskClick: (otherId) => { void selectTask(otherId); },
-        });
-        convHandles = { thread };
-    } else {
-        convHandles = { thread: null };
-    }
+        })
+        : null;
+
+    convHandles = { thread, composer };
 
     renderedTaskId = id;
     renderedConversationId = convId;
-}
-
-/** HL-CONV-001: the Task Board no longer hosts a duplicate conversation
- *  composer — Hermes Chat is the single conversational surface. This
- *  hand-off bar routes replies INTO the same thread in Chat. */
-function buildChatHandoff(convId: string): HTMLElement {
-    const wrap = node('div', '', 'task-chat-handoff');
-    wrap.dataset.hasConversation = convId ? 'true' : 'false';
-    const copy = node('span', '', 'task-chat-handoff__text');
-    const btn = node('button', 'Open in Chat →', 'task-chat-handoff__btn') as HTMLButtonElement;
-    btn.type = 'button';
-    btn.addEventListener('click', () => {
-        const detail: { conversation_id?: string; task_id: string; prefill?: string } = { task_id: String(selectedId || '') };
-        if (convId) detail.conversation_id = convId;
-        window.dispatchEvent(new CustomEvent('hermes:open-in-chat', { detail }));
-    });
-    wrap.append(copy, btn);
-    updateChatHandoffCopy(wrap, null, convId);
-    return wrap;
-}
-
-function updateChatHandoffCopy(bar: HTMLElement, t: TaskRec | null, convIdOverride?: string) {
-    const copy = bar.querySelector<HTMLElement>('.task-chat-handoff__text');
-    if (!copy) return;
-    const has = (t ? (t.conversation_id ? String(t.conversation_id) : '') : (convIdOverride || '')) !== '';
-    const btn = bar.querySelector<HTMLButtonElement>('.task-chat-handoff__btn');
-    bar.dataset.hasConversation = String(has);
-    copy.textContent = has
-        ? 'Replies live in Chat — the same conversation this task belongs to.'
-        : 'This task has no conversation thread yet. Open in Chat to start it.';
-    if (btn) btn.disabled = !has && !(t?.id || selectedId);
 }
 
 /** Compose the actionable next-action panel from the task's chain.
@@ -415,7 +413,7 @@ function renderActionPanel(t: TaskRec, c: Chain | null): HTMLElement {
     // hand-rolled because we can't yet add a follow-on workflow call.
     if (next === 'review_investigation') {
         buttons.push({ label: 'Review plan →', kind: 'primary',
-            action: () => openWorkView('planning') });
+            action: () => openWorkView('plans') });
         if (planId) {
             buttons.push({ label: 'Approve plan', kind: 'success',
                 action: () => postPlanApproval(planId) });
@@ -447,7 +445,7 @@ function renderActionPanel(t: TaskRec, c: Chain | null): HTMLElement {
         buttons.push({ label: 'Request additional investigation', kind: 'primary',
             action: () => prefillInvestigateCta(String(t.id), c) });
         buttons.push({ label: 'Plan follow-up', kind: 'secondary',
-            action: () => openWorkView('planning') });
+            action: () => openWorkView('plans') });
         buttons.push({ label: 'Discuss findings', kind: 'secondary',
             action: () => prefillComposer('Discuss findings about this task — what should I dig into next?') });
     }
@@ -459,7 +457,25 @@ function renderActionPanel(t: TaskRec, c: Chain | null): HTMLElement {
     }
     if (stage && stage !== 'idle' && stage !== 'history') {
         buttons.push({ label: 'Lifecycle →', kind: 'secondary',
-            action: () => openWorkView(stage === 'review' ? 'build' : stage === 'in_progress' ? 'discover' : stage as 'tasks' | 'discover' | 'goals' | 'planning' | 'build') });
+            action: () => openWorkView(stage === 'review' ? 'builds' : stage === 'in_progress' ? 'discoveries' : stage as WorkView) });
+    }
+
+    // convo-redesign.md §5 — completed implementation. Three of the doc's four
+    // actions already live in the Builds subview: the run card shows the
+    // candidate/baseline test outcome and the candidate review owns the
+    // revision decision (it needs the snapshot hash, per-criterion verdicts and
+    // reviewer feedback, which this panel does not hold). So these DEEP-LINK
+    // rather than duplicating a mutation — one owner per backend operation.
+    // A submit-for-approval action is deliberately absent: no
+    // implementation-approval route exists (the only approve endpoint is
+    // plan-scoped).
+    if (runId) {
+        buttons.push({ label: 'View test results →', kind: 'primary',
+            action: () => openBuildRun(runId) });
+        if (next === 'open_review' || isTerminal) {
+            buttons.push({ label: 'Request revision →', kind: 'secondary',
+                action: () => openCandidateReview(runId) });
+        }
     }
 
     if (!buttons.length) {
@@ -788,11 +804,14 @@ function updateWorkHeading(view: string) {
     if (!heading || !subheading) return;
 
     const labels: Record<string, [string, string]> = {
-        tasks: ['Work', 'Task board — pick a task to open its thread, composer, and context'],
-        discover: ['Discover', 'Independent discovery & decisions — scan worker projects, review findings'],
+        overview: ['Overview', 'Projects portfolio — autonomous and user projects, milestones, proposals, outcomes'],
+        discoveries: ['Discoveries', 'Independent discovery & decisions — scan worker projects, review findings'],
         goals: ['Goals', 'Autonomous goals & scheduler — create goals, manage autonomy'],
-        planning: ['Planning', 'Goal formulation & investigation plans — review, approve, convert to plans'],
-        build: ['Build', 'Evaluated implementation & review — candidate runs, verification, decisions'],
+        plans: ['Plans', 'Goal formulation & investigation plans — review, approve, convert to plans'],
+        tasks: ['Work', 'Task board — pick a task to open its thread, composer, and context'],
+        builds: ['Builds', 'Evaluated implementation & review — candidate runs, verification, decisions'],
+        reviews: ['Reviews', 'Candidate review queue — runs awaiting a review decision'],
+        results: ['Results', 'Response & evidence for the selected task'],
     };
     const [title, desc] = labels[view] || labels.tasks;
     heading.textContent = title;
@@ -807,7 +826,7 @@ function updateWorkHeading(view: string) {
  *  - Does NOT use scrollIntoView for navigation
  *  - Preserves task thread/composer when leaving Tasks (DOM persists) */
 function setWorkView(view: string) {
-    const validViews = ['tasks', 'discover', 'goals', 'planning', 'build', 'projects'];
+    const validViews = ['overview', 'discoveries', 'goals', 'plans', 'tasks', 'builds', 'reviews', 'results'];
     if (!validViews.includes(view)) view = 'tasks';
 
     // Save scroll position of current view before switching
@@ -846,7 +865,7 @@ function wireSubnav() {
     nav.querySelectorAll<HTMLButtonElement>('button[data-workview]').forEach(btn => {
         btn.addEventListener('click', () => {
             const view = btn.dataset.workview || 'tasks';
-            openWorkView(view as 'tasks' | 'discover' | 'goals' | 'planning' | 'build');
+            openWorkView(view as WorkView);
         });
     });
 }

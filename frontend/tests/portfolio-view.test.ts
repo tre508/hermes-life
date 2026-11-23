@@ -127,5 +127,5 @@ test('static: the Projects tab hosts a registry section wired by portfolio-view'
     }
     assert.match(src, /GET \/api\/projects|'\/api\/projects'/);
     assert.match(src, /registerKindRenderer\('project'/);
-    assert.match(src, /registerSummaryProvider\('projects'/);
+    assert.match(src, /registerSummaryProvider\('overview'/);
 });

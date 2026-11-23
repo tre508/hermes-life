@@ -93,9 +93,9 @@ test('decisionLabel mirrors the review surface wording', () => {
 
 test('static: Build panel sets a typed build selection and registers the build inspector renderer', () => {
     const src = readFileSync(join(here, '../src/phase415-review.ts'), 'utf8');
-    assert.match(src, /setSelection\('build',\s*\{kind:'build'/);
+    assert.match(src, /setSelection\('builds',\s*\{kind:'build'/);
     assert.match(src, /registerKindRenderer\('build'/);
-    assert.match(src, /registerSummaryProvider\('build'/);
+    assert.match(src, /registerSummaryProvider\('builds'/);
     assert.match(src, /from '\.\/build-lifecycle\.ts'/);
     const css = readFileSync(join(here, '../src/phase415-review.css'), 'utf8');
     assert.match(css, /\.hl415-card-selected/);

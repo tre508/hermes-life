@@ -15,19 +15,27 @@
 
     <!-- ===================== Region A: persistent header ===================== -->
     <header class="topbar">
+        <button id="nav-drawer-toggle" type="button" aria-label="Open navigation" aria-expanded="false" title="Open navigation">☰</button>
         <div class="brand">
             <h1>HERMES LIFE <span class="pill">AI OPERATIONS LAB / 0.4.0</span></h1>
             <p>Single operations facility</p>
         </div>
         <div class="hc-header-centre" aria-label="Command centre">Hermesha Command Centre</div>
         <div class="hc-header-actions">
+            <div class="hc-search" role="search">
+                <input id="global-search-input" type="search" autocomplete="off" spellcheck="false"
+                       placeholder="Search everything…  ( / )" aria-label="Search everything"
+                       aria-expanded="false" aria-controls="global-search-results" />
+                <div id="global-search-results" class="global-search-results" role="listbox" hidden></div>
+            </div>
             <button id="header-chat-open" type="button" class="header-chat-btn" title="Open Hermes conversation">Chat ✦</button>
             <span id="attention-badge" hidden title="Items awaiting your decision"></span>
             <button id="topbar-logout" type="button" class="header-chat-btn" title="Log out — return to the entrance gate">Logout</button>
         </div>
     </header>
 
-    <!-- ===================== Region B: primary navigation rail ===================== -->
+    <!-- ---------- Region B: primary navigation rail ---------- -->
+    <div id="nav-scrim" hidden></div>
     <nav id="primary-nav" aria-label="Command centre navigation">
         <button id="nav-collapse" type="button" title="Collapse or expand the navigation rail" aria-pressed="false">⇤</button>
         <!-- Spec §3 navigation groups: Experience / Operations / Intelligence /
@@ -68,6 +76,9 @@
             <span id="status-latest-event"></span>
             <span id="data-freshness-status"></span>
         </div>
+        <!-- The World's operational status (spec §5): one strip at the bottom of
+             the app, not a block wedged between the canvas and the composer. -->
+        <div id="status-world" class="status-world"></div>
         <div class="status-strip-actions">
             <button id="status-open-activity" type="button" title="Open the full Activity timeline">Activity</button>
             <button id="hc-sync" type="button" class="header-chat-btn" title="Reload synchronized status">Sync</button>
@@ -94,17 +105,9 @@
             <header class="workspace-heading">
                 <div>
                     <h2>Hermesha Command Centre <small>Eight shared rooms</small></h2>
-                    <p>One facility. Seven existing operational roles. Live work derived from Hermes events.</p>
+                    <p>Click a resident or workstation for details.</p>
                 </div>
-                <p class="hint">Click a resident or workstation for details. The lab moves in real time from backend events.</p>
             </header>
-            <div class="status-strip home-status-strip">
-                <div>
-                    <span class="dot"></span><strong id="studio-status">Standing by</strong>
-                    <span id="studio-detail">Waiting for a Hermes event</span>
-                </div>
-                <button id="studio-open-activity" type="button">Follow activity</button>
-            </div>
             <div class="world-wrap home-world">
                 <div id="game"></div>
                 <section id="world-room-panel" class="world-room-panel" hidden aria-live="polite">
@@ -115,8 +118,19 @@
                     <p id="world-room-description"></p>
                     <button id="world-room-open" type="button">Open room workspace</button>
                 </section>
-                <p class="hint">Movement follows real backend records and events.</p>
             </div>
+            <!-- Spec §5/§6: the conversation is integral to the World. ONE composer
+                 bar bound to the canonical thread — Send uses the chat's own send
+                 path (no second chat instance); Attach/Workspace open the real
+                 controls in the conversation panel. -->
+            <form id="world-composer" class="world-composer" autocomplete="off">
+                <input id="world-composer-input" type="text" placeholder="Ask Hermesha anything…"
+                       aria-label="Ask Hermesha anything" />
+                <button id="world-composer-attach" type="button" title="Attach files in the conversation panel">＋ Attach</button>
+                <button id="world-composer-workspace" type="button" title="Choose the working directory in the conversation panel">Workspace ▾</button>
+                <button id="world-composer-send" type="submit" title="Send to Hermes">Send ➤</button>
+            </form>
+            <p id="world-composer-status" class="world-composer-status" role="status" aria-live="polite"></p>
         </section>
 
         <!-- ---------- HOME · personalized overview: current work, recent, attention ---------- -->
@@ -154,12 +168,14 @@
                     </header>
 
                     <nav id="work-subnav" class="work-subnav" aria-label="Work views">
-                        <button type="button" data-workview="tasks" class="active" aria-pressed="true">Tasks</button>
-                        <button type="button" data-workview="discover">Discover</button>
+                        <button type="button" data-workview="overview">Overview</button>
+                        <button type="button" data-workview="discoveries">Discoveries</button>
                         <button type="button" data-workview="goals">Goals</button>
-                        <button type="button" data-workview="planning">Planning</button>
-                        <button type="button" data-workview="build">Build</button>
-                        <button type="button" data-workview="projects">Projects</button>
+                        <button type="button" data-workview="plans">Plans</button>
+                        <button type="button" data-workview="tasks" class="active" aria-pressed="true">Tasks</button>
+                        <button type="button" data-workview="builds">Builds</button>
+                        <button type="button" data-workview="reviews">Reviews</button>
+                        <button type="button" data-workview="results">Results</button>
                     </nav>
 
                     <!-- Work subview panels: only one visible at a time -->
@@ -190,8 +206,8 @@
                             </div>
                         </section>
 
-                        <!-- DISCOVER: global discovery dashboard (phase41301-rework mounts here) -->
-                        <section id="workview-discover" class="workview-panel" data-workview="discover" hidden>
+                        <!-- DISCOVERIES: global discovery dashboard (phase41301-rework mounts here) -->
+                        <section id="workview-discoveries" class="workview-panel" data-workview="discoveries" hidden>
                             <div id="discovery-section">
                                 <h2>Independent discovery</h2>
                                 <button id="discovery-scan" type="button">Scan worker projects</button>
@@ -233,8 +249,8 @@
                             </section>
                         </section>
 
-                        <!-- PLANNING: formulation & investigation plans (phase415-review / phase41302 mount here) -->
-                        <section id="workview-planning" class="workview-panel" data-workview="planning" hidden>
+                        <!-- PLANS: formulation & investigation plans (phase415-review / phase41302 mount here) -->
+                        <section id="workview-plans" class="workview-panel" data-workview="plans" hidden>
                             <section id="formulation-section">
                                 <h2>Goal formulation</h2>
                                 <p class="hint">Select a discovery and ask Hermes to formulate an evidence-backed proposal. No automatic coding. Approval creates a read-only investigation goal.</p>
@@ -251,8 +267,8 @@
                             </section>
                         </section>
 
-                        <!-- BUILD: evaluated implementation & review (phase415-review mounts here) -->
-                        <section id="workview-build" class="workview-panel" data-workview="build" hidden>
+                        <!-- BUILDS: evaluated implementation & review (phase415-review mounts here) -->
+                        <section id="workview-builds" class="workview-panel" data-workview="builds" hidden>
                             <details class="fold" open>
                                 <summary>Evaluated implementation</summary>
                                 <section>
@@ -265,9 +281,9 @@
                             </details>
                         </section>
 
-                        <!-- PROJECTS: autonomous portfolio (portfolio-view mounts here) -->
-                        <section id="workview-projects" class="workview-panel" data-workview="projects" hidden>
-                            <h2>Projects portfolio</h2>
+                        <!-- OVERVIEW: autonomous portfolio + registered projects (portfolio-view mounts here) -->
+                        <section id="workview-overview" class="workview-panel" data-workview="overview" hidden>
+                            <h2>Overview · Projects portfolio</h2>
                             <p class="hint">Autonomous and user projects with real milestone state, proposals awaiting your decision, ranked opportunities, and outcome records. Pause, resume, cancel and bounded retries act on the backend directly.</p>
                             <button id="portfolio-refresh" type="button">Refresh portfolio</button>
                             <p id="portfolio-status" role="status"></p>
@@ -298,6 +314,59 @@
                             <section>
                                 <h3>Recent outcome records</h3>
                                 <div id="portfolio-experiences"></div>
+                            </section>
+                        </section>
+
+                        <!-- REVIEWS: candidate review queue (spec §4) -->
+                        <section id="workview-reviews" class="workview-panel" data-workview="reviews" hidden>
+                            <section id="reviews-section">
+                                <h2>Reviews</h2>
+                                <p class="hint">Candidate runs whose independent tests passed or failed, awaiting a review decision. Open one to see its full diff and evidence in Builds.</p>
+                                <button id="reviews-refresh" type="button">Refresh reviews</button>
+                                <p id="reviews-status" role="status"></p>
+                                <div id="reviews-list"></div>
+                            </section>
+                        </section>
+
+                        <!-- RESULTS: integrated response & evidence (spec §4/§13).
+                             The response UI moved here from the standalone Results
+                             workspace; ids are unchanged so its renderer follows. -->
+                        <section id="workview-results" class="workview-panel" data-workview="results" hidden>
+                            <section aria-label="Agent response workspace" id="response-workspace">
+                                <div class="response-top">
+                                    <div>
+                                        <h2>Response &amp; Evidence</h2>
+                                        <div class="response-meta">
+                                            <span id="response-source">Latest agent activity</span>
+                                            <span>Status <strong id="response-status">No task selected</strong></span>
+                                            <span>Task <strong id="response-id">—</strong></span>
+                                        </div>
+                                    </div>
+                                    <div class="response-actions">
+                                        <button aria-pressed="true" id="response-follow" type="button">Following live</button>
+                                        <button id="response-copy" type="button">Copy answer</button>
+                                    </div>
+                                </div>
+                                <div aria-label="Response content" class="response-tabs" role="tablist">
+                                    <button aria-selected="true" class="response-tab active" data-response-tab="answer" role="tab" type="button">Answer</button>
+                                    <button aria-selected="false" class="response-tab" data-response-tab="tools" role="tab" type="button">Tool activity (<span id="tool-count">0</span>)</button>
+                                    <button aria-selected="false" class="response-tab" data-response-tab="history" role="tab" type="button">History</button>
+                                </div>
+                                <div hidden id="response-error" role="alert"></div>
+                                <div class="response-pane" id="response-answer-panel" role="tabpanel">
+                                    <div class="format-switch">
+                                        <label><input id="response-raw-toggle" type="checkbox" /> Show raw text</label>
+                                    </div>
+                                    <article aria-live="polite" class="response-rich" id="response-rich"><p>Open a task to view its answer and evidence.</p></article>
+                                    <pre class="response-raw" hidden id="response-text"></pre>
+                                </div>
+                                <div class="response-pane" hidden id="response-tools-panel" role="tabpanel">
+                                    <div id="tool-events"></div>
+                                </div>
+                                <div class="response-pane" hidden id="response-history-panel" role="tabpanel">
+                                    <button id="refresh-history" type="button">Refresh history</button>
+                                    <div id="task-history"></div>
+                                </div>
                             </section>
                         </section>
 
@@ -470,45 +539,11 @@
             </details>
         </section>
 
-        <!-- ---------- RESULTS · full-width answer and evidence ---------- -->
-        <section id="workspace-results" class="workspace-view" data-layout="focus" hidden>
-            <section aria-label="Agent response workspace" id="response-workspace">
-                <div class="response-top">
-                    <div>
-                        <h2>Response &amp; Evidence</h2>
-                        <div class="response-meta">
-                            <span id="response-source">Latest agent activity</span>
-                            <span>Status <strong id="response-status">No task selected</strong></span>
-                            <span>Task <strong id="response-id">—</strong></span>
-                        </div>
-                    </div>
-                    <div class="response-actions">
-                        <button aria-pressed="true" id="response-follow" type="button">Following live</button>
-                        <button id="response-copy" type="button">Copy answer</button>
-                    </div>
-                </div>
-                <div aria-label="Response content" class="response-tabs" role="tablist">
-                    <button aria-selected="true" class="response-tab active" data-response-tab="answer" role="tab" type="button">Answer</button>
-                    <button aria-selected="false" class="response-tab" data-response-tab="tools" role="tab" type="button">Tool activity (<span id="tool-count">0</span>)</button>
-                    <button aria-selected="false" class="response-tab" data-response-tab="history" role="tab" type="button">History</button>
-                </div>
-                <div hidden id="response-error" role="alert"></div>
-                <div class="response-pane" id="response-answer-panel" role="tabpanel">
-                    <div class="format-switch">
-                        <label><input id="response-raw-toggle" type="checkbox" /> Show raw text</label>
-                    </div>
-                    <article aria-live="polite" class="response-rich" id="response-rich"><p>Open a task to view its answer and evidence.</p></article>
-                    <pre class="response-raw" hidden id="response-text"></pre>
-                </div>
-                <div class="response-pane" hidden id="response-tools-panel" role="tabpanel">
-                    <div id="tool-events"></div>
-                </div>
-                <div class="response-pane" hidden id="response-history-panel" role="tabpanel">
-                    <button id="refresh-history" type="button">Refresh history</button>
-                    <div id="task-history"></div>
-                </div>
-            </section>
-        </section>
+        <!-- ---------- RESULTS folded into Work (spec §4/§13) ----------
+             The response & evidence UI now lives in the Work "Results" subview
+             (#workview-results). The id remains so a ?view=results deep link still
+             resolves; navigation-state redirects it to Work → Results. -->
+        <section id="workspace-results" class="workspace-view" data-layout="focus" hidden></section>
 
         <!-- ---------- SYSTEM · learned profile, memory and lessons ---------- -->
         <!-- workspace-system retired: Memory folded into Knowledge (regroup).
@@ -541,22 +576,31 @@
                     </div>
                 </details>
             </section>
+            <!-- Director identity (HERMESHA §5/§7): current state, focus, owning
+                 project, recent completed work, pending decisions, and the
+                 available actions. The old in-column "Current work" status block
+                 duplicated these facts and is folded in here. -->
+            <section class="director-identity" id="director-identity">
+                <h2>Hermesha — Director</h2>
+                <div class="kv">Current state <strong id="director-state">Idle</strong></div>
+                <div class="kv">Current focus <strong id="director-focus">—</strong></div>
+                <div class="kv">Associated project <strong id="director-project">—</strong></div>
+                <div class="kv">Recent completed <strong id="director-recent">—</strong></div>
+                <div class="kv">Pending decisions <strong id="director-pending">None</strong></div>
+                <div class="director-actions">
+                    <button id="director-open-conversation" type="button">Open conversation</button>
+                    <button id="director-inspect-work" type="button">Inspect current work</button>
+                    <button id="director-view-activity" type="button">View activity</button>
+                </div>
+            </section>
             <section class="home-new-task">
-                <h2>New task</h2>
+                <h2>Ask Hermesha</h2>
                 <form id="task-form">
-                    <textarea id="prompt" minlength="1" placeholder="Give Hermes a task…" required></textarea>
-                    <button type="submit">Send to Hermes</button>
+                    <textarea id="prompt" minlength="1" placeholder="Ask Hermesha anything…" required></textarea>
+                    <button type="submit">Send</button>
                     <p id="task-feedback"></p>
                 </form>
-                <p class="persona-narrative" id="persona-narrative">Watching the studio for new work.</p>
-            </section>
-            <section class="home-current-work">
-                <h2>Workspace status · Current work</h2>
-                <div class="kv">Current task <strong id="current-task">None</strong></div>
-                <div class="kv">Recent task <strong id="recent-task">—</strong></div>
-                <div class="kv">Last outcome <strong id="last-outcome">—</strong></div>
-                <div class="kv">Requires attention <strong id="requires-attention">None</strong></div>
-                <button id="home-open-work" type="button">Open in Work →</button>
+                <p class="persona-narrative" id="persona-narrative">Watching the lab for new work.</p>
             </section>
         </div>
 

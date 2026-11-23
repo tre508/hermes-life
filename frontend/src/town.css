@@ -21,36 +21,44 @@
   max-width: none !important; max-height: none !important;
 }
 
-/* The HUD sits below the canvas, not over it: overlapping the art hid the Workshop and its
-   resident in the lower-left of the town. */
+/* The World's status is ONE inline row inside the global status strip (spec §5).
+   The disclosures open upward out of the strip as popovers. */
 .town-hud {
-  display: flex; align-items: flex-start; justify-content: space-between; gap: 10px;
-  width: 100%; margin-top: 8px;
+  display: flex; align-items: center; gap: 10px;
+  flex: 1 1 auto; min-width: 0; font-size: 11px; color: #cfe4dc;
 }
-.town-hud-left { display: flex; flex-direction: column; gap: 6px; flex: 1 1 auto; min-width: 0; max-width: min(78%, 640px); }
-/* Relocated from inside #game: static, so it cannot cover the town. */
-.town-hud-left .hermes-live-status {
+.town-hud .hermes-live-status {
   position: static !important; transform: none !important; margin: 0 !important;
-  max-width: 100% !important; min-width: 0 !important; box-shadow: none !important;
-  font-size: 11px !important; padding: 6px 9px !important; justify-content: flex-start !important;
+  max-width: none !important; min-width: 0 !important; box-shadow: none !important;
+  font-size: 11px !important; padding: 0 !important; background: none !important;
+  border: 0 !important; justify-content: flex-start !important; white-space: nowrap;
 }
-.town-hud-right { display: flex; align-items: flex-start; flex: 0 0 auto; }
-
-.town-line { display: flex; flex-wrap: wrap; gap: 8px; margin: 0; font-size: 11px; color: #cfe4dc; }
-.town-conn { font-weight: 700; letter-spacing: .04em; color: #f1ba79; }
+.town-conn { font-weight: 700; letter-spacing: .04em; color: #f1ba79; white-space: nowrap; }
 .town-conn[data-state="live"] { color: #87e7ba; }
 .town-conn[data-state="reconnecting"] { color: #f1ba79; }
 .town-conn[data-state="disconnected"] { color: #f7a19b; }
-.town-counts { color: #a9c6c0; }
+.town-counts { color: #a9c6c0; white-space: nowrap; }
 
 .town-summary {
-  margin: 0; font-size: 11px; line-height: 1.45; color: #eaf6f0;
-  background: rgba(9, 26, 34, .86); border: 1px solid #3d5f6b; border-radius: 6px;
-  padding: 6px 9px; overflow-wrap: anywhere;
+  margin: 0; font-size: 11px; line-height: 1.2; color: #eaf6f0;
+  flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
-.town-board { font-size: 11px; background: rgba(9, 26, 34, .86); border: 1px solid #3d5f6b; border-radius: 6px; padding: 5px 9px; color: #d7e8e2; }
-.town-board > summary { cursor: pointer; color: #9fd8c8; }
-.town-rows { display: flex; flex-direction: column; gap: 3px; margin-top: 6px; }
+
+.town-more { position: relative; flex: 0 0 auto; }
+.town-more > summary {
+  cursor: pointer; color: #9fd8c8; list-style: none; padding: 3px 8px;
+  border: 1px solid #3d5f6b; border-radius: 6px; white-space: nowrap;
+}
+.town-more > summary::-webkit-details-marker { display: none; }
+.town-more > summary::before { content: '▸ '; }
+.town-more[open] > summary::before { content: '▾ '; }
+.town-more > div {
+  position: absolute; bottom: calc(100% + 8px); right: 0; z-index: 60;
+  min-width: 300px; max-width: min(560px, 92vw); max-height: 46vh; overflow: auto;
+  background: #0d1b24; border: 1px solid #3d5f6b; border-radius: 8px;
+  padding: 8px 10px; box-shadow: 0 14px 34px #000a;
+}
+.town-rows { display: flex; flex-direction: column; gap: 3px; margin-top: 2px; }
 .town-row { display: flex; gap: 8px; margin: 0; font-size: 10.5px; color: #cfe0da; }
 .town-row strong { color: #a8e7d5; min-width: 132px; }
 .town-row[data-state="working"] strong { color: #ffd98a; }
@@ -59,8 +67,8 @@
 .town-row-unknown { color: #f1ba79; }
 
 #town-motion {
-  margin: 0; font-size: 10.5px; padding: 5px 9px; background: #22424b; color: #d6ece5;
-  border: 1px solid #436672;
+  margin: 0; font-size: 10.5px; padding: 4px 9px; background: #22424b; color: #d6ece5;
+  border: 1px solid #436672; border-radius: 6px; white-space: nowrap; flex: 0 0 auto;
 }
 #town-motion:hover { background: #2d5560; }
 
@@ -101,13 +109,13 @@
 .town-access button:focus-visible { outline: 2px solid #9fd6e8; outline-offset: 1px; }
 
 /* Reduced motion: the town stands still, the text board carries the state. */
-.town-still .town-board { border-color: #6f8f7c; }
-@media (max-height: 700px) {
-  .town-hud-left { max-width: 100%; }
-}
+.town-still .town-more > summary { border-color: #6f8f7c; }
 
+@media (max-width: 900px) {
+  /* Too narrow for one row: the summary truncates first, then the disclosures. */
+  .town-summary { display: none; }
+}
 @media (max-width: 700px) {
-  .town-hud { flex-direction: column; align-items: stretch; }
-  .town-hud-left { max-width: 100%; }
+  .town-more > div { right: auto; left: 0; min-width: 240px; }
   .town-selection { position: static; width: 100%; margin-top: 8px; }
 }
