@@ -31,13 +31,13 @@
 #app #primary-nav .hc-room-link { font-size: 11px; min-height: 27px; padding: 6px 11px; }
 #app #primary-nav .nav-sep { background: #2a3650; margin: 8px 6px; }
 #app #main-workspace { background: linear-gradient(160deg,#121729,#10192c 60%,#0c1325); }
-#app #workspace-home { padding: 11px 13px 16px; gap: 8px; }
-#app #workspace-home .workspace-heading { background: #222138; border: 1px solid #383651; border-radius: 10px 10px 0 0; padding: 11px 13px; margin: 0; }
-#app #workspace-home .workspace-heading h2 { color: #eef3ff; font-size: 19px; }
-#app #workspace-home .workspace-heading h2 small { color: #ffafa0; font-size: 11px; }
-#app #workspace-home .workspace-heading p { color: #8f9bb5; font-size: 11px; }
-#app #workspace-home .workspace-heading > .hint { max-width: 270px; }
-#app #workspace-home .home-status-strip { background: #182237; border: 1px solid #39425a; border-radius: 5px; padding: 7px 11px; }
+#app #workspace-world, #app #workspace-home { padding: 11px 13px 16px; gap: 8px; }
+#app #workspace-world .workspace-heading, #app #workspace-home .workspace-heading { background: #222138; border: 1px solid #383651; border-radius: 10px 10px 0 0; padding: 11px 13px; margin: 0; }
+#app #workspace-world .workspace-heading h2, #app #workspace-home .workspace-heading h2 { color: #eef3ff; font-size: 19px; }
+#app #workspace-world .workspace-heading h2 small, #app #workspace-home .workspace-heading h2 small { color: #ffafa0; font-size: 11px; }
+#app #workspace-world .workspace-heading p, #app #workspace-home .workspace-heading p { color: #8f9bb5; font-size: 11px; }
+#app #workspace-world .workspace-heading, #app #workspace-home .workspace-heading > .hint { max-width: 270px; }
+#app #workspace-world .home-status-strip { background: #182237; border: 1px solid #39425a; border-radius: 5px; padding: 7px 11px; }
 #app .home-world { background: #0b101e; border: 1px solid #3f3e54; border-radius: 10px; padding: 0; min-width: 0; overflow: hidden; }
 #app .home-world #game { width: 100%; max-width: 100%; border-radius: 8px; }
 #app .home-world canvas { max-width: 100%; }
@@ -75,8 +75,8 @@
   #app .topbar .brand p { display: none; }
   #app .hc-header-centre { white-space: normal; font-size: 9px; }
   #app #global-status #execution-status, #app #global-status #data-freshness-status { display: none; }
-  #app #workspace-home { padding: 7px; }
-  #app #workspace-home .workspace-heading > .hint { display: none; }
+  #app #workspace-world, #app #workspace-home { padding: 7px; }
+  #app #workspace-world .workspace-heading, #app #workspace-home .workspace-heading > .hint { display: none; }
   #app .home-recent-strip { grid-template-columns: minmax(0, 1fr); }
 }
 @media (prefers-reduced-motion: reduce) { #app .hc-header-centre { box-shadow: none; } }
@@ -91,14 +91,14 @@
 #app #contextual-panel { scrollbar-width: thin; }
 
 /* VIS-008 responsive fit: canvas and wrapper must agree on one visible box. */
-#app #workspace-home .home-world #game {
+#app #workspace-world .home-world #game {
   width: 100%;
   height: 100%;
   min-height: 0;
   overflow: hidden;
   box-sizing: border-box;
 }
-#app #workspace-home .home-world #game canvas {
+#app #workspace-world .home-world #game canvas {
   display: block;
   max-width: none;
   width: 100% !important;
@@ -112,13 +112,13 @@
    diorama floating in grey with a dead band above and below it. The panel sizes to its content
    (canvas + hint + HUD), and #game's aspect-ratio is the single source of truth for the canvas box —
    the renderer reads that box, so camera aspect and displayed aspect cannot drift apart again. */
-#app.layout-home #workspace-home > .home-world {
+#app.layout-home #workspace-world > .home-world {
     flex: 0 0 auto;
     height: auto;
     min-height: 0;
     max-height: none;
 }
-#app.layout-home #workspace-home > .home-world > #game {
+#app.layout-home #workspace-world > .home-world > #game {
     flex: 0 0 auto;
     width: 100%;
     aspect-ratio: 2.85 / 1;

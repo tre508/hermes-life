@@ -94,6 +94,53 @@ export function installTown(): void {
   // Initialize bubble controller (UI-VIS-007)
   bubbleController = new BubbleController();
   bubbleController.initialize(host, renderer);
+
+  // P2: the contextual inspector's 'room' card — populated from the stable
+  // room_id and the linked active work the authoritative records carry.
+  registerKindRenderer('room', (sel, body) => {
+    const loc = sel.id as LocationId;
+    const here = ROLES.map(r => town.residents[r]).filter(res => res.location === loc);
+    const head = document.createElement('strong');
+    head.textContent = KIND_LABEL.room;
+    const title = document.createElement('h3');
+    title.textContent = locationLabel(loc);
+    title.style.margin = '6px 0 2px';
+    const purpose = document.createElement('p');
+    purpose.textContent = locationPurpose(loc);
+    body.append(head, title, purpose);
+    const activity = here.filter(res => res.state === 'working' || res.state === 'queued');
+    const workHead = document.createElement('p');
+    workHead.innerHTML = '<em>Linked active work</em>';
+    body.append(workHead);
+    if (activity.length) {
+      const list = document.createElement('ul');
+      list.style.margin = '4px 0 8px';
+      list.style.paddingLeft = '18px';
+      for (const res of activity) {
+        const item = document.createElement('li');
+        item.textContent = `${res.name}: ${res.label}`;
+        list.append(item);
+        if (res.taskId) {
+          const open = document.createElement('button');
+          open.type = 'button';
+          open.textContent = `Open task ${res.taskId.slice(0, 8)}`;
+          open.addEventListener('click', () => { openTask(res.taskId!, { destination: 'work' }); });
+          const wrap = document.createElement('li');
+          wrap.append(open);
+          list.append(wrap);
+        } else if (res.workflowId) {
+          const item2 = document.createElement('li');
+          item2.textContent = `Workflow ${res.workflowId.slice(0, 8)} — no task yet`;
+          list.append(item2);
+        }
+      }
+      body.append(list);
+    } else {
+      const none = document.createElement('p');
+      none.textContent = 'No active workflow here.';
+      body.append(none);
+    }
+  });
   // §11: populate the recent-bubble history when the fold is opened.
   const hud = ui;
   listen(hud.bubbleHistory, 'toggle', () => {
@@ -372,6 +419,9 @@ function isAutonomousTask(taskId: string | null | undefined): boolean {
 // --------------------------------------------------------------------------- rendering
 
 function renderUi(): void {
+  // P2: keep the room card in the contextual inspector honest while the
+  // snapshot/event data changes under a persisted home selection.
+  rerenderInspector();
   if (!ui) return;
   const connectionText: Record<Connection, string> = {
     live: '● Live', reconnecting: '● Reconnecting', disconnected: '● Disconnected',
@@ -454,17 +504,19 @@ function clock(timestamp: number): string {
 
 // --------------------------------------------------------------------------- interaction
 
-import { openWorkspace, openWorkView, openTask } from './navigation-state.ts';
+import { openWorkspace, openWorkView, openTask, setSelection } from './navigation-state.ts';
+import { registerKindRenderer, rerenderInspector, KIND_LABEL } from './context-inspector';
 
 function openView(view: string): void {
-  // Canonical navigation intents replace synthetic .click() chains
+  // Canonical navigation intents replace synthetic .click() chains.
+  // Regroup: memory lives in Knowledge now; overview is the Home workspace.
   const direct: Record<string, string> = {
     overview: 'home', activity: 'activity', evidence: 'results',
-    results: 'results', memory: 'system',
+    results: 'results', memory: 'knowledge',
   };
   const root = direct[view];
   if (root) {
-    openWorkspace(root as 'home' | 'activity' | 'results' | 'system');
+    openWorkspace(root as 'world' | 'home' | 'activity' | 'results' | 'knowledge');
     return;
   }
   const workview: Record<string, string> = {
@@ -480,6 +532,9 @@ function openView(view: string): void {
 function showBuilding(location: LocationId): void {
   const place = TOWN_LOCATIONS[location];
   if (!place || !ui) return;
+  // P2: a room pick is a canonical typed selection in the home scope, so the
+  // SAME contextual inspector ring that Work uses receives the room card.
+  setSelection('home', { kind: 'room', id: location });
   const role = ROLES.find(r => ROSTER[r].location === location);
   const resident = role ? town.residents[role] : null;
   const title = document.getElementById('world-room-title');
@@ -503,6 +558,8 @@ function showBuilding(location: LocationId): void {
 function showResident(role: Role): void {
   if (!ui || !ROLES.includes(role)) return;
   const resident = town.residents[role];
+  // P2: resident picks select their current room (one ring, room_id keyed).
+  setSelection('home', { kind: 'room', id: resident.location });
   const place = TOWN_LOCATIONS[resident.location];
   const card = document.createElement('div');
   card.className = 'town-card';

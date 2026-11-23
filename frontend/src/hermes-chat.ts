@@ -16,7 +16,7 @@ let activeTask='';let activeState='idle';let lastSeq=0;let socket:WebSocket|null
 let liveTask='';let liveText='';let liveBubble:HTMLElement|null=null;
 
 const root=document.createElement('div');root.id='hermes-chat-root';
-root.innerHTML=`<button id="hc-toggle" aria-label="Open Hermes chat" title="Hermes chat"><span class="hc-sigil" aria-hidden="true">✦</span><span>Chat</span></button>
+root.innerHTML=`<button id="hc-toggle" aria-label="Open Hermes conversation" title="Ask Hermesha anything"><span class="hc-sigil" aria-hidden="true">✦</span><span>Ask Hermesha anything…</span></button>
 <section id="hc-panel" role="dialog" aria-label="Hermes conversation" hidden>
  <header class="hc-head"><div class="hc-brand"><span class="hc-logo" aria-hidden="true">✦</span><div class="hc-brand-copy"><strong>Hermes</strong><small id="hc-state">Connected to Hermes Life</small></div></div><div class="hc-actions"><button id="hc-new" type="button" title="New conversation"><span class="hc-action-icon" aria-hidden="true">＋</span> New Chat</button><button id="hc-history" type="button" title="Conversation history"><span class="hc-action-icon" aria-hidden="true">☷</span> Threads</button><button id="hc-logout" type="button" title="Log out — return to the entrance gate"><span class="hc-action-icon" aria-hidden="true">⏻</span> Logout</button><button id="hc-passkey" type="button" title="Register a passkey on this device for passwordless unlock" hidden><span class="hc-action-icon" aria-hidden="true">🔑</span> Passkey</button><button id="hc-close" type="button" title="Close chat"><span class="hc-action-icon" aria-hidden="true">×</span> Close</button></div></header>
  <nav id="hc-threads" aria-label="Previous conversations" hidden></nav>
@@ -41,20 +41,47 @@ function makeHermeshaLabel(kind:'response'|'thought'):HTMLElement {
  name.textContent=kind==='thought'?"Hermesha's Thoughts":"Hermesha's Response";
  label.append(icon,name); return label;
 }
-let thoughtTask='';let thoughtText='';let thoughtBody:HTMLElement|null=null;
+// PHASE49_TRACE: ChatGPT-style reasoning/tool traces. Transient stream DOM is
+// presentation only (PHASE47 rule: never durable history); the trace content
+// is kept per task in-memory so render() can re-attach it under the finished
+// assistant turn. Reload clears it — durable traces need backend history.
+type TraceEntry={label:string;detail:string;result?:string};
+const traces=new Map<string,{thought:string;tools:TraceEntry[];open:boolean}>();
+function traceOf(taskId:string){let t=traces.get(taskId);if(!t){t={thought:'',tools:[],open:true};traces.set(taskId,t);if(traces.size>30){const oldest=traces.keys().next().value;if(oldest)traces.delete(oldest);}}return t;}
+function toolName(p:Record<string,unknown>):string{return String(p.tool??p.name??p.function_name??'tool');}
+function toolDetail(p:Record<string,unknown>):string{const raw=p.arguments??p.input??p.args??p.params??p;let s=typeof raw==='string'?raw:JSON.stringify(raw);if(!s||s==='{}')s='';return s.slice(0,260);}
+function toolResultText(p:Record<string,unknown>):string{const raw=p.text??p.output??p.result??p.content??p;const s=typeof raw==='string'?raw:JSON.stringify(raw);return (s||'').slice(0,400);}
+let traceEl:HTMLDetailsElement|null=null;let traceBody:HTMLElement|null=null;let traceTask='';
+function traceSummary(t:{thought:string;tools:TraceEntry[];open:boolean}):string{
+ const last=t.tools.length?t.tools[t.tools.length-1].label:'';
+ return t.thought&&!t.tools.length?'💭 Reasoning…':last?`Working — ${last}`:'💭 Reasoning & tool activity';
+}
+function ensureTrace(taskId:string):HTMLDetailsElement{
+ if(traceEl&&traceTask===taskId&&traceEl.isConnected)return traceEl;
+ const stick=followBottom();
+ traceEl=document.createElement('details');traceEl.className='hc-trace';traceEl.dataset.traceTask=taskId;traceEl.open=traces.get(taskId)?.open??true;
+ const summary=document.createElement('summary');summary.textContent=traceSummary(traceOf(taskId));
+ traceBody=document.createElement('div');traceBody.className='hc-trace-body';
+ traceEl.append(summary,traceBody);messages.append(traceEl);traceTask=taskId;
+ if(stick)messages.scrollTop=messages.scrollHeight;
+ return traceEl;
+}
+function renderTraceInto(host:HTMLElement,t:{thought:string;tools:TraceEntry[]},live:boolean):void{
+ host.replaceChildren();
+ if(t.thought){const d=document.createElement('details');d.className='hc-trace-thought';d.open=live;const s=document.createElement('summary');s.textContent='💭 Reasoning';const b=document.createElement('div');b.className='hc-body';renderHermesMarkdown(b,t.thought);d.append(s,b);host.append(d);}
+ for(const e of t.tools){const row=document.createElement('div');row.className='hc-tool';const head=document.createElement('div');head.className='hc-tool-head';head.textContent=`🔧 ${e.label}`;row.append(head);if(e.detail){const pre=document.createElement('pre');pre.className='hc-tool-detail';pre.textContent=e.detail;row.append(pre);}if(e.result){const out=document.createElement('pre');out.className='hc-tool-result';out.textContent=e.result;row.append(out);}host.append(row);}
+ if(!t.thought&&!t.tools.length)host.append(Object.assign(document.createElement('div'),{textContent:'No tool activity recorded yet.'}));
+}
+function refreshTrace(taskId:string):void{
+ const t=traceOf(taskId);const elx=ensureTrace(taskId);
+ const summary=elx.querySelector('summary')!;summary.textContent=traceSummary(t);
+ renderTraceInto(traceBody!,t,true);
+ const stick=followBottom();if(stick)messages.scrollTop=messages.scrollHeight;
+}
 function showExplicitThought(taskId:string,delta:string):void {
  if(taskId!==activeTask||!delta)return;
- const stick=followBottom();
- if(thoughtTask!==taskId){thoughtTask=taskId;thoughtText='';thoughtBody=null;}
- if(!thoughtBody||!thoughtBody.isConnected){
-   const section=document.createElement('article');section.className='hc-bubble assistant hc-thought';
-   section.dataset.thoughtTask=taskId;
-   thoughtBody=document.createElement('div');thoughtBody.className='hc-body';
-   section.append(makeHermeshaLabel('thought'),thoughtBody);messages.append(section);
- }
- thoughtText+=delta;
- renderHermesMarkdown(thoughtBody,thoughtText);
- if(stick)messages.scrollTop=messages.scrollHeight;
+ const t=traceOf(taskId);t.thought=(t.thought+delta).slice(-8000);
+ refreshTrace(taskId);
 }
 function hasExplicitThoughtMarker(payload:Record<string,unknown>):boolean {
  // Only explicit public runtime annotations qualify, never guessed from prose.
@@ -213,7 +240,7 @@ function streamBubble(taskId:string,delta:string){
  liveText+=delta;renderHermesMarkdown(liveBubble,liveText);
  if(stick)messages.scrollTop=messages.scrollHeight;
 }
-function clearStream(){liveTask='';liveText='';liveBubble=null;thoughtTask='';thoughtText='';thoughtBody=null;}
+function clearStream(){liveTask='';liveText='';liveBubble=null;traceEl=null;traceBody=null;traceTask='';}
 // PHASE48_SCROLL: preserve position on refresh; follow on completion/open.
 let hcRenderGeneration=0;
 async function render(forceBottom=false){
@@ -233,6 +260,8 @@ async function render(forceBottom=false){
     messages.replaceChildren();
     if(!data.turns.length){messages.textContent='No messages yet.';return;}
     for(const t of data.turns)addBubble(t.role,t.content,t.created_at,t.task_id,t.id);
+    // Re-attach in-memory reasoning/tool traces under their assistant turns.
+    for(const t of data.turns){if(t.role!=='assistant'||!t.task_id)continue;const tr=traces.get(t.task_id);if(!tr||(!tr.thought&&!tr.tools.length))continue;const det=document.createElement('details');det.className='hc-trace hc-trace-done';const s=document.createElement('summary');s.textContent=`💭 Reasoning & tool activity (${tr.tools.length} step${tr.tools.length===1?'':'s'})`;const b=document.createElement('div');b.className='hc-trace-body';renderTraceInto(b,tr,false);det.append(s,b);messages.append(det);}
     if(activeTask&&liveTask===activeTask&&liveText){const text=liveText;clearStream();streamBubble(activeTask,text);}
     const last=data.turns[data.turns.length-1];
     if(last.role==='user'&&last.task_id&&!['completed','failed','cancelled','stopped'].includes(activeState)){
@@ -244,7 +273,9 @@ async function render(forceBottom=false){
 async function refreshThreads(){try{const data=await request<{conversations:Conversation[]}>('/api/conversations');const nav=el('hc-threads');nav.replaceChildren();for(const t of data.conversations){const b=document.createElement('button');b.textContent=t.title||'Conversation';b.title=t.updated_at;b.onclick=()=>{conversationId=t.id;localStorage.setItem(stored,t.id);nav.hidden=true;clearStream();activeTask='';restoreChatSelection();void render(true)};nav.append(b)}}catch(err){feedback.textContent=String(err)}}
 async function pollTask(){if(!activeTask)return;try{const t=await request<Task>('/api/tasks/'+encodeURIComponent(activeTask));activeState=t.state;state('Task '+t.state);const running=['queued','running','pending'].includes(t.state);setRunning(running);if(!running){const finishedId=activeTask;activeTask='';await renderFinished();void refreshChatUsage(finishedId);}}catch(err){feedback.textContent=String(err)}}
 async function renderFinished(){clearStream();await render(true);}
-function eventItem(e:Evt){if(e.task_id!==activeTask)return;if(e.sequence<=lastSeq)return;lastSeq=e.sequence;if(e.type==='hermes.text'){const delta=e.payload?.text;if(typeof delta==='string'){if(hasExplicitThoughtMarker(e.payload))showExplicitThought(e.task_id||'',delta);else streamBubble(e.task_id||'',delta);}return;}const events=el('hc-events');const d=document.createElement('div');d.textContent=`${new Date(e.timestamp).toLocaleTimeString()} · ${e.type} · ${JSON.stringify(e.payload).slice(0,550)}`;events.append(d);while(events.childElementCount>120)events.firstElementChild?.remove();events.scrollTop=events.scrollHeight;if(e.type==='task.completed'||e.type==='task.failed'||e.type==='task.cancelled'){void pollTask()}else if(e.type==='task.started')state('Hermes is executing');}
+function eventItem(e:Evt){if(e.task_id!==activeTask)return;if(e.sequence<=lastSeq)return;lastSeq=e.sequence;if(e.type==='hermes.text'){const delta=e.payload?.text;if(typeof delta==='string'){if(hasExplicitThoughtMarker(e.payload))showExplicitThought(e.task_id||'',delta);else streamBubble(e.task_id||'',delta);}return;}
+if(e.type==='hermes.tool_use'||e.type==='hermes.tool_result'){const p=e.payload||{};const t=traceOf(e.task_id||'');if(e.type==='hermes.tool_use')t.tools.push({label:toolName(p),detail:toolDetail(p)});else if(t.tools.length)t.tools[t.tools.length-1].result=toolResultText(p);if(activeTask)refreshTrace(e.task_id||'');}
+const events=el('hc-events');const d=document.createElement('div');d.textContent=`${new Date(e.timestamp).toLocaleTimeString()} · ${e.type} · ${JSON.stringify(e.payload).slice(0,550)}`;events.append(d);while(events.childElementCount>120)events.firstElementChild?.remove();events.scrollTop=events.scrollHeight;if(e.type==='task.completed'||e.type==='task.failed'||e.type==='task.cancelled'){void pollTask()}else if(e.type==='task.started')state('Hermes is executing');}
 function connect(){socket?.close();const ws=new WebSocket(`${location.protocol==='https:'?'wss':'ws'}://${location.host}/ws/events?after=${lastSeq}`);socket=ws;ws.onmessage=ev=>{try{eventItem(JSON.parse(ev.data) as Evt)}catch{}};ws.onclose=()=>{if(socket===ws)setTimeout(connect,2500)};}
 // HL-CONV-001: Hermes Chat is the primary conversational surface. Any
 // workspace (Task Board, thread views) can request a hand-off here —

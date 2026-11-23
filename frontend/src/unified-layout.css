@@ -8,8 +8,9 @@
     display: grid;
     grid-template-areas:
         "header header header"
-        "nav    main   panel";
-    grid-template-rows: 60px minmax(0, 1fr);
+        "nav    main   panel"
+        "status status status";
+    grid-template-rows: 60px minmax(0, 1fr) 36px;
     height: 100vh;
     height: 100dvh;
     overflow: hidden;
@@ -20,25 +21,39 @@
 
 /* ---- region areas ---- */
 #app .topbar            { grid-area: header; min-width: 0; }
-#app #primary-nav       { grid-area: nav;    min-width: 0; }
+#app #primary-nav       { grid-area: nav;    min-width: 0; min-height: 0; }
 #app #main-workspace    { grid-area: main;   min-width: 0; min-height: 0; overflow: auto; }
+#app #status-strip      { grid-area: status; min-width: 0; }
 /* style.css lays `main` out as the old 2-col dashboard grid; the unified shell stacks one
    workspace at a time, so force block or every view is squeezed to a 320px-less column. */
 #app #main-workspace { display: block; }
 #app #contextual-panel  { grid-area: panel;  min-width: 0; min-height: 0; overflow-y: auto; }
 
 /* ---- layout variants: width of the contextual panel, world size ---- */
+/* Navigation rail: 220px expanded (spec §2: 210–240), 64px collapsed.
+   Inspector: var(--inspector-w, 348px) within the 320–380 band (JS-clamped),
+   collapsible to 0. */
 #app.layout-home,
 #app.layout-workspace {
-    grid-template-columns: 84px minmax(0, 1fr) 348px;
+    grid-template-columns: 220px minmax(0, 1fr) var(--inspector-w, 348px);
 }
 #app.layout-focus {
-    grid-template-columns: 84px minmax(0, 1fr) 0;
+    grid-template-columns: 220px minmax(0, 1fr) 0;
 }
-#app.layout-focus #contextual-panel {
-    border: 0;
-    padding: 0;
-    overflow: hidden;
+#app.nav-collapsed.layout-home,
+#app.nav-collapsed.layout-workspace {
+    grid-template-columns: 64px minmax(0, 1fr) var(--inspector-w, 348px);
+}
+#app.nav-collapsed.layout-focus {
+    grid-template-columns: 64px minmax(0, 1fr) 0;
+}
+#app.inspector-collapsed.layout-home,
+#app.inspector-collapsed.layout-workspace {
+    grid-template-columns: 220px minmax(0, 1fr) 0;
+}
+#app.inspector-collapsed.nav-collapsed.layout-home,
+#app.inspector-collapsed.nav-collapsed.layout-workspace {
+    grid-template-columns: 64px minmax(0, 1fr) 0;
 }
 
 /* Override the historical fixed height / grid-column on <aside> and the old #shell sizing. */
@@ -68,6 +83,7 @@
 }
 #app .topbar .brand h1 { font-size: 17px; letter-spacing: .02em; }
 #app .topbar .brand p { font-size: 11px; margin-top: 2px; }
+#app .topbar .hc-header-actions { display: flex; align-items: center; gap: 8px; flex: 0 0 auto; }
 #global-status {
     display: flex;
     align-items: center;
@@ -304,8 +320,14 @@
    current work) remain above the fold on a normal desktop viewport (P1
    audit §7). */
 @media (max-width: 1080px) {
-    #app.layout-home { grid-template-columns: 84px minmax(0, 1fr) 0; }
+    #app.layout-home { grid-template-columns: 64px minmax(0, 1fr) 0; }
     #app.layout-home #contextual-panel { border: 0; padding: 0; overflow: hidden; }
+    /* Narrow screens: the rail is collapsed-width and icon-only regardless
+       of the persisted collapse state (spec §2 narrow behavior). */
+    #app .hc-nav-caption,
+    #app .hc-room-link,
+    #app #primary-nav .nav-sep { display: none; }
+    #app #primary-nav button { text-align: center; padding-left: 2px; padding-right: 2px; overflow: hidden; white-space: nowrap; }
 }
 #app #contextual-panel .ctx-block { display: flex; flex-direction: column; gap: 10px; }
 #app #contextual-panel .ctx-block + .ctx-block { margin-top: 10px; border-top: 1px solid #1c3a47; padding-top: 10px; }
@@ -1359,3 +1381,432 @@
 #registered-form { display: flex; flex-direction: column; gap: .45rem; margin-top: .5rem; max-width: 34rem; }
 #registered-form label { display: flex; flex-direction: column; gap: .15rem; font-size: .85rem; }
 #registered-error { color: #f66; margin: 0; font-size: .85rem; }
+
+/* ===== P1 Conversations: focus presentation of the single chat system ===== */
+/* The floating corner chat panel (#hermes-chat-root) is reparented into the
+   Conversations workspace; these rules restyle it as a centered focus
+   surface (max 960px) without touching the module's state or listeners. */
+#workspace-conversations { display: flex; flex-direction: column; overflow: hidden; }
+#workspace-conversations .chat-focus-host {
+    flex: 1 1 auto;
+    min-height: 0;
+    display: flex;
+    align-items: stretch;
+    justify-content: center;
+    padding: 0 1.25rem 1.25rem;
+}
+#app.chat-focus #hermes-chat-root.in-focus-host {
+    position: static;
+    right: auto;
+    bottom: auto;
+    z-index: auto;
+    flex: 1 1 auto;
+    min-height: 0;
+    width: 100%;
+    max-width: 960px;
+}
+#app.chat-focus #hermes-chat-root.in-focus-host #hc-panel {
+    position: relative;
+    right: auto;
+    bottom: auto;
+    width: 100%;
+    height: 100%;
+    border-radius: 18px;
+}
+/* In focus mode the module's own toggle button is irrelevant; hide it so the
+   workspace surface looks intentional (panel is force-opened by main.v2). */
+#app.chat-focus #hermes-chat-root.in-focus-host #hc-toggle { display: none; }
+
+/* ===== P1: status strip (bottom, 32–40px) ===== */
+#app #status-strip {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 0 14px;
+    border-top: 1px solid #1c3a47;
+    background: #0e1720;
+    font-size: 11px;
+    overflow: hidden;
+}
+#app #status-strip #global-status {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: nowrap;
+    min-width: 0;
+    overflow: hidden;
+}
+#app #status-strip #global-status span {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+#app #status-running-count[data-state="none"] { color: #aebed0; }
+#app #status-running-count[data-state="running"] {
+    color: #93c6f2;
+    border: 1px solid #33506e;
+    border-radius: 10px;
+    padding: 2px 8px;
+}
+#app #status-latest-event { color: #7f9aa0; }
+#app .status-strip-actions { display: flex; align-items: center; gap: 8px; flex: 0 0 auto; }
+#app #status-open-activity {
+    padding: 4px 10px;
+    background: none;
+    border: 1px solid #35505c;
+    border-radius: 8px;
+    color: #abc6c2;
+    font-size: 11px;
+    cursor: pointer;
+}
+#app #status-open-activity:hover { background: #152633; color: #e6efe9; }
+
+/* ===== P1: nav rail expand/collapse ===== */
+#app #primary-nav { overflow: hidden auto; }
+#app #primary-nav #nav-collapse {
+    width: 100%;
+    padding: 6px 8px;
+    background: none;
+    border: 1px solid transparent;
+    border-radius: 8px;
+    color: #7f9aa0;
+    font-size: 13px;
+    cursor: pointer;
+    text-align: left;
+}
+#app #primary-nav #nav-collapse:hover { background: #152633; color: #e6efe9; }
+#app.nav-collapsed #primary-nav #nav-collapse { text-align: center; }
+#app.nav-collapsed #primary-nav .hc-nav-caption,
+#app.nav-collapsed #primary-nav .hc-room-link,
+#app.nav-collapsed #primary-nav .nav-sep { display: none; }
+#app.nav-collapsed #primary-nav button {
+    text-align: center;
+    padding-left: 2px;
+    padding-right: 2px;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: clip;
+}
+
+/* ===== P1: resizable + collapsible inspector ===== */
+/* The drag grip and the collapse tab are fixed to the viewport so they stay
+   reachable while the inspector content scrolls. The panel column width is
+   driven by --inspector-w (set and clamped by main.v2). */
+#app #inspector-grip {
+    position: fixed;
+    top: 60px;
+    bottom: 36px;
+    right: calc(var(--inspector-w, 348px) - 4px);
+    width: 9px;
+    cursor: ew-resize;
+    z-index: 70;
+    touch-action: none;
+}
+#app #inspector-grip::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 3px;
+    width: 2px;
+    border-radius: 2px;
+    background: #2b5262;
+    opacity: 0;
+    transition: opacity .15s ease;
+}
+#app #inspector-grip:hover::after,
+#app #inspector-grip[data-dragging="1"]::after { opacity: 1; }
+#app.layout-focus #inspector-grip,
+#app.inspector-collapsed #inspector-grip { display: none; }
+
+#app #ctx-collapse {
+    position: fixed;
+    top: 70px;
+    right: 6px;
+    z-index: 75;
+    padding: 2px 8px;
+    background: #0e1720;
+    border: 1px solid #35505c;
+    border-radius: 8px;
+    color: #abc6c2;
+    font-size: 13px;
+    line-height: 1.2;
+    cursor: pointer;
+}
+#app #ctx-collapse:hover { background: #152633; color: #e6efe9; }
+#app.layout-focus #ctx-collapse { display: none; }
+/* Collapsed: the panel column is 0 — the tab becomes the reopen control. */
+#app.inspector-collapsed #ctx-collapse {
+    right: 4px;
+    top: 64px;
+    border-color: #426574;
+    color: #87e7ba;
+}
+
+/* ===== P1: inspector overlays content at 1024–1439px (spec §2) ===== */
+@media (max-width: 1439px) {
+    #app.layout-home,
+    #app.layout-workspace {
+        grid-template-columns: 220px minmax(0, 1fr) 0;
+    }
+    #app.nav-collapsed.layout-home,
+    #app.nav-collapsed.layout-workspace {
+        grid-template-columns: 64px minmax(0, 1fr) 0;
+    }
+    #app.layout-home #contextual-panel,
+    #app.layout-workspace #contextual-panel {
+        position: fixed;
+        top: 60px;
+        bottom: 36px;
+        right: 0;
+        width: var(--inspector-w, 348px);
+        box-shadow: -14px 0 34px #000a;
+        z-index: 60;
+    }
+    /* Overlaid panel has no drag grip (fixed grip position is meaningless
+       once the panel floats); collapse/expand still works. */
+    #app #inspector-grip { display: none; }
+    #app.inspector-collapsed #contextual-panel { display: none; }
+}
+
+/* ===== P3: Attention Center ===== */
+#app #attention-badge {
+    min-width: 18px;
+    height: 18px;
+    padding: 0 5px;
+    border-radius: 10px;
+    background: #e8a45c;
+    color: #10161c;
+    font-size: 11px;
+    font-weight: 700;
+    line-height: 18px;
+    text-align: center;
+    cursor: pointer;
+}
+#app .attention-list { display: flex; flex-direction: column; gap: 14px; max-width: 860px; }
+#app .attention-list h2 { font-size: 14px; color: #abc6c2; margin: 12px 0 2px; letter-spacing: .02em; }
+#app .attention-item {
+    border: 1px solid #223a46;
+    border-left: 3px solid #e8a45c;
+    border-radius: 10px;
+    background: #101a23;
+    padding: 12px 14px;
+}
+#app .attention-item[data-group="review"] { border-left-color: #93c6f2; }
+#app .attention-item[data-group="blocked"] { border-left-color: #f2a6a0; }
+#app .attention-item[data-group="memory"] { border-left-color: #b79be0; }
+#app .attention-item h3 { font-size: 14px; margin: 0 0 6px; }
+#app .attention-item dl { margin: 0; display: grid; grid-template-columns: 130px 1fr; gap: 2px 10px; font-size: 12px; }
+#app .attention-item dt { color: #7f9aa0; font-weight: 600; }
+#app .attention-item dd { margin: 0; color: #dceae7; overflow-wrap: anywhere; }
+#app .attention-actions { margin-top: 8px; display: flex; gap: 8px; }
+#app .attention-actions button {
+    padding: 5px 12px;
+    background: #1b3542;
+    border: 1px solid #2b5262;
+    border-radius: 8px;
+    color: #eef6f0;
+    font-size: 12px;
+    cursor: pointer;
+}
+#app .attention-actions button:hover { background: #22485a; }
+#app .attention-empty, #app .attention-error { color: #8cafb7; font-size: 12px; }
+#app .attention-error { color: #f2a6a0; }
+
+/* ===== P4: vault memory block (Knowledge Deck) ===== */
+#app .knowledge-vault { margin-top: 18px; border-top: 1px solid #1c3a47; padding-top: 12px; }
+#app .knowledge-vault-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; margin-bottom: 8px; }
+#app .knowledge-vault-head h3 { font-size: 14px; margin: 0; }
+#app .knowledge-vault-head h3 small { color: #7f9aa0; font-weight: 500; font-size: 11px; margin-left: 6px; }
+#app #vault-health { font-size: 12px; color: #dceae7; display: flex; align-items: baseline; gap: 6px; }
+#app #vault-health small { color: #7f9aa0; }
+#app .vault-health-ok { color: #87e7ba; border: 1px solid #2f6f57; border-radius: 10px; padding: 2px 8px; }
+#app .vault-health-bad { color: #f2a6a0; border: 1px solid #7a3a38; border-radius: 10px; padding: 2px 8px; }
+#app #vault-results { margin-top: 8px; max-height: 420px; overflow-y: auto; }
+#app .vault-note-title { margin: 8px 0 4px; font-size: 14px; }
+
+/* ===== P5: Research workspace ===== */
+#app .research-session {
+    display: flex;
+    gap: 8px;
+    max-width: 760px;
+    margin: 12px 0 6px;
+}
+#app .research-session input {
+    flex: 1 1 auto;
+    background: #08161d;
+    color: #e6efe9;
+    border: 1px solid #223a46;
+    border-radius: 8px;
+    padding: 8px 10px;
+    font-family: inherit;
+    font-size: 13px;
+}
+#app .research-session button {
+    padding: 8px 16px;
+    border-radius: 8px;
+    border: 1px solid #2f6f57;
+    background: #1b3542;
+    color: #eef6f0;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+}
+#app .research-session button:hover { background: #244658; }
+#app #research-status { font-size: 12px; color: #8cafb7; min-height: 16px; margin-bottom: 8px; }
+#app #research-status[data-error="true"] { color: #f2a6a0; }
+#app .research-columns {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 14px;
+    align-items: start;
+}
+#app .research-col {
+    border: 1px solid #223a46;
+    border-radius: 10px;
+    background: #101a23;
+    padding: 12px 14px;
+    min-width: 0;
+}
+#app .research-col h3 { margin: 0 0 8px; font-size: 13px; color: #e1d6bc; }
+#app .research-fact, #app .research-finding, #app .research-question, #app .research-note {
+    border: 1px solid #1c3a47;
+    border-radius: 8px;
+    background: #0d1a22;
+    padding: 9px 11px;
+    margin-bottom: 8px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+#app .research-fact strong, #app .research-finding strong, #app .research-question strong, #app .research-note strong {
+    color: #cfe6f7;
+    font-size: 12.5px;
+}
+#app .research-fact small, #app .research-finding small, #app .research-question small, #app .research-note small {
+    color: #7f9aa0;
+    font-size: 10.5px;
+}
+#app .research-fact-text {
+    margin: 0;
+    color: #dceae7;
+    font-size: 12px;
+    line-height: 1.45;
+    overflow-wrap: anywhere;
+}
+#app .research-link {
+    color: #87e7ba;
+    font-size: 11.5px;
+    text-decoration: underline;
+    cursor: pointer;
+    align-self: flex-start;
+}
+#app .research-state {
+    align-self: flex-start;
+    padding: 1px 8px;
+    border-radius: 20px;
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: .04em;
+    background: #223c4a;
+    color: #bfe0d8;
+}
+#app .research-actions { display: flex; gap: 6px; margin-top: 4px; }
+#app .research-actions button {
+    padding: 4px 10px;
+    border-radius: 8px;
+    border: 1px solid #2b5262;
+    background: #12212c;
+    color: #dceae7;
+    font-size: 11px;
+    cursor: pointer;
+}
+#app .research-actions button:hover { border-color: #3d6b5e; color: #eef6f0; }
+#app .research-note-open {
+    background: none;
+    border: 0;
+    text-align: left;
+    color: inherit;
+    font: inherit;
+    cursor: pointer;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+#app .research-empty { color: #8cafb7; font-size: 12px; }
+
+/* ===== P4: note graph ===== */
+#app .vault-graph-btn {
+    margin-top: 10px;
+    padding: 5px 12px;
+    border-radius: 8px;
+    border: 1px solid #2b5262;
+    background: #12212c;
+    color: #dceae7;
+    font-size: 11.5px;
+    cursor: pointer;
+}
+#app .vault-graph-btn:hover { border-color: #3d6b5e; color: #eef6f0; }
+#app .vault-graph { margin-top: 8px; }
+#app .vault-graph-link {
+    padding: 1px 7px;
+    border-radius: 10px;
+    border: 1px solid #2b5262;
+    background: #12212c;
+    color: #cfe6f7;
+    font-size: 10.5px;
+    cursor: pointer;
+}
+#app .vault-graph-link:hover { border-color: #3d6b5e; color: #eef6f0; }
+#app .vault-graph-project {
+    padding: 1px 7px;
+    border-radius: 10px;
+    border: 1px solid #6a5e22;
+    background: #2c2a14;
+    color: #f1d68a;
+    font-size: 10.5px;
+}
+
+/* ===== Conversation overlay: minimized / docked / focused =====
+   Three presentations of ONE conversation system (state lives in
+   hermes-chat.ts; these rules only reposition the same DOM). */
+/* Minimized: a centered launcher pill at the bottom of the application. */
+#hermes-chat-root {
+    left: 50%;
+    right: auto;
+    transform: translateX(-50%);
+    bottom: 46px; /* sits above the 36px status strip */
+}
+#app #hc-toggle {
+    min-width: min(420px, 56vw);
+    justify-content: flex-start;
+    gap: 10px;
+    padding: 10px 18px;
+    border-radius: 999px;
+    background: #102b35;
+    border: 1px solid #527f83;
+    color: #9bb6be;
+    font-size: 13px;
+    box-shadow: 0 10px 30px #0009;
+}
+#app #hc-toggle:hover { color: #e4f3f4; border-color: #7ab0a3; }
+/* Docked: the panel centers above the pill instead of hanging off a corner. */
+#hermes-chat-root:not(.in-focus-host) #hc-panel {
+    left: 50%;
+    right: auto;
+    transform: translateX(-50%);
+}
+/* Focused (Conversations workspace): the reparented root is a static flex
+   child — no viewport centering transforms may leak in. */
+#hermes-chat-root.in-focus-host {
+    left: auto;
+    transform: none;
+}
+#hermes-chat-root.in-focus-host #hc-panel { left: auto; transform: none; }
+@media (max-width: 600px) {
+    #hermes-chat-root { left: 50%; right: auto; transform: translateX(-50%); bottom: 40px; }
+    #app #hc-toggle { min-width: min(320px, 86vw); }
+}

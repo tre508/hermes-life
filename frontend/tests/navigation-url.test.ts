@@ -148,7 +148,7 @@ test('parseNavQuery accepts valid enums and ignores invalid ones', () => {
 });
 
 test('round-trip: parse(serialize(state)) preserves workspace/workview/task', () => {
-    for (const ws of ['home', 'work', 'activity', 'results', 'system'] as const) {
+    for (const ws of ['world', 'home', 'work', 'activity', 'results', 'knowledge'] as const) {
         for (const wv of ['tasks', 'discover', 'goals', 'planning', 'build'] as const) {
             const q = nav.serializeNavQuery({
                 workspace: ws, workView: wv, selectedTaskId: 'tid-1',
@@ -162,6 +162,10 @@ test('round-trip: parse(serialize(state)) preserves workspace/workview/task', ()
             assert.equal(parsed.selectedTaskId, 'tid-1');
         }
     }
+});
+
+test('regroup: ?view=system (Memory) redirects to knowledge', () => {
+    assert.equal(nav.parseNavQuery('view=system').workspace, 'knowledge');
 });
 
 // ---------------------------------------------------------------------------
@@ -246,9 +250,9 @@ test('Back returns to the previous workspace/subview/task deterministically', as
     assert.equal(snap.workspace, 'work');
     assert.equal(snap.workView, 'tasks');
 
-    (g.history as FakeHistory).back(); // back to bare home
+    (g.history as FakeHistory).back(); // back to bare world (regroup default)
     snap = nav.getNavigationState();
-    assert.equal(snap.workspace, 'home');
+    assert.equal(snap.workspace, 'world');
 
     (g.history as FakeHistory).forward(); // forward to work/tasks
     snap = nav.getNavigationState();

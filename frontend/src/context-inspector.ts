@@ -27,6 +27,7 @@ export const KIND_LABEL: Record<SelectionKind, string> = {
     plan: 'Plan',
     build: 'Implementation run',
     project: 'Project',
+    room: 'Location',
 };
 
 /** Per-view short summary shown when the inspector is empty. */
@@ -65,16 +66,31 @@ function render() {
     const { panel, body } = panelElements();
     if (!panel || !body) return;
     const ws = getCurrentWorkspace();
-    // The inspector is a Work-area panel; other workspaces keep it hidden.
-    if (ws !== 'work') {
+    // The inspector serves Work views and, since P2, Home/World room picks.
+    if (ws !== 'work' && ws !== 'home' && ws !== 'world') {
         panel.hidden = true;
         return;
     }
-    panel.hidden = false;
+    if (ws === 'home' || ws === 'world') {
+        // Home/World: the inspector only appears once a room is selected — the
+        // ctx-home block owns the empty state (persona, new task, current work).
+        // Room selections persist under the home scope key.
+        const roomSel = getValidSelection('home');
+        if (!roomSel) {
+            panel.hidden = true;
+            return;
+        }
+        panel.hidden = false;
+        body.replaceChildren();
+        const renderer = kindRenderers.get(roomSel.kind);
+        if (renderer) renderer(roomSel, body);
+        return;
+    }
     const view = getCurrentWorkView();
     const sel = getValidSelection(view);
-    body.replaceChildren();
     if (sel) {
+        panel.hidden = false;
+        body.replaceChildren();
         const renderer = kindRenderers.get(sel.kind);
         if (renderer) {
             renderer(sel, body);
@@ -89,11 +105,16 @@ function render() {
         }
         return;
     }
+    // No selection: show a real summary only when the view provides one.
+    // A bare "select something" placeholder is not useful — collapse instead
+    // (regroup feedback §2: the inspector never holds the screen idle).
     const summary = summaryProviders.get(view)?.() ?? null;
-    const h = document.createElement('strong');
-    h.textContent = view.charAt(0).toUpperCase() + view.slice(1);
-    body.append(h);
     if (summary) {
+        panel.hidden = false;
+        body.replaceChildren();
+        const h = document.createElement('strong');
+        h.textContent = view.charAt(0).toUpperCase() + view.slice(1);
+        body.append(h);
         const p = document.createElement('p');
         p.textContent = summary.line;
         body.append(p);
@@ -103,11 +124,9 @@ function render() {
             chips.textContent = summary.chips.map(c => `${c.count} ${c.label}`).join(' · ');
             body.append(chips);
         }
-    } else {
-        const p = document.createElement('p');
-        p.textContent = `Select a ${KIND_LABEL[(view === 'planning' ? 'plan' : view === 'goals' ? 'goal' : view === 'discover' ? 'discovery' : view === 'build' ? 'build' : view === 'projects' ? 'project' : 'task')].toLowerCase()} to see it here.`;
-        body.append(p);
+        return;
     }
+    panel.hidden = true;
 }
 
 let wired = false;

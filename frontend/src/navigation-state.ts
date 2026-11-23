@@ -19,12 +19,12 @@
  *     same-URL navigation) so back/forward stay deterministic
  */
 
-export type Workspace = 'home' | 'work' | 'activity' | 'results' | 'system' | 'knowledge';
+export type Workspace = 'world' | 'home' | 'conversations' | 'attention' | 'work' | 'activity' | 'results' | 'system' | 'knowledge' | 'research';
 export type WorkView = 'tasks' | 'discover' | 'goals' | 'planning' | 'build' | 'projects';
 export type TaskView = 'overview' | 'investigation' | 'plan' | 'changes' | 'tests' | 'evidence';
 export type ActivityFilter = 'selected' | 'all';
 
-export const WORKSPACES: readonly Workspace[] = ['home', 'work', 'activity', 'results', 'system', 'knowledge'] as const;
+export const WORKSPACES: readonly Workspace[] = ['world', 'home', 'conversations', 'attention', 'work', 'activity', 'results', 'system', 'knowledge', 'research'] as const;
 export const WORK_VIEWS: readonly WorkView[] = ['tasks', 'discover', 'goals', 'planning', 'build', 'projects'] as const;
 export const TASK_VIEWS: readonly TaskView[] = ['overview', 'investigation', 'plan', 'changes', 'tests', 'evidence'] as const;
 
@@ -40,7 +40,7 @@ export interface NavigationState {
 }
 
 const DEFAULT_NAV: NavigationState = {
-    workspace: 'home',
+    workspace: 'world',
     workView: 'tasks',
     selectedTaskId: null,
     taskView: 'overview',
@@ -94,7 +94,7 @@ function setState(partial: Partial<NavigationState>) {
  * per-view selection context.
  * ===================================================================== */
 
-export type SelectionKind = 'task' | 'discovery' | 'goal' | 'plan' | 'build' | 'project';
+export type SelectionKind = 'task' | 'discovery' | 'goal' | 'plan' | 'build' | 'project' | 'room';
 export interface Selection { kind: SelectionKind; id: string; }
 
 /** Domain kinds each Work view can legitimately display in the inspector. */
@@ -107,21 +107,32 @@ export const VIEW_SELECTION_KINDS: Record<WorkView, readonly SelectionKind[]> = 
     projects: ['project'],
 };
 
+/** Selection scopes: each Work view, plus the Home/World workspace (room picks). */
+export type SelectionScope = WorkView | 'home';
+
+/** The World selects locations by their stable LocationId (kind 'room'). */
+const HOME_SELECTION_KINDS: readonly SelectionKind[] = ['room'];
+
+/** The selection kinds each scope's inspector can display. */
+function acceptedKinds(view: SelectionScope): readonly string[] {
+    return view === 'home' ? HOME_SELECTION_KINDS : VIEW_SELECTION_KINDS[view];
+}
+
 export const HERMES_SELECTIONS_KEY = 'hermes-life-selections';
 
-let selections: Record<WorkView, Selection | null> = loadSelections();
+let selections: Record<SelectionScope, Selection | null> = loadSelections();
 
-function loadSelections(): Record<WorkView, Selection | null> {
-    const empty = Object.fromEntries(WORK_VIEWS.map(v => [v, null])) as Record<WorkView, Selection | null>;
+function loadSelections(): Record<SelectionScope, Selection | null> {
+    const empty = Object.fromEntries([...WORK_VIEWS, 'home'].map(v => [v, null])) as Record<SelectionScope, Selection | null>;
     try {
         const raw = localStorage.getItem(HERMES_SELECTIONS_KEY);
         if (!raw) return empty;
         const parsed = JSON.parse(raw) as Record<string, unknown>;
-        for (const view of WORK_VIEWS) {
+        for (const view of [...WORK_VIEWS, 'home'] as SelectionScope[]) {
             const sel = parsed[view];
             if (sel && typeof sel === 'object'
                 && typeof (sel as Selection).id === 'string' && (sel as Selection).id
-                && (VIEW_SELECTION_KINDS[view] as readonly string[]).includes((sel as Selection).kind)) {
+                && acceptedKinds(view).includes((sel as Selection).kind)) {
                 empty[view] = { kind: (sel as Selection).kind, id: (sel as Selection).id };
             }
         }
@@ -133,33 +144,33 @@ function persistSelections() {
     try { localStorage.setItem(HERMES_SELECTIONS_KEY, JSON.stringify(selections)); } catch { /* storage unavailable */ }
 }
 
-const selectionListeners = new Set<(sel: Record<WorkView, Selection | null>) => void>();
+const selectionListeners = new Set<(sel: Record<SelectionScope, Selection | null>) => void>();
 
 /** Subscribe to selection changes. Returns unsubscribe function. */
-export function onSelectionChange(fn: (sel: Record<WorkView, Selection | null>) => void): () => void {
+export function onSelectionChange(fn: (sel: Record<SelectionScope, Selection | null>) => void): () => void {
     selectionListeners.add(fn);
     return () => selectionListeners.delete(fn);
 }
 
-/** The selection stored for a workview (may belong to a foreign kind after re-mapping; validate with viewAccepts). */
-export function getSelection(view: WorkView): Selection | null {
+/** The selection stored for a scope (may belong to a foreign kind after re-mapping; validate with viewAccepts). */
+export function getSelection(view: SelectionScope): Selection | null {
     return selections[view] ?? null;
 }
 
 /** Whether `sel`'s kind is displayable in `view`'s inspector. */
-export function viewAccepts(view: WorkView, sel: Selection | null): boolean {
+export function viewAccepts(view: SelectionScope, sel: Selection | null): boolean {
     if (!sel) return false;
-    return (VIEW_SELECTION_KINDS[view] as readonly string[]).includes(sel.kind);
+    return acceptedKinds(view).includes(sel.kind);
 }
 
-/** The selection for a view if its kind matches that view's domain, else null. */
-export function getValidSelection(view: WorkView): Selection | null {
+/** The selection for a scope if its kind matches that scope's domain, else null. */
+export function getValidSelection(view: SelectionScope): Selection | null {
     const sel = getSelection(view);
     return viewAccepts(view, sel) ? sel : null;
 }
 
-/** Set (or clear) the selection owned by a workview. Persists and notifies. */
-export function setSelection(view: WorkView, sel: Selection | null) {
+/** Set (or clear) the selection owned by a scope. Persists and notifies. */
+export function setSelection(view: SelectionScope, sel: Selection | null) {
     const prev = selections[view];
     const same = (prev?.id === sel?.id) && (prev?.kind === sel?.kind);
     selections = { ...selections, [view]: sel && sel.id ? { kind: sel.kind, id: sel.id } : null };
@@ -194,7 +205,10 @@ export function parseNavQuery(query: string): Partial<NavigationState> {
     const partial: Partial<NavigationState> = {};
 
     const view = params.get('view');
-    if (isWorkspace(view)) partial.workspace = view;
+    if (isWorkspace(view)) {
+        // Memory folded into Knowledge (nav regroup): old deep links follow.
+        partial.workspace = view === 'system' ? 'knowledge' : view;
+    }
 
     const workview = params.get('workview');
     if (isWorkView(workview)) partial.workView = workview;
@@ -413,8 +427,8 @@ export function openActivityAll(opts?: { replace?: boolean }) {
  */
 export function selectRoom(roomKey: string, opts?: { push?: boolean }) {
     window.dispatchEvent(new CustomEvent('hermesha:room:select', { detail: { room: roomKey } }));
-    if (opts?.push && state.workspace === 'home') {
-        // Rooms are part of the Home view, encoded as a room param.
+    if (opts?.push && state.workspace === 'world') {
+        // Rooms are part of the World view, encoded as a room param.
         const params = new URLSearchParams(serializeNavQuery(state));
         params.set('room', roomKey);
         const url = `${location.pathname}?${params.toString()}`;

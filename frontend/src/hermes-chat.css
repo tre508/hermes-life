@@ -29,3 +29,17 @@
 #hc-messages .hc-streaming .hc-body::after { content: '▍'; color: #8fdfc7; animation: hc-caret 1s steps(1,end) infinite; }
 @keyframes hc-caret { 50% { opacity: 0; } }
 @media (prefers-reduced-motion: reduce) { #hc-messages .hc-streaming .hc-body::after { animation: none; } }
+
+/* PHASE49_TRACE: in-thread reasoning & tool activity (ChatGPT-style). */
+#hc-panel .hc-trace{margin:8px 0;border:1px solid #2b5262;border-radius:12px;background:#0d222bcc;font-size:12px}
+#hc-panel .hc-trace>summary{cursor:pointer;padding:7px 12px;color:#9bb6be;font-weight:600;list-style:none;user-select:none}
+#hc-panel .hc-trace>summary::before{content:'▸ ';color:#7ab0a3}
+#hc-panel .hc-trace[open]>summary::before{content:'▾ '}
+#hc-panel .hc-trace-body{padding:4px 12px 10px;display:flex;flex-direction:column;gap:6px}
+#hc-panel .hc-trace-thought>summary{cursor:pointer;color:#b79be0;font-weight:600;padding:2px 0}
+#hc-panel .hc-trace-thought .hc-body{color:#c8d9de;padding:4px 0 0}
+#hc-panel .hc-tool{border-left:2px solid #2f6f57;padding:2px 0 2px 10px}
+#hc-panel .hc-tool-head{color:#9ce5c7;font-weight:600}
+#hc-panel .hc-tool-detail,#hc-panel .hc-tool-result{margin:3px 0 0;padding:6px 8px;background:#091e26;border:1px solid #1c3a47;border-radius:8px;color:#a9c6c3;font-size:11px;white-space:pre-wrap;overflow-wrap:anywhere;max-height:180px;overflow-y:auto}
+#hc-panel .hc-tool-result{color:#87e7ba;border-color:#2f6f57}
+#hc-panel .hc-trace-done{opacity:.92}

@@ -26,8 +26,10 @@ import './work-workspace';
 import './portfolio-view';
 import './command-centre-ui';
 import './knowledge-workspace';
+import { refreshAttention } from './attention-center';
+import './research-workspace';
 import { initContextInspector } from './context-inspector';
-import { openWorkspace, openWorkView, openTask, openResult, openActivityForTask, onNavigationChange, initHistory, handleLegacyOpenTask } from './navigation-state.ts';
+import { openWorkspace, openWorkView, openTask, openResult, openActivityForTask, openActivityAll, onNavigationChange, initHistory, handleLegacyOpenTask } from './navigation-state.ts';
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string): T | null => document.getElementById(id) as T | null;
 const str = (v: unknown): string => (typeof v === 'string' ? v : v == null ? '' : String(v));
@@ -38,7 +40,7 @@ if (versionPill) versionPill.textContent = 'HERMESHA / 0.4.0';
 
 // ============================= workspace & layout =============================
 const app = $('app')!;
-const workspaces = ['home', 'work', 'activity', 'results', 'system', 'knowledge'];
+const workspaces = ['world', 'home', 'conversations', 'attention', 'work', 'activity', 'results', 'system', 'knowledge', 'research'];
 
 // Single source of truth for workspace/layout — driven by navigation-state
 function setLayout(layout: 'world' | 'workspace' | 'focus') {
@@ -58,11 +60,19 @@ onNavigationChange((nav) => {
         btn.classList.toggle('active', on);
         btn.setAttribute('aria-pressed', String(on));
     });
-    setLayout(id === 'home' ? 'world' : id === 'work' ? 'workspace' : 'focus');
+    // Regroup: world is the immersive environment; home is the overview
+    // workspace; everything else keeps its previous presentation.
+    setLayout(id === 'world' ? 'world' : (id === 'work' || id === 'home') ? 'workspace' : 'focus');
     const ctxHome = $('ctx-home');
-    if (ctxHome) ctxHome.hidden = id !== 'home';
+    if (ctxHome) ctxHome.hidden = !(id === 'home' || id === 'world');
     // #ctx-inspector visibility/render is owned by context-inspector.
     if (id !== 'activity') setActivityTaskFilter(null);
+    // Conversations is a chat PRESENTATION state, not a second chat system:
+    // while active, the existing floating panel (#hermes-chat-root from
+    // hermes-chat.ts) is reparented into the focus host and forced open.
+    // Leaving reparents it back to <body> as the corner dock. The thread,
+    // drafts and conversation id never change owners.
+    setChatFocus(id === 'conversations');
     // Results deep-link / Back-Forward restore: load the canonical task.
     // Passive guard — only fetch when the viewed task actually changed.
     if (id === 'results' && nav.selectedTaskId && viewedTaskId !== nav.selectedTaskId) {
@@ -111,7 +121,7 @@ async function refetchActivityForTask(taskId: string) {
 document.querySelectorAll<HTMLButtonElement>('#primary-nav button').forEach(btn => {
     btn.addEventListener('click', () => {
         const ws = btn.dataset.workspace;
-        if (ws) openWorkspace(ws as 'home' | 'work' | 'activity' | 'results' | 'system' | 'knowledge');
+        if (ws) openWorkspace(ws as 'world' | 'home' | 'conversations' | 'attention' | 'work' | 'activity' | 'results' | 'system' | 'knowledge' | 'research');
     });
 });
 // Any activation of a Work sub-view (phase deep links included) brings the user to Work.
@@ -127,13 +137,40 @@ window.addEventListener('hermes:workview', ((ev: Event) => {
     if (view) openWorkView(view as 'tasks' | 'discover' | 'goals' | 'planning' | 'build');
 }) as EventListener);
 
-// Phase 4 left-rail Chat uses the same existing chat control, not another chat instance.
-document.querySelector('#primary-nav button[data-hc-chat="open"]')?.addEventListener('click', () => {
-    queueMicrotask(() => document.getElementById('header-chat-open')?.click());
+// Phase 4 left-rail Chat shim: the dedicated Conversations workspace replaced
+// the nav "Chat" button (which pointed the old home+chat shim at the corner
+// dock). No shim remains; Conversations reparents the same panel in focus.
+
+// ============================= top bar actions =============================
+// HL-AUTH-001: topbar logout — clear the gate session and land on the entrance.
+$('topbar-logout')?.addEventListener('click', () => { void gateLogout(); });
+
+// ---- nav rail expand/collapse (spec §2: 210–240 expanded, 56–64 collapsed) ----
+const NAV_COLLAPSED_KEY = 'hermes-life-nav-collapsed';
+function applyNavCollapse(collapsed: boolean) {
+    app.classList.toggle('nav-collapsed', collapsed);
+    const btn = $('nav-collapse');
+    if (btn) {
+        btn.textContent = collapsed ? '⇥' : '⇤';
+        btn.setAttribute('aria-pressed', String(collapsed));
+        btn.title = collapsed ? 'Expand the navigation rail' : 'Collapse the navigation rail';
+    }
+}
+applyNavCollapse(localStorage.getItem(NAV_COLLAPSED_KEY) === '1');
+$('nav-collapse')?.addEventListener('click', () => {
+    const collapsed = !app.classList.contains('nav-collapsed');
+    applyNavCollapse(collapsed);
+    try { localStorage.setItem(NAV_COLLAPSED_KEY, collapsed ? '1' : '0'); } catch { /* storage unavailable */ }
 });
 
-// HL-AUTH-001: topbar logout — clear the gate session and land back on the entrance.
-$('topbar-logout')?.addEventListener('click', () => { void gateLogout(); });
+// ---- authoritative bottom strip: running count + latest visible event ----
+// A task is "running" only while a real task.started event is outstanding —
+// the count is derived from the event stream, never from animation or hopes.
+const runningTasks = new Set<string>();
+let latestEventType = '';
+function taskTerminal(type: string): boolean {
+    return type === 'task.completed' || type === 'task.failed' || type === 'task.cancelled';
+}
 
 // Open the floating Hermes conversation from anywhere.
 const headerChat = $('header-chat-open');
@@ -141,6 +178,28 @@ headerChat?.addEventListener('click', () => {
     const toggle = $<HTMLButtonElement>('hc-toggle');
     if (toggle) toggle.click();
 });
+
+// ============================= chat focus (Conversations) =============================
+// Presentation-only reparenting of the single chat system. State inside
+// hermes-chat.ts (conversation id, drafts, streaming buffers) is untouched;
+// moving a connected DOM node preserves listeners and children.
+function setChatFocus(focused: boolean) {
+    const host = $('chat-focus-host');
+    const chatRoot = $('hermes-chat-root');
+    if (!host || !chatRoot) return;
+    const panel = chatRoot.querySelector<HTMLElement>('#hc-panel');
+    const wasFocused = app.classList.contains('chat-focus');
+    app.classList.toggle('chat-focus', focused);
+    chatRoot.classList.toggle('in-focus-host', focused);
+    if (focused && !host.contains(chatRoot)) host.append(chatRoot);
+    if (!focused && wasFocused && !host.contains(chatRoot)) document.body.append(chatRoot);
+    if (focused) {
+        // Route through the chat module's own toggle so entering focus runs
+        // its refresh path (render + threads + socket) under its ownership.
+        const toggle = chatRoot.querySelector<HTMLButtonElement>('#hc-toggle');
+        if (panel?.hidden) toggle?.click();
+    }
+}
 
 // ============================= global status =============================
 enum ConState { Connecting = 'connecting', Live = 'live', Reconnecting = 'reconnecting', Offline = 'offline' }
@@ -163,6 +222,75 @@ function paintStatus() {
     exec.textContent = `Backend: ${execState}`;
     exec.dataset.state = execState;
     if (fresh) fresh.textContent = lastFreshness ? `Updated ${lastFreshness}` : '';
+    const running = $('status-running-count');
+    if (running) {
+        running.textContent = `${runningTasks.size} running`;
+        running.dataset.state = runningTasks.size ? 'running' : 'none';
+        running.hidden = !runningTasks.size;
+    }
+    const latest = $('status-latest-event');
+    if (latest) latest.textContent = latestEventType ? `Last event: ${latestEventType}` : '';
+}
+
+// ---- bottom-strip Activity link (spec §2: direct Activity link) ----
+$('status-open-activity')?.addEventListener('click', () => openActivityAll());
+
+// Regroup: the top-bar badge is Attention's primary access; Home's
+// "Needs your input" is the second door.
+$('attention-badge')?.addEventListener('click', () => { void refreshAttention(true); void openWorkspace('attention'); });
+$('home-open-attention')?.addEventListener('click', () => openWorkspace('attention'));
+
+// ---- inspector: resizable + collapsible (spec §2: 320–380px, resizable,
+//      collapsible; widths persist across routes and reload) ----
+const INSPECTOR_W_KEY = 'hermes-life-inspector-width';
+const INSPECTOR_COLLAPSED_KEY = 'hermes-life-inspector-collapsed';
+const INSPECTOR_MIN = 320, INSPECTOR_MAX = 380;
+const INSPECTOR_DEFAULT = 348;
+function applyInspectorWidth(px: number, persist = true) {
+    const w = Math.min(INSPECTOR_MAX, Math.max(INSPECTOR_MIN, Math.round(px)));
+    app.style.setProperty('--inspector-w', `${w}px`);
+    if (persist) { try { localStorage.setItem(INSPECTOR_W_KEY, String(w)); } catch { /* storage unavailable */ } }
+    return w;
+}
+function applyInspectorCollapsed(collapsed: boolean, persist = true) {
+    app.classList.toggle('inspector-collapsed', collapsed);
+    const btn = $('ctx-collapse');
+    if (btn) {
+        btn.textContent = collapsed ? '«' : '»';
+        btn.setAttribute('aria-pressed', String(collapsed));
+        btn.title = collapsed ? 'Reopen the inspector panel' : 'Collapse the inspector panel';
+    }
+    if (persist) { try { localStorage.setItem(INSPECTOR_COLLAPSED_KEY, collapsed ? '1' : '0'); } catch { /* storage unavailable */ } }
+}
+applyInspectorWidth(Number(localStorage.getItem(INSPECTOR_W_KEY)) || INSPECTOR_DEFAULT, false);
+applyInspectorCollapsed(localStorage.getItem(INSPECTOR_COLLAPSED_KEY) === '1', false);
+$('ctx-collapse')?.addEventListener('click', () =>
+    applyInspectorCollapsed(!app.classList.contains('inspector-collapsed')));
+{
+    // Drag the fixed grip: panel width = viewport width - cursor x. The CSS
+    // var updates live, so the grip and panel track the pointer together;
+    // the final width persists only when the drag ends.
+    const grip = $('inspector-grip');
+    if (grip) {
+        let dragging = false;
+        let dragWidth = INSPECTOR_DEFAULT;
+        grip.addEventListener('pointerdown', (e) => {
+            dragging = true;
+            grip.dataset.dragging = '1';
+            grip.setPointerCapture(e.pointerId);
+        });
+        grip.addEventListener('pointermove', (e) => {
+            if (dragging) dragWidth = applyInspectorWidth(window.innerWidth - e.clientX, false);
+        });
+        const end = () => {
+            if (!dragging) return;
+            dragging = false;
+            delete grip.dataset.dragging;
+            try { localStorage.setItem(INSPECTOR_W_KEY, String(dragWidth)); } catch { /* storage unavailable */ }
+        };
+        grip.addEventListener('pointerup', end);
+        grip.addEventListener('pointercancel', end);
+    }
 }
 
 // ============================= event stream =============================
@@ -177,6 +305,12 @@ const time = (ts: string) => new Date(ts).toLocaleTimeString();
 
 function updateExecutionFromEvent(evt: EventRecord) {
     const t = evt.type;
+    // Bottom-strip running count: only real started/terminal transitions.
+    if (evt.task_id) {
+        if (t === 'task.started') runningTasks.add(evt.task_id);
+        else if (taskTerminal(t)) runningTasks.delete(evt.task_id);
+        latestEventType = t;
+    }
     if (t === 'task.queued') { execState = 'queued'; lastFreshness = time(evt.timestamp); homeCurrentWork(evt); }
     else if (t === 'task.started') { execState = 'running'; }
     else if (t === 'task.completed') { execState = 'completed'; homeCurrentWork(evt); }
@@ -640,6 +774,6 @@ void loadPersona();
 // Inspector first so its listeners exist before the initial history parse notifies.
 initContextInspector();
 const deepLinked = initHistory();
-if (!deepLinked) openWorkspace('home', { replace: true });
+if (!deepLinked) openWorkspace('world', { replace: true });
 paintStatus();
 console.log('Hermes Life unified workspace initialized.');

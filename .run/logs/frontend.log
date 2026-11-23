@@ -2,14 +2,115 @@
 > hermes-life-world@0.3.0 dev
 > vite --host 0.0.0.0
 
-6:36:42 AM [vite] (client) Re-optimizing dependencies because vite config has changed
 
-  VITE v6.4.5  ready in 189 ms
+  VITE v6.4.5  ready in 178 ms
 
   ➜  Local:   http://localhost:5173/
   ➜  Network: http://192.168.178.23:5173/
-12:07:46 AM [vite] (client) page reload src/gate.ts
-12:07:46 AM [vite] (client) page reload src/gate.ts
-12:07:48 AM [vite] (client) page reload src/gate.ts
-12:07:50 AM [vite] (client) page reload src/hermes-chat.ts
-12:07:52 AM [vite] (client) page reload src/gate.ts
+3:47:34 AM [vite] (client) page reload src/navigation-state.ts
+3:47:37 AM [vite] (client) page reload index.html
+3:47:41 AM [vite] (client) page reload index.html
+3:48:15 AM [vite] (client) page reload src/main.v2.ts
+3:48:16 AM [vite] (client) page reload src/main.v2.ts
+3:48:22 AM [vite] (client) page reload src/knowledge-workspace.ts
+3:48:24 AM [vite] (client) page reload src/knowledge-workspace.ts
+3:48:24 AM [vite] (client) page reload src/knowledge-workspace.ts
+3:50:04 AM [vite] (client) page reload src/navigation-state.ts
+3:50:04 AM [vite] (client) page reload src/navigation-state.ts
+3:50:04 AM [vite] (client) page reload src/navigation-state.ts
+3:50:04 AM [vite] (client) page reload src/navigation-state.ts
+3:50:04 AM [vite] (client) page reload src/navigation-state.ts
+3:50:09 AM [vite] (client) page reload index.html
+3:50:18 AM [vite] (client) page reload index.html
+3:50:23 AM [vite] (client) page reload index.html
+3:50:27 AM [vite] (client) page reload index.html
+3:50:30 AM [vite] (client) page reload index.html
+3:50:34 AM [vite] (client) page reload index.html
+3:50:36 AM [vite] (client) page reload index.html
+3:50:39 AM [vite] (client) page reload src/main.v2.ts
+3:50:39 AM [vite] (client) page reload src/main.v2.ts
+3:50:40 AM [vite] (client) page reload src/main.v2.ts
+3:50:40 AM [vite] (client) page reload src/main.v2.ts
+3:50:40 AM [vite] (client) page reload src/main.v2.ts
+3:50:43 AM [vite] (client) page reload src/main.v2.ts
+3:50:45 AM [vite] (client) page reload src/main.v2.ts
+3:50:51 AM [vite] (client) page reload src/town-view.ts
+3:50:51 AM [vite] (client) page reload src/context-inspector.ts
+3:50:51 AM [vite] (client) page reload src/command-centre-ui.ts
+4:09:27 AM [vite] (client) page reload src/hermes-chat.ts
+4:16:16 AM [vite] (client) page reload src/hermes-chat.ts
+4:16:21 AM [vite] (client) page reload src/hermes-chat.ts
+4:16:21 AM [vite] (client) page reload src/hermes-chat.ts
+4:16:27 AM [vite] (client) page reload src/hermes-chat.ts
+4:16:27 AM [vite] (client) page reload src/hermes-chat.ts
+4:16:27 AM [vite] (client) page reload src/hermes-chat.ts
+4:16:27 AM [vite] (client) hmr update /src/hermes-chat.css
+4:37:14 AM [vite] (client) page reload src/attention-center.ts
+4:37:14 AM [vite] (client) page reload src/attention-center.ts
+4:37:14 AM [vite] (client) page reload src/attention-center.ts
+4:37:14 AM [vite] (client) page reload src/attention-center.ts
+4:37:17 AM [vite] (client) page reload src/attention-center.ts
+6:55:52 AM [vite] ws proxy error:
+Error: connect ECONNREFUSED 127.0.0.1:8766
+    at TCPConnectWrap.afterConnect [as oncomplete] (node:net:1631:16)
+6:55:53 AM [vite] http proxy error: /api/verification/settings
+Error: connect ECONNREFUSED 127.0.0.1:8766
+    at TCPConnectWrap.afterConnect [as oncomplete] (node:net:1631:16)
+6:55:53 AM [vite] http proxy error: /api/investigation-plans
+Error: connect ECONNREFUSED 127.0.0.1:8766
+    at TCPConnectWrap.afterConnect [as oncomplete] (node:net:1631:16)
+6:55:53 AM [vite] http proxy error: /api/implementations
+Error: connect ECONNREFUSED 127.0.0.1:8766
+    at TCPConnectWrap.afterConnect [as oncomplete] (node:net:1631:16)
+6:55:55 AM [vite] http proxy error: /api/investigation-plans
+Error: connect ECONNREFUSED 127.0.0.1:8766
+    at TCPConnectWrap.afterConnect [as oncomplete] (node:net:1631:16)
+6:55:55 AM [vite] http proxy error: /api/memory-reviews
+Error: connect ECONNREFUSED 127.0.0.1:8766
+    at TCPConnectWrap.afterConnect [as oncomplete] (node:net:1631:16)
+6:55:55 AM [vite] http proxy error: /api/proposals
+Error: connect ECONNREFUSED 127.0.0.1:8766
+    at TCPConnectWrap.afterConnect [as oncomplete] (node:net:1631:16)
+6:55:55 AM [vite] http proxy error: /api/implementations
+Error: connect ECONNREFUSED 127.0.0.1:8766
+    at TCPConnectWrap.afterConnect [as oncomplete] (node:net:1631:16)
+6:55:55 AM [vite] http proxy error: /api/memory/health
+Error: connect ECONNREFUSED 127.0.0.1:8766
+    at TCPConnectWrap.afterConnect [as oncomplete] (node:net:1631:16)
+6:55:55 AM [vite] ws proxy error:
+Error: connect ECONNREFUSED 127.0.0.1:8766
+    at TCPConnectWrap.afterConnect [as oncomplete] (node:net:1631:16)
+6:55:56 AM [vite] ws proxy error:
+Error: connect ECONNREFUSED 127.0.0.1:8766
+    at TCPConnectWrap.afterConnect [as oncomplete] (node:net:1631:16)
+6:55:58 AM [vite] http proxy error: /api/curiosity/workflow
+Error: connect ECONNREFUSED 127.0.0.1:8766
+    at TCPConnectWrap.afterConnect [as oncomplete] (node:net:1631:16)
+6:55:58 AM [vite] http proxy error: /api/discoveries
+Error: connect ECONNREFUSED 127.0.0.1:8766
+    at TCPConnectWrap.afterConnect [as oncomplete] (node:net:1631:16)
+6:55:58 AM [vite] http proxy error: /api/goals
+Error: connect ECONNREFUSED 127.0.0.1:8766
+    at TCPConnectWrap.afterConnect [as oncomplete] (node:net:1631:16)
+6:55:58 AM [vite] http proxy error: /api/investigation-plans
+Error: connect ECONNREFUSED 127.0.0.1:8766
+    at TCPConnectWrap.afterConnect [as oncomplete] (node:net:1631:16)
+6:55:58 AM [vite] http proxy error: /api/autonomy
+Error: connect ECONNREFUSED 127.0.0.1:8766
+    at TCPConnectWrap.afterConnect [as oncomplete] (node:net:1631:16)
+6:55:58 AM [vite] http proxy error: /api/implementations
+Error: connect ECONNREFUSED 127.0.0.1:8766
+    at TCPConnectWrap.afterConnect [as oncomplete] (node:net:1631:16)
+6:55:58 AM [vite] http proxy error: /api/investigation-plans
+Error: connect ECONNREFUSED 127.0.0.1:8766
+    at TCPConnectWrap.afterConnect [as oncomplete] (node:net:1631:16)
+6:55:58 AM [vite] http proxy error: /api/verification/settings
+Error: connect ECONNREFUSED 127.0.0.1:8766
+    at TCPConnectWrap.afterConnect [as oncomplete] (node:net:1631:16)
+6:55:58 AM [vite] ws proxy error:
+Error: connect ECONNREFUSED 127.0.0.1:8766
+    at TCPConnectWrap.afterConnect [as oncomplete] (node:net:1631:16)
+6:56:01 AM [vite] ws proxy error:
+Error: connect ECONNREFUSED 127.0.0.1:8766
+    at TCPConnectWrap.afterConnect [as oncomplete] (node:net:1631:16)
+6:56:28 AM [vite] (client) page reload src/context-inspector.ts

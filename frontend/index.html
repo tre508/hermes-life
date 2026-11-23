@@ -20,38 +20,63 @@
             <p>Single operations facility</p>
         </div>
         <div class="hc-header-centre" aria-label="Command centre">Hermesha Command Centre</div>
-        <div id="global-status" role="status" aria-live="polite">
-            <span id="connection-status" data-state="connecting">Connection: Connecting</span>
-            <span id="execution-status" data-state="idle">Execution: idle</span>
-            <span id="data-freshness-status"></span>
-            <button id="hc-sync" type="button" class="header-chat-btn" title="Reload synchronized status">Sync</button>
+        <div class="hc-header-actions">
             <button id="header-chat-open" type="button" class="header-chat-btn" title="Open Hermes conversation">Chat ✦</button>
+            <span id="attention-badge" hidden title="Items awaiting your decision"></span>
             <button id="topbar-logout" type="button" class="header-chat-btn" title="Log out — return to the entrance gate">Logout</button>
         </div>
     </header>
 
     <!-- ===================== Region B: primary navigation rail ===================== -->
     <nav id="primary-nav" aria-label="Command centre navigation">
-        <span class="hc-nav-caption">Starship</span>
-        <button data-workspace="home" class="active" type="button" aria-pressed="true">◇ World</button>
-        <button data-workspace="work" data-hc-workview="tasks" type="button" aria-pressed="false">▤ Task Board</button>
-        <button data-workspace="home" data-hc-chat="open" type="button" aria-pressed="false">◉ Chat</button>
-        <button data-workspace="work" data-hc-workview="goals" type="button" aria-pressed="false">✧ Goals</button>
-        <button data-workspace="system" type="button" aria-pressed="false">▦ Memory</button>
-        <button data-workspace="knowledge" type="button" aria-pressed="false">◈ Knowledge Deck</button>
-        <button data-workspace="results" type="button" aria-pressed="false">♟ Results</button>
+        <button id="nav-collapse" type="button" title="Collapse or expand the navigation rail" aria-pressed="false">⇤</button>
+        <!-- Spec §3 navigation groups: Experience / Operations / Intelligence /
+             Global utilities. Legacy labels (Task Board, Goals, Results,
+             Knowledge Deck) remain as redirects into their new workspace with
+             preserved selection — nothing is dropped. -->
+        <span class="hc-nav-caption">Experience</span>
+        <button data-workspace="world" class="active" type="button" aria-pressed="true">◈ World</button>
+        <button data-workspace="conversations" type="button" aria-pressed="false">◉ Conversations</button>
+        <button data-workspace="home" type="button" aria-pressed="false">◇ Home</button>
+        <span class="hc-nav-caption">Operations</span>
+        <button data-workspace="work" data-hc-workview="tasks" type="button" aria-pressed="false">▤ Work</button>
         <button data-workspace="activity" type="button" aria-pressed="false">◷ Activity</button>
+        <span class="hc-nav-caption">Intelligence</span>
+        <button data-workspace="knowledge" type="button" aria-pressed="false">◈ Knowledge</button>
+        <button data-workspace="research" type="button" aria-pressed="false">⚗ Research</button>
         <span class="nav-sep" aria-hidden="true"></span>
         <span class="hc-nav-caption hc-nav-room-caption">Eight rooms · shared map</span>
-        <button class="hc-room-link" data-workspace="home" data-hc-room="director" type="button">Director Office</button>
-        <button class="hc-room-link" data-workspace="home" data-hc-room="research" type="button">Research Station</button>
-        <button class="hc-room-link" data-workspace="home" data-hc-room="review" type="button">Review Station</button>
-        <button class="hc-room-link" data-workspace="home" data-hc-room="control" type="button">Control Room</button>
-        <button class="hc-room-link" data-workspace="home" data-hc-room="dev" type="button">Dev Station</button>
-        <button class="hc-room-link" data-workspace="home" data-hc-room="lab" type="button">Lab</button>
-        <button class="hc-room-link" data-workspace="home" data-hc-room="archive" type="button">Archive</button>
-        <button class="hc-room-link" data-workspace="home" data-hc-room="break" type="button">Break Room</button>
+        <button class="hc-room-link" data-workspace="world" data-hc-room="director" type="button">Director Office</button>
+        <button class="hc-room-link" data-workspace="world" data-hc-room="research" type="button">Research Station</button>
+        <button class="hc-room-link" data-workspace="world" data-hc-room="review" type="button">Review Station</button>
+        <button class="hc-room-link" data-workspace="world" data-hc-room="control" type="button">Control Room</button>
+        <button class="hc-room-link" data-workspace="world" data-hc-room="dev" type="button">Dev Station</button>
+        <button class="hc-room-link" data-workspace="world" data-hc-room="lab" type="button">Lab</button>
+        <button class="hc-room-link" data-workspace="world" data-hc-room="archive" type="button">Archive</button>
+        <button class="hc-room-link" data-workspace="world" data-hc-room="break" type="button">Break Room</button>
     </nav>
+
+    <!-- ===================== Region D: authoritative status strip =====================
+         Spec §2: 32–40px bottom strip — authoritative running count, latest
+         event, direct Activity link. IDs inside #global-status are unchanged
+         so every existing style/JS consumer keeps working. -->
+    <footer id="status-strip" role="contentinfo">
+        <div id="global-status" role="status" aria-live="polite">
+            <span id="connection-status" data-state="connecting">Connection: Connecting</span>
+            <span id="execution-status" data-state="idle">Execution: idle</span>
+            <span id="status-running-count" data-state="none">0 running</span>
+            <span id="status-latest-event"></span>
+            <span id="data-freshness-status"></span>
+        </div>
+        <div class="status-strip-actions">
+            <button id="status-open-activity" type="button" title="Open the full Activity timeline">Activity</button>
+            <button id="hc-sync" type="button" class="header-chat-btn" title="Reload synchronized status">Sync</button>
+        </div>
+    </footer>
+
+    <!-- Inspector affordances (spec §2: inspector 320–380px, resizable, collapsible) -->
+    <div id="inspector-grip" title="Drag to resize the inspector"></div>
+    <button id="ctx-collapse" type="button" title="Collapse the inspector panel" aria-pressed="false">»</button>
 
     <!-- Deep-link shims: the phase modules call openTab('Planning'|'Build') and
          use [data-tab="build"] to jump into a view; without the old tab bar these
@@ -64,8 +89,8 @@
     <!-- ===================== Region C: main workspace ===================== -->
     <main id="main-workspace">
 
-        <!-- ---------- HOME · the AI Operations Lab as the centerpiece ---------- -->
-        <section id="workspace-home" class="workspace-view" data-layout="world">
+        <!-- ---------- WORLD · the AI Operations Lab as the centerpiece ---------- -->
+        <section id="workspace-world" class="workspace-view" data-layout="world">
             <header class="workspace-heading">
                 <div>
                     <h2>Hermesha Command Centre <small>Eight shared rooms</small></h2>
@@ -92,6 +117,16 @@
                 </section>
                 <p class="hint">Movement follows real backend records and events.</p>
             </div>
+        </section>
+
+        <!-- ---------- HOME · personalized overview: current work, recent, attention ---------- -->
+        <section id="workspace-home" class="workspace-view" data-layout="workspace" hidden>
+            <header class="workspace-heading">
+                <div>
+                    <h2>Home <small>your overview</small></h2>
+                    <p>Current work, recent developments, and anything requiring your decision.</p>
+                </div>
+            </header>
             <section class="home-recent-strip" aria-label="Recent operation">
                 <div>
                     <p class="hrs-eyebrow">Recent activity</p>
@@ -104,6 +139,7 @@
                     <div class="kv">Last outcome <strong id="home-current-outcome">—</strong></div>
                     <div class="kv">Needs you <strong id="home-current-attention">None</strong></div>
                     <button id="home-recent-open" type="button" class="hrs-cta">Open in Work →</button>
+                    <button id="home-open-attention" type="button" class="hrs-cta">Needs your input →</button>
                 </div>
             </section>
         </section>
@@ -268,7 +304,77 @@
                     </div>
                 </section>
 
-        <!-- ---------- KNOWLEDGE DECK · indexed research reference library ---------- -->
+        <!-- ===================== ATTENTION CENTER · items awaiting your decision =====================
+         One aggregate over the SAME work records Work uses: proposed plans,
+         candidates awaiting review, blocked/failed runs, pending memory
+         reviews. No queued intent is ever presented as success (spec §4). -->
+    <section id="workspace-attention" class="workspace-view" data-layout="focus" hidden>
+        <header class="workspace-heading">
+            <div>
+                <h2>Attention <small>items awaiting your decision</small></h2>
+                <p>Everything here is blocked on a human authority boundary — nothing is running on hope.</p>
+            </div>
+        </header>
+        <div id="attention-list" class="attention-list"></div>
+    </section>
+
+    <!-- ===================== CONVERSATIONS · one canonical thread surface =====================
+         The floating Hermes chat panel (#hermes-chat-root, hermes-chat.ts) is
+         reparented here by main.v2 while this workspace is active — the same
+         conversation system, threads and drafts, only the presentation changes
+         (spec invariant §1 "One conversation system", §4 Conversations).
+         Outside this workspace the panel returns to <body> as the corner dock. -->
+    <section id="workspace-conversations" class="workspace-view" data-layout="focus" hidden>
+        <header class="workspace-heading">
+            <div>
+                <h2>Conversations <small>one canonical thread system</small></h2>
+                <p>Every thread shares the same canonical conversation IDs as Task Board and Chat — presentation only changes here.</p>
+            </div>
+        </header>
+        <div id="chat-focus-host" class="chat-focus-host"></div>
+    </section>
+
+    <!-- ===================== RESEARCH · session with sources, findings, questions =====================
+         Spec §4 Research: one session surface with thread, sources,
+         claims/findings, open questions and note links. Data comes only from
+         real endpoints — /api/library/* (sources), /api/discoveries (findings),
+         /api/curiosity (open questions), /api/memory/* (vault note links).
+         Promotion to durable knowledge is an explicit action (POST /memory/notes),
+         never an automatic side effect (spec §5 source-of-truth boundaries). -->
+    <section id="workspace-research" class="workspace-view" data-layout="focus" hidden>
+        <header class="workspace-heading">
+            <div>
+                <h2>Research <small>sources, findings, open questions</small></h2>
+                <p>Every fact traces to a registered source, a discovery record or a vault note — nothing here is invented.</p>
+            </div>
+        </header>
+        <form id="research-session-form" class="research-session" role="search">
+            <label for="research-query" class="sr-only">Research topic or question</label>
+            <input id="research-query" type="search" placeholder="Research topic — search sources, findings, questions and vault notes…" autocomplete="off" />
+            <button type="submit">Search</button>
+        </form>
+        <div id="research-status" role="status" aria-live="polite"></div>
+        <div class="research-columns">
+            <section class="research-col">
+                <h3>Sources &amp; matched facts</h3>
+                <div id="research-sources"></div>
+            </section>
+            <section class="research-col">
+                <h3>Findings (discoveries)</h3>
+                <div id="research-findings"></div>
+            </section>
+            <section class="research-col">
+                <h3>Open questions</h3>
+                <div id="research-questions"></div>
+            </section>
+            <section class="research-col">
+                <h3>Vault note links</h3>
+                <div id="research-notes"></div>
+            </section>
+        </div>
+    </section>
+
+    <!-- ---------- KNOWLEDGE DECK · indexed research reference library ---------- -->
         <section id="workspace-knowledge" class="workspace-view" data-layout="focus" hidden>
             <header class="knowledge-header">
                 <div>
@@ -298,6 +404,56 @@
                     <h3>Source details</h3>
                     <div id="knowledge-detail"><p class="knowledge-empty">Select a source or search result.</p></div>
                 </div>
+            </div>
+
+            <!-- ===== P4: Obsidian vault (memory service) — health, search, note detail =====
+                 Same Knowledge context, one store: the vault behind the /memory API.
+                 Sync status is shown only after the service verifies real files (spec §6). -->
+            <div id="vault-memory-block" class="knowledge-vault">
+                <header class="knowledge-vault-head">
+                    <h3>Obsidian vault <small>memory service</small></h3>
+                    <div id="vault-health" role="status" aria-live="polite">Checking vault health…</div>
+                </header>
+                <form id="vault-search-form" class="knowledge-search" role="search">
+                    <label for="vault-query" class="sr-only">Search the Obsidian vault</label>
+                    <input id="vault-query" type="search" placeholder="Search vault notes…" autocomplete="off" />
+                    <button type="submit">Search vault</button>
+                </form>
+                <div id="vault-results" class="knowledge-panel knowledge-panel--results"></div>
+            </div>
+
+            <!-- ===== Regroup: Memory folded into Knowledge (one intelligence surface).
+                 The memory module (phase41303-memory.ts) mounts by element id, so the
+                 section moves verbatim; the old ?view=system deep link redirects here. -->
+            <div id="memory-section">
+                <h2>Learned profile &amp; memory review</h2>
+                <p class="hint">What Hermes has learned from past work, with the evidence it was drawn from. A correction here changes what future tasks are told, so every correction records who decided it and why. Retired memories stay in the record; they are never silently rewritten.</p>
+                <div class="memory-actions"><button id="memory-refresh" type="button">Refresh</button></div>
+                <p id="memory-feedback" role="status"></p>
+                <form id="memory-correct-form" hidden>
+                    <p class="memory-target" id="memory-correct-target"></p>
+                    <label>Action <select id="memory-correct-action">
+                        <option value="supersede">Replace with new wording</option>
+                        <option value="delete">Invalidate — remove with no replacement</option>
+                        <option value="merge">Merge into another memory</option>
+                    </select></label>
+                    <label id="memory-merge-label" hidden>Merge into <select id="memory-correct-merge"></select></label>
+                    <label id="memory-content-label">New wording <textarea id="memory-correct-content" maxlength="1600"></textarea></label>
+                    <label>Reason (required) <input id="memory-correct-rationale" maxlength="500" placeholder="Why this change is correct…" /></label>
+                    <label>Decided by <input id="memory-correct-actor" maxlength="120" placeholder="user" /></label>
+                    <div class="memory-form-actions">
+                        <button id="memory-correct-submit" type="submit">Apply correction</button>
+                        <button id="memory-correct-cancel" type="button">Cancel</button>
+                    </div>
+                </form>
+                <h3>Memories</h3>
+                <div id="memory-profile-list"></div>
+                <h3>Pending reviews</h3>
+                <div id="memory-review-list"></div>
+                <h3>Technical lessons</h3>
+                <div id="memory-lesson-list"></div>
+                <h3>Recent corrections</h3>
+                <div id="memory-history-list"></div>
             </div>
         </section>
 
@@ -355,39 +511,9 @@
         </section>
 
         <!-- ---------- SYSTEM · learned profile, memory and lessons ---------- -->
-        <section id="workspace-system" class="workspace-view" data-layout="focus" hidden>
-            <section id="memory-section">
-                <h2>Learned profile &amp; memory review</h2>
-                <p class="hint">What Hermes has learned from past work, with the evidence it was drawn from. A correction here changes what future tasks are told, so every correction records who decided it and why. Retired memories stay in the record; they are never silently rewritten.</p>
-                <div class="memory-actions"><button id="memory-refresh" type="button">Refresh</button></div>
-                <p id="memory-feedback" role="status"></p>
-                <form id="memory-correct-form" hidden>
-                    <p class="memory-target" id="memory-correct-target"></p>
-                    <label>Action <select id="memory-correct-action">
-                        <option value="supersede">Replace with new wording</option>
-                        <option value="delete">Invalidate — remove with no replacement</option>
-                        <option value="merge">Merge into another memory</option>
-                    </select></label>
-                    <label id="memory-merge-label" hidden>Merge into <select id="memory-correct-merge"></select></label>
-                    <label id="memory-content-label">New wording <textarea id="memory-correct-content" maxlength="1600"></textarea></label>
-                    <label>Reason (required) <input id="memory-correct-rationale" maxlength="500" placeholder="Why this change is correct…" /></label>
-                    <label>Decided by <input id="memory-correct-actor" maxlength="120" placeholder="user" /></label>
-                    <div class="memory-form-actions">
-                        <button id="memory-correct-submit" type="submit">Apply correction</button>
-                        <button id="memory-correct-cancel" type="button">Cancel</button>
-                    </div>
-                </form>
-                <h3>Memories</h3>
-                <div id="memory-profile-list"></div>
-                <h3>Pending reviews</h3>
-                <div id="memory-review-list"></div>
-                <h3>Technical lessons</h3>
-                <div id="memory-lesson-list"></div>
-                <h3>Recent corrections</h3>
-                <div id="memory-history-list"></div>
-            </section>
-        </section>
-    </main>
+        <!-- workspace-system retired: Memory folded into Knowledge (regroup).
+             The ?view=system deep link redirects to knowledge in navigation-state. -->
+     </main>
 
     <!-- ===================== Region D: contextual panel ===================== -->
     <aside id="contextual-panel">

@@ -26,6 +26,7 @@ from .personality import Personality, PersonalityAdapter
 from .conversation_memory import ConversationMemory
 from .conversation_recall import Recall
 from .vault_memory import VaultMemory  # PHASE49_VAULT_MEMORY
+from .memory_service import MemoryService, add_memory_routes  # P4_OBSIDIAN_ADAPTER
 from .knowledge_library import KnowledgeLibrary
 from .project_workspaces import ProjectWorkspaces, add_project_routes, SELECTOR  # PHASE411_PROJECT_WORKSPACES
 from .project_knowledge import ProjectKnowledge, add_knowledge_routes  # PHASE414_PROJECT_KNOWLEDGE
@@ -58,6 +59,7 @@ class Runtime:
         self.conversations = ConversationMemory(self.store)
         self.recall = Recall(self.store)
         self.vault_memory = VaultMemory(self.store, self.recall)
+        self.memory = MemoryService(self.store)  # P4_OBSIDIAN_ADAPTER
         self.knowledge_library = KnowledgeLibrary(self.store)
         timeout = int(os.getenv('HERMES_LIFE_TIMEOUT', '1800'))
 
@@ -287,6 +289,7 @@ def create_app(database=None, adapter=None):
     app.state.runtime = runtime
     add_project_routes(app, runtime, runtime.project_workspaces)
     add_knowledge_routes(app, runtime.project_knowledge)
+    add_memory_routes(app, runtime)  # P4_OBSIDIAN_ADAPTER
     add_approval_routes(app, runtime.project_workspaces)
     app.state.autonomy = autonomy
     app.state.autonomy_policy = autonomy_policy

@@ -163,6 +163,149 @@ async function performSearch() {
     renderSources(); renderMatches(); renderDetail();
   } catch (err) { if (token === searchGeneration) { matches=[]; renderMatches(); showStatus(`Search unavailable: ${str(err)}`, true); } }
 }
+// ========================= P4: Obsidian vault via /memory =========================
+type VaultHealth = {
+  vault?: unknown; reachable?: boolean; writable?: boolean;
+  index?: { notes?: number; last_scan?: number | null; fresh?: boolean };
+  watcher?: { running?: boolean; poll_seconds?: number; changes_seen?: number; error?: string | null };
+  errors?: unknown[];
+};
+type VaultResult = { note_id: string; title: string; path: string; excerpt: string; kind: string; relevance: number };
+type VaultNote = {
+  note_id: string; path: string; title: string; body: string; revision: string;
+  outgoing_links: string[]; backlinks: string[]; headings: string[]; kind: string;
+};
+let vaultHealthy: boolean | null = null;
+let vaultNoteShown: string | null = null;
+
+async function loadVaultHealth(): Promise<void> {
+  const host = el('vault-health'); if (!host) return;
+  try {
+    const data = await readJSON('/api/memory/health') as VaultHealth;
+    const idx = data.index || {};
+    const watcher = data.watcher || {};
+    vaultHealthy = !!data.reachable;
+    host.replaceChildren();
+    if (!data.reachable) {
+      host.append(make('span', 'Vault unreachable', 'vault-health-bad'));
+      host.append(make('small', ` — ${str((data.errors || [])[0]) || 'check the mounted disk'}`));
+    } else {
+      host.append(make('span', data.writable ? 'Reachable · writable' : 'Reachable · read-only', 'vault-health-ok'));
+      host.append(make('small', ` · ${safeNumber(idx.notes)} notes indexed` +
+        (idx.last_scan ? ` · watcher ${watcher.running ? 'live' : 'down'} (${safeNumber(watcher.poll_seconds)}s)` : ' · index empty')));
+    }
+  } catch (err) {
+    vaultHealthy = false;
+    host.replaceChildren();
+    host.append(make('span', 'Memory service unavailable', 'vault-health-bad'));
+    host.append(make('small', ` — ${str(err)}`));
+  }
+}
+
+async function performVaultSearch(): Promise<void> {
+  const host = el('vault-results'); if (!host) return;
+  const q = el<HTMLInputElement>('vault-query')?.value.trim() || '';
+  vaultNoteShown = null;
+  if (!q) { host.replaceChildren(); return; }
+  if (vaultHealthy === false) {
+    // Honest gate: don't query a store we just observed as unreachable.
+    host.replaceChildren(make('p', 'The vault is currently unreachable — check the health line above.', 'knowledge-empty'));
+    return;
+  }
+  host.replaceChildren(make('p', `Searching the vault for “${q}”…`, 'knowledge-empty'));
+  try {
+    const body = await readJSON(`/api/memory/search?q=${encodeURIComponent(q)}&limit=20`) as { results?: VaultResult[] };
+    const results = Array.isArray(body?.results) ? body.results : [];
+    host.replaceChildren();
+    if (!results.length) { host.append(make('p', 'No vault notes match this query.', 'knowledge-empty')); return; }
+    for (const r of results) {
+      const b = document.createElement('button');
+      b.type = 'button'; b.className = 'knowledge-match';
+      b.append(make('strong', r.title || r.path));
+      b.append(make('small', `${r.path}${r.kind ? ` · ${r.kind}` : ''}`));
+      if (r.excerpt) b.append(make('span', r.excerpt, 'knowledge-excerpt'));
+      b.addEventListener('click', () => void showVaultNote(r.note_id));
+      host.append(b);
+    }
+  } catch (err) {
+    host.replaceChildren(make('p', `Vault search unavailable: ${str(err)}`, 'knowledge-empty'));
+  }
+}
+
+async function showVaultNote(noteId: string): Promise<void> {
+  const host = el('vault-results'); if (!host) return;
+  vaultNoteShown = noteId;
+  host.replaceChildren(make('p', 'Loading note…', 'knowledge-empty'));
+  try {
+    const note = await readJSON(`/api/memory/notes/${encodeURIComponent(noteId)}`) as VaultNote;
+    if (vaultNoteShown !== noteId) return;
+    host.replaceChildren();
+    const back = document.createElement('button');
+    back.type = 'button'; back.textContent = '← Back to results';
+    back.addEventListener('click', () => void performVaultSearch());
+    host.append(back, make('h4', note.title, 'vault-note-title'));
+    const meta = make('p', `${note.path} · revision ${note.revision}${note.kind ? ` · ${note.kind}` : ''}`, 'knowledge-note');
+    host.append(meta);
+    if (note.backlinks.length) host.append(make('p', `Backlinks: ${note.backlinks.join(', ')}`, 'knowledge-note'));
+    const pre = document.createElement('pre');
+    pre.className = 'registered-diff';
+    pre.textContent = note.body.trim();
+    host.append(pre);
+    const graphBtn = document.createElement('button');
+    graphBtn.type = 'button';
+    graphBtn.className = 'vault-graph-btn';
+    graphBtn.textContent = 'View note graph';
+    graphBtn.addEventListener('click', () => void showNoteGraph(noteId));
+    host.append(graphBtn, make('div', '', 'vault-graph'));
+  } catch (err) {
+    if (vaultNoteShown === noteId) host.replaceChildren(make('p', `Could not open the note: ${str(err)}`, 'knowledge-empty'));
+  }
+}
+
+/** Note graph (spec §6 GET /memory/graph): resolved outgoing links,
+ *  backlinks and project clusters, all clickable into the same note view. */
+async function showNoteGraph(noteId: string): Promise<void> {
+  const host = el<HTMLDivElement>('vault-results');
+  if (!host) return;
+  const graphHost = host.querySelector<HTMLDivElement>('.vault-graph');
+  if (!graphHost) return;
+  graphHost.replaceChildren(make('p', 'Loading note graph…', 'knowledge-empty'));
+  try {
+    const g = await readJSON(`/api/memory/graph?note_id=${encodeURIComponent(noteId)}`) as {
+      note_id: string; title: string; outgoing: { link: string; note_id: string | null; path: string | null }[];
+      backlinks: string[]; projects: Record<string, string[]>;
+    };
+    if (vaultNoteShown !== noteId) return;
+    graphHost.replaceChildren();
+    graphHost.append(make('h4', `Graph — ${g.title}`, 'vault-note-title'));
+    const links = make('p', '', 'knowledge-note');
+    if (g.outgoing.length) {
+      links.append('Outgoing: ');
+      for (const o of g.outgoing) {
+        const target = o.note_id ? `${o.link} → ${o.path}` : `${o.link} (unresolved)`;
+        const chip = document.createElement(o.note_id ? 'button' : 'span');
+        if (o.note_id) {
+          chip.className = 'vault-graph-link';
+          chip.addEventListener('click', () => void showVaultNote(o.note_id as string));
+        }
+        chip.textContent = target;
+        links.append(chip, ' ');
+      }
+    } else links.append('No outgoing wikilinks.');
+    graphHost.append(links);
+    if (g.backlinks.length) graphHost.append(make('p', `Backlinks: ${g.backlinks.join(', ')}`, 'knowledge-note'));
+    const projects = Object.entries(g.projects || {});
+    if (projects.length) {
+      const p = make('p', '', 'knowledge-note');
+      p.append('Projects: ');
+      for (const [pid, notes] of projects) p.append(make('span', `${pid} (${notes.length} notes)`, 'vault-graph-project'), ' ');
+      graphHost.append(p);
+    }
+  } catch (err) {
+    if (vaultNoteShown === noteId) graphHost.replaceChildren(make('p', `Graph unavailable: ${str(err)}`, 'knowledge-empty'));
+  }
+}
+
 function boot() {
   const panel = el('workspace-knowledge'); if (!panel) return;
   const form = el<HTMLFormElement>('knowledge-search-form');
@@ -172,10 +315,22 @@ function boot() {
     const input = el<HTMLInputElement>('knowledge-query'); if (input) input.value = '';
     void performSearch();
   });
-  // Load lazily on the first visit; retain selection and current results across navigation.
-  onNavigationChange(nav => { if (nav.workspace === 'knowledge' && !initialLoad) void loadSources(); });
+  el('vault-search-form')?.addEventListener('submit', event => { event.preventDefault(); void performVaultSearch(); });
+  // Cross-surface handoff (spec §7): Research hands over a note id and the
+  // same Knowledge context opens the exact original vault note.
+  window.addEventListener('hermes:open-note', (ev: Event) => {
+    const detail = (ev as CustomEvent).detail as { note_id?: unknown } | null;
+    const noteId = str(detail?.note_id);
+    if (noteId) void showVaultNote(noteId);
+  });
+  // Vault health is a live state, not a promise: refresh it on every entry.
+  onNavigationChange(nav => {
+    if (nav.workspace !== 'knowledge') return;
+    void loadVaultHealth();
+    if (!initialLoad) void loadSources();
+  });
   // Navigation can be restored before this module subscribes (initial URL deep link).
   const qs = new URLSearchParams(location.search);
-  if (qs.get('view') === 'knowledge') void loadSources();
+  if (qs.get('view') === 'knowledge') { void loadSources(); void loadVaultHealth(); }
 }
 boot();

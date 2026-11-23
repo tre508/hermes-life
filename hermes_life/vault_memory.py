@@ -94,8 +94,10 @@ class VaultMemory:
         path=dest/(entry['id']+'.md')
         if path.exists():return
         body=f'# {entry["kind"].capitalize()}\n\n{entry["content"].replace("---","- - -")}\n'
-        with path.open('x',encoding='utf-8') as file:
-            file.write('---\n'+'\n'.join(self._note_keys(entry))+'\n---\n\n'+body)
+        note='---\n'+'\n'.join(self._note_keys(entry))+'\n---\n\n'+body
+        tmp=dest/(entry['id']+'.tmp')
+        with tmp.open('w',encoding='utf-8') as file:file.write(note)
+        tmp.replace(path)
 
     def mirror_memory(self,entry):
         """Mirror a memory. The vault is secondary, so a vault failure never fails the caller."""
@@ -109,6 +111,9 @@ class VaultMemory:
         try:path=self._note_path(kind,memory_id)
         except KeyError:return 'unknown-kind'
         if not path.is_file():return 'absent'
+        # A read-only note file is human-locked territory; a rename would bypass
+        # the file's own permission, so honour it and report the failure.
+        if not os.access(path,os.W_OK):return 'failed'
         try:
             split=self._split_note(path.read_text(encoding='utf-8'))
             if split is None:return 'unreadable'
@@ -122,9 +127,11 @@ class VaultMemory:
                    +(f' by {superseded_by}' if superseded_by else '') \
                    +(f' — {rationale}' if rationale else '')
             rest=self._without_marker(body)
-            path.write_text('---\n'+'\n'.join(self._with_keys(keys,updates))
-                            +f'\n---\n\n{marker}\n'+(f'\n{rest}\n' if rest else '\n'),
-                            encoding='utf-8')
+            note='---\n'+'\n'.join(self._with_keys(keys,updates))\
+                 +f'\n---\n\n{marker}\n'+(f'\n{rest}\n' if rest else '\n')
+            tmp=path.with_name(path.name+'.tmp')
+            with tmp.open('w',encoding='utf-8') as file:file.write(note)
+            tmp.replace(path)
             return 'marked'
         except (OSError,ValueError):return 'failed'
 

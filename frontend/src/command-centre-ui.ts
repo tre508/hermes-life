@@ -94,8 +94,8 @@ document.querySelectorAll<HTMLButtonElement>('#primary-nav button[data-hc-room]'
   btn.addEventListener('click', () => {
     const room = btn.dataset.hcRoom;
     if (!room) return;
-    // Ensure Home workspace is active, then select room
-    openWorkspace('home');
+    // Ensure World is active, then select room
+    openWorkspace('world');
     queueMicrotask(() => selectRoom(room));
   });
 });
