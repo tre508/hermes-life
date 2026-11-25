@@ -1,0 +1,78 @@
+<!doctype html>
+<!--
+  State harness — the composer's three areas (V2 chat audit §3) + the project control.
+
+  Open:  http://127.0.0.1:5173/harness/composer-telemetry.html
+
+  Why this exists: the chat is behind the evaluation gate in a headless load, so the
+  live composer cannot be inspected. This page replicates the REAL composer markup
+  from src/hermes-chat.ts — text entry, a tools row (＋ Attach + the phase412 project
+  selector mounted into #hc-project-slot), and an action row (#hc-model-button,
+  #hc-usage-chip, #hc-send) — and renders it with the REAL stylesheets, in the app's
+  import order: hermes-chat.css → chat-upgrade.css → chat-clarity.css (+ phase415
+  for the project control's own styles). The popovers are live: the model one is
+  populated statically; the usage one carries a real recorded session (task
+  bc48f7e3…: anchor 59,531 / 1,048,576, $0.10699431 via provider_models_api).
+
+  Keep in sync with src/hermes-chat.ts when the markup changes.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>State harness — composer three areas</title>
+<link rel="stylesheet" href="/src/hermes-chat.css">
+<link rel="stylesheet" href="/src/chat-upgrade.css">
+<link rel="stylesheet" href="/src/chat-clarity.css">
+<link rel="stylesheet" href="/src/phase415-workspace.css">
+<style>
+  body { margin:0; padding:22px; background:#0b1720; color:#dceae7; font-family:Inter,system-ui,sans-serif; color-scheme:dark; }
+  h1 { font-size:15px; letter-spacing:.04em; text-transform:uppercase; color:#e1d6bc; margin:0 0 4px; }
+  .lede { color:#7f9aa0; font-size:12px; margin:0 0 18px; max-width:84ch; line-height:1.6; }
+  .stage { max-width:880px; }
+  /* the REAL panel id, so the scoped rules apply; its own overlay box rules are
+     neutralised — the composer, not the panel chrome, is the subject here. */
+  #hc-panel {
+    position:static!important; right:auto!important; bottom:auto!important; left:auto!important;
+    width:auto!important; height:auto!important; max-width:none!important; max-height:none!important;
+    min-height:0!important; box-shadow:none!important; display:flex!important; flex-direction:column!important;
+  }
+</style>
+</head>
+<body>
+<h1>Composer — three areas</h1>
+<p class="lede">
+  Text entry, a tools row (＋ Attach + the single Project selector), and an action row
+  (one model selector, one usage chip, Send). The popovers are live — click the model
+  button or the usage chip. The usage panel shows a real recorded session
+  (<code>provider_models_api</code>, anchor 59,531 / 1,048,576).
+</p>
+<div class="stage">
+<section id="hc-panel">
+ <div class="hc-main">
+  <main id="hc-messages"><div class="hc-empty">Start a conversation with Hermes.<br>Messages and tasks share the same thread.</div></main>
+  <div id="hc-feedback" role="status"></div>
+  <form id="hc-form"><div class="hc-composer-box"><textarea id="hc-input" rows="1" placeholder="Ask Hermesha to build, explain, fix, or research…" aria-label="Message Hermesha"></textarea><div class="hc-composer-tools"><button id="hc-attach" type="button" title="Browse project files and attach them"><span aria-hidden="true">＋</span> Attach</button><span id="hc-project-slot" class="hc-project-slot"></span></div><div class="hc-composer-actions"><button id="hc-model-button" type="button" aria-haspopup="dialog" aria-expanded="false" title="Change the chat model — provider and catalogue inside"><span id="hc-model-button-label">GLM 5.3 Flash (default)</span><span class="hc-caret" aria-hidden="true"> ▾</span></button><button id="hc-usage-chip" type="button" aria-haspopup="dialog" aria-expanded="false" title="Context, tokens and session cost — click for the detail panel"><span id="hc-usage-chip-label">Context 6% · $0.11</span></button><button id="hc-send" type="submit" title="Send message (Enter) · Shift+Enter adds a new line"><span aria-hidden="true">➤</span> Send</button></div><div id="hc-model-controls" hidden><label class="hc-hidden-control">Provider <select id="hc-provider" aria-label="Chat provider" tabindex="-1"><option value="">Default</option><option value="openrouter" selected>openrouter</option></select></label>
+<label class="hc-hidden-control">Model <select id="hc-model" aria-label="Chat model" tabindex="-1"><option value="">Worker default</option><option value="z-ai/glm-5.3-flash" selected>GLM 5.3 Flash (default)</option><option value="deepseek/deepseek-v3.2">DeepSeek V3.2</option><option value="google/gemini-2.5-flash">Gemini 2.5 Flash</option><option value="anthropic/claude-sonnet-4.5">Claude Sonnet 4.5</option></select></label></div><div id="hc-model-popover" hidden role="dialog" aria-label="Chat model selection"><button type="button" class="hc-popover-model">Worker default — no override</button><div class="hc-popover-group"><div class="hc-popover-group-head">openrouter</div><button type="button" class="hc-popover-model hc-popover-selected"><span class="hc-popover-model-name">GLM 5.3 Flash (default)</span><span class="hc-popover-model-meta">1.0M window</span></button><button type="button" class="hc-popover-model"><span class="hc-popover-model-name">DeepSeek V3.2</span><span class="hc-popover-model-meta">128K window</span></button><button type="button" class="hc-popover-model"><span class="hc-popover-model-name">Gemini 2.5 Flash</span><span class="hc-popover-model-meta">1.0M window</span></button><button type="button" class="hc-popover-model"><span class="hc-popover-model-name">Claude Sonnet 4.5</span><span class="hc-popover-model-meta">200K window</span></button></div><button id="hc-retry-models" type="button" title="Reload provider and model catalog">↻ Reload catalogue</button></div><div id="hc-usage-popover" hidden role="dialog" aria-label="Usage details"><div class="hc-usage-meter"><span class="hc-metric" id="hc-context-label">Context: 59.5K / 1048.6K — 6%</span><progress id="hc-context-bar" max="100" value="6" class="ok"></progress></div><div class="hc-usage-grid"><span class="hc-metric" id="hc-tokens-label" title="Input + output tokens of the most recent request">Tokens: 2.9M</span><span class="hc-metric" id="hc-cost-label" title="Priced by the Hermes CLI from the provider's own model list · 69 API calls this turn">Cost: $0.11</span><span class="hc-metric" id="hc-balance-label">Balance: $11.31 remaining</span></div><div class="hc-context-details" id="hc-context-details"><div class="hc-context-details-row"><span>Component</span><span>Tokens</span></div><div class="hc-context-details-row"><span>System instructions</span><span class="hc-unavailable">unavailable</span></div><div class="hc-context-details-row"><span>Conversation history</span><span class="hc-unavailable">unavailable</span></div><div class="hc-context-details-row"><span>Retrieved memory</span><span class="hc-unavailable">unavailable</span></div><div class="hc-context-details-row"><span>Project knowledge</span><span class="hc-unavailable">unavailable</span></div><div class="hc-context-details-row"><span>Tool content</span><span class="hc-unavailable">unavailable</span></div><div class="hc-context-details-row hc-context-details-note">The runtime does not report a per-component breakdown; only the measured total above is shown.</div></div></div></div></form>
+ </div>
+</section>
+</div>
+<script>
+  // Mirror the app's autogrow so the textarea is its real size.
+  const box=document.getElementById('hc-input');
+  box.style.height='auto'; box.style.height=Math.min(box.scrollHeight,Math.round(innerHeight*0.42))+'px';
+  // Live popover toggling, mirroring hermes-chat.ts's handlers.
+  const modelButton=document.getElementById('hc-model-button'),modelPopover=document.getElementById('hc-model-popover');
+  const usageChip=document.getElementById('hc-usage-chip'),usagePopover=document.getElementById('hc-usage-popover');
+  function closePopovers(){modelPopover.hidden=true;usagePopover.hidden=true;
+    modelButton.setAttribute('aria-expanded','false');usageChip.setAttribute('aria-expanded','false');}
+  modelButton.onclick=()=>{const wasOpen=!modelPopover.hidden;closePopovers();
+    if(!wasOpen){modelPopover.hidden=false;modelButton.setAttribute('aria-expanded','true');}};
+  usageChip.onclick=()=>{const wasOpen=!usagePopover.hidden;closePopovers();
+    if(!wasOpen){usagePopover.hidden=false;usageChip.setAttribute('aria-expanded','true');}};
+  document.addEventListener('click',ev=>{const t=ev.target;
+    if(!modelPopover.hidden&&!modelPopover.contains(t)&&!modelButton.contains(t))closePopovers();
+    else if(!usagePopover.hidden&&!usagePopover.contains(t)&&!usageChip.contains(t))closePopovers();});
+  document.addEventListener('keydown',ev=>{if(ev.key==='Escape')closePopovers();});
+</script>
+</body>
+</html>

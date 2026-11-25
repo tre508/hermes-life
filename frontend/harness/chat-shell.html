@@ -1,0 +1,111 @@
+<!doctype html>
+<!--
+  State harness — Pass 2/3 chat-shell surfaces (V2 chat audit §6/#10/#11/#8/#28/#30).
+
+  Open:  http://127.0.0.1:5173/harness/chat-shell.html
+
+  Why: the real app is behind the evaluation gate (password hash only — no
+  programmatic unlock), so the live shell cannot be inspected headless. This page
+  mirrors the REAL fragments — the Conversations workspace heading + tabs from
+  index.html, the chat panel (sidebar with thread rows, brand header, message
+  stream with a code block, composer) from src/hermes-chat.ts — and renders them
+  with the REAL stylesheets in the app's load order (style.css, unified-layout.css,
+  hermes-chat.css, chat-upgrade.css, chat-clarity.css, phase415-workspace.css).
+
+  Keep in sync with index.html / src/hermes-chat.ts when those fragments change.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>State harness — chat shell (Pass 2/3)</title>
+<link rel="stylesheet" href="/src/style.css">
+<link rel="stylesheet" href="/src/unified-layout.css">
+<link rel="stylesheet" href="/src/hermes-chat.css">
+<link rel="stylesheet" href="/src/chat-upgrade.css">
+<link rel="stylesheet" href="/src/chat-clarity.css">
+<link rel="stylesheet" href="/src/phase415-workspace.css">
+<style>
+  body{margin:0;background:#0b1720;color:#dceae7;font-family:Inter,system-ui,sans-serif;color-scheme:dark}
+  .lede{color:#7f9aa0;font-size:12px;margin:10px 0 16px;max-width:100ch;line-height:1.6;padding:0 20px}
+  /* mirror the #app shell grid so the workspace rules apply */
+  #app{display:grid;grid-template-areas:"header header header""nav main panel""status status status";grid-template-rows:60px minmax(0,1fr) 36px;height:calc(100vh - 90px);overflow:hidden}
+  #app .topbar{grid-area:header}
+  #app #main-workspace{grid-area:main;min-width:0;min-height:0;overflow:auto;display:block}
+  .topbar{display:flex;align-items:center;gap:8px;padding:0 16px;background:#0a222c;border-bottom:1px solid #315d63}
+  .header-chat-btn{display:inline-flex;align-items:center;padding:5px 11px;border-radius:8px;border:1px solid #3c6a70;background:#15323d;color:#cfe9e2;font:600 12px system-ui,sans-serif;cursor:pointer}
+</style>
+</head>
+<body>
+<p class="lede">Chat shell — 280px thread rail with two-line rows (✦ marks the open thread), account controls in the topbar, compacted workspace heading, jump-to-latest chip (scroll up in the stream to see it), and a contained code block.</p>
+<div id="app">
+  <header class="topbar">
+    <button id="header-chat-open" type="button" class="header-chat-btn" title="Open Hermes conversation">Chat ✦</button>
+    <span id="attention-badge" hidden title="Items awaiting your decision"></span>
+    <button id="topbar-logout" type="button" class="header-chat-btn" title="Log out — return to the entrance gate">Logout</button>
+    <button id="topbar-passkey" type="button" class="header-chat-btn" title="Register a passkey on this device for passwordless unlock" hidden>🔑 Passkey</button>
+  </header>
+  <main id="main-workspace">
+    <section id="workspace-conversations" class="workspace-view" data-layout="focus">
+      <header class="workspace-heading">
+        <div>
+          <h2>Conversations <small>one canonical thread system</small></h2>
+          <p>Every thread shares the same canonical conversation IDs as Task Board and Chat — presentation only changes here.</p>
+        </div>
+      </header>
+      <nav id="conv-tabs" class="conv-tabs" role="tablist" aria-label="Conversation surfaces">
+        <button id="conv-tab-chat" class="conv-tab active" role="tab" aria-selected="true" type="button">Chat</button>
+        <button id="conv-tab-project" class="conv-tab" role="tab" aria-selected="false" type="button">Project</button>
+      </nav>
+      <section id="chat-focus-host" class="chat-focus-host">
+<!-- the real app adds .in-focus-host on #hermes-chat-root when the chat mounts here;
+     without it the panel falls back to its 560px overlay sizing (hermes-chat.css:4). -->
+<div id="hermes-chat-root" class="in-focus-host">
+<section id="hc-panel" role="region" aria-label="Hermes conversation">
+ <aside id="hc-thread-sidebar" aria-label="Conversation history">
+  <div class="hc-thread-head"><strong>Conversations</strong><button id="hc-new" type="button" title="Start a new conversation"><span aria-hidden="true">＋</span> New chat</button></div>
+  <input id="hc-thread-filter" type="search" placeholder="Search threads" aria-label="Search conversations" autocomplete="off">
+  <nav id="hc-threads" aria-label="Previous conversations">
+    <h3 class="hc-thread-group">Today</h3>
+    <button type="button" class="hc-thread-item" aria-current="true"><span class="hc-thread-name">Composer redesign — three areas</span><span class="hc-thread-when">Nov 25 · 06:12</span></button>
+    <button type="button" class="hc-thread-item"><span class="hc-thread-name">Project tab verification run</span><span class="hc-thread-when">Nov 25 · 03:40</span></button>
+    <button type="button" class="hc-thread-item"><span class="hc-thread-name">A very long thread title that must truncate cleanly inside the 280px rail instead of wrapping or overflowing</span><span class="hc-thread-when">Nov 24 · 22:07</span></button>
+  </nav>
+ </aside>
+ <div class="hc-main">
+ <header class="hc-head"><div class="hc-brand"><span class="hc-logo" aria-hidden="true">✦</span><div class="hc-brand-copy"><strong id="hc-thread-title">Composer redesign — three areas</strong><small id="hc-state">Hermesha · connected</small></div></div></header>
+ <main id="hc-messages" aria-live="polite">
+  <div class="hc-bubble user"><div class="hc-body">Rebuild the composer: model selector and usage behind chips, no dashboard rows.</div></div>
+  <div class="hc-bubble assistant"><div class="hc-body">Done — the composer is three areas now. The usage numbers are behind the chip; the model catalogue is grouped by provider.
+
+Example contained code block:
+
+<pre>def follow_bottom():
+    return messages.scrollHeight - messages.scrollTop - messages.clientHeight &lt; 110</pre>
+
+Scroll up and the ↓ Latest chip appears; click it to return.</div></div>
+  <div class="hc-bubble user"><div class="hc-body">And the thread rail?</div></div>
+  <div class="hc-bubble assistant"><div class="hc-body">280px fixed, two-line rows, ✦ on the open thread only.</div></div>
+  <div id="hc-jump-latest-filler" style="height:900px;flex-shrink:0"></div>
+  <button id="hc-jump-latest" type="button" title="Jump to the latest messages" hidden>↓ Latest</button>
+ </main>
+ <div id="hc-feedback" role="status"></div>
+ <form id="hc-form"><div class="hc-composer-box"><textarea id="hc-input" rows="1" placeholder="Ask Hermesha to build, explain, fix, or research…" aria-label="Message Hermesha"></textarea><div class="hc-composer-tools"><button id="hc-attach" type="button"><span aria-hidden="true">＋</span> Attach</button><span id="hc-project-slot" class="hc-project-slot"></span></div><div class="hc-composer-actions"><button id="hc-model-button" type="button"><span id="hc-model-button-label">GLM 5.3 Flash (default)</span><span class="hc-caret" aria-hidden="true"> ▾</span></button><button id="hc-usage-chip" type="button"><span id="hc-usage-chip-label">Context 6% · $0.11</span></button><button id="hc-send" type="submit"><span aria-hidden="true">➤</span> Send</button></div></div></form>
+ </div>
+</section>
+</div>
+      </section>
+    </section>
+  </main>
+</div>
+<script>
+  // Mirror hermes-chat.ts's jump-to-latest wiring so the page is actually live.
+  const messages=document.getElementById('hc-messages');
+  const jump=document.getElementById('hc-jump-latest');
+  const followBottom=()=>messages.scrollHeight-messages.scrollTop-messages.clientHeight<110;
+  messages.addEventListener('scroll',()=>{jump.hidden=followBottom();},{passive:true});
+  jump.onclick=()=>{messages.scrollTop=messages.scrollHeight;jump.hidden=true;};
+  const box=document.getElementById('hc-input');
+  box.style.height='auto';box.style.height=Math.min(box.scrollHeight,Math.round(innerHeight*0.42))+'px';
+</script>
+</body>
+</html>

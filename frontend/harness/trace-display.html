@@ -1,0 +1,128 @@
+<!doctype html>
+<!--
+  State harness — tool activity rendering (chat audit §15).
+
+  Open:  http://127.0.0.1:5173/harness/trace-display.html
+
+  Why this exists: the chat transcript is behind the evaluation gate in a headless
+  load, so a live tool trace cannot be inspected. This page drives the REAL
+  toolAction() / resultSummary() / formatDuration() from /src/trace-format.ts with
+  synthetic payloads and renders them with the REAL stylesheet, one card per kind.
+
+  The DOM shape mirrors renderTraceInto() in src/hermes-chat.ts — keep the two in
+  sync when the markup changes.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>State harness — tool activity rendering</title>
+<link rel="stylesheet" href="/src/hermes-chat.css">
+<style>
+  body { margin:0; padding:22px; background:#0b1720; color:#dceae7; font-family:Inter,system-ui,sans-serif; color-scheme:dark; }
+  h1 { font-size:15px; letter-spacing:.04em; text-transform:uppercase; color:#e1d6bc; margin:0 0 4px; }
+  .lede { color:#7f9aa0; font-size:12px; margin:0 0 18px; max-width:84ch; line-height:1.6; }
+  .lede code { color:#a8e7d5; }
+  .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(430px,1fr)); gap:16px; align-items:start; }
+  .case { border:1px solid #1c3a47; border-radius:10px; padding:12px; background:#0d1a22; }
+  .case h2 { font-size:12px; color:#7f9aa0; margin:0 0 4px; font-weight:600; }
+  .state { display:block; color:#a8e7d5; font:11px/1.5 ui-monospace,monospace; margin:0 0 10px; }
+  /* the panel wrapper the chat styles are scoped under — the REAL id, so these
+     cards exercise the shipped rules rather than the browser's <code> defaults.
+     Duplicate ids in a fixture are invalid HTML but harmless here (nothing on
+     this page resolves #hc-panel by id); do not copy this into shipped markup. */
+  .panel { background:#102b35; border:1px solid #426e72; border-radius:12px; padding:10px 12px; }
+  /* The real id brings the real tool rules, and also #hc-panel's own BOX rules
+     (an absolute 560x690 overlay), which would turn each card into a floating
+     slab. Neutralise the box here — the tool activity styles are the subject. */
+  #hc-panel {
+    position:static!important; right:auto!important; bottom:auto!important; left:auto!important;
+    width:auto!important; height:auto!important; max-width:none!important; max-height:none!important;
+    min-height:0!important; box-shadow:none!important; display:block!important;
+  }
+  .before { color:#8c9aa0; font:11px/1.6 ui-monospace,monospace; white-space:pre-wrap; border-left:2px solid #6b3c3c; padding:2px 0 2px 10px; margin:0 0 10px; }
+  .before::before { content:'WAS — raw wire payload:'; display:block; color:#c1796f; font-weight:700; margin-bottom:2px; }
+</style>
+</head>
+<body>
+<h1>Tool activity rendering</h1>
+<p class="lede">
+  Each card is produced by the real <code>toolAction()</code> / <code>resultSummary()</code> /
+  <code>formatDuration()</code> through the real stylesheet. The "WAS" block on each card shows the
+  payload the transcript used to print, so the difference is visible side by side.
+</p>
+<div class="grid" id="grid"></div>
+<script type="module">
+  import { toolAction, resultSummary, hasMoreDetail, formatDuration } from '/src/trace-format.ts';
+
+  const TRACEBACK = 'state: failed\nerror: no such table: chat_task_models\nresults: []\nTraceback (most recent call last):\n  File "/tmp/probe_exp.py", line 12, in <module>\n    r.store.connection.execute()';
+  const GREP = 'hermes_life/__pycache__/chat_models.cpython-314.pyc: binary file matches\nhermes_life/chat_models.py:46:    self.store.connection.execute(\'\'\'CREATE TABLE IF NOT EXISTS chat_task_models\'\'\')\nhermes_life/chat_models.py:73:    self.store.connection.execute(\'\'\'INSERT INTO chat_task_models\'\'\')';
+
+  const CASES = [
+    { name:'terminal — command with output', tool:'terminal', args:{command:'cd /home/gayzer/Apps/hermes-life && grep -rn "chat_task_models" hermes_life/ | head -20'}, result: GREP, ms: 420 },
+    { name:'terminal — failing command', tool:'terminal', args:{command:'cd /home/glenn/Projects/hermes-life && PYTHONPATH=$(ls /home/glenn/.hermes/installs/*/environments/*/venv/lib/python*/site-packages | head -1) /tmp/hl-test-venv/bin/python /tmp/probe_exp.py'}, result: TRACEBACK, ms: 1180 },
+    { name:'read_file — with a limit', tool:'read_file', args:{limit:70, path:'/home/gayzer/Apps/hermes-life/hermes_life/chat_models.py'}, result:'import sqlite3\n\nclass ChatTaskModels:\n    """Row access for chat_task_models."""', ms: 60 },
+    { name:'search — pattern and scope', tool:'grep', args:{pattern:'CREATE TABLE IF NOT EXISTS', path:'hermes_life/'}, result: GREP, ms: 210 },
+    { name:'write / edit an existing file', tool:'patch', args:{file_path:'frontend/src/hermes-chat.ts'}, result:'ok', ms: 35 },
+    { name:'web — search, then fetch', tool:'web_search', args:{query:'sqlite operational error no such table'}, result:'1. SQLite no such table — Stack Overflow\n2. sqlite3.OperationalError docs', ms: 900 },
+    { name:'args arriving as a JSON string', tool:'read_file', args:'{"limit":70,"path":"/tmp/thing.py"}', result:'ok', ms: 12 },
+    { name:'unknown tool — must degrade to English', tool:'some_new_tool', args:{path:'/tmp/thing'}, result:'done', ms: 8 },
+    { name:'empty result', tool:'terminal', args:{command:'ls -la /nonexistent'}, result:'   \n  ', ms: 20 },
+  ];
+
+  const h = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text !== undefined) e.textContent = text; return e; };
+  const panelEl = () => { const d = h('div', 'panel'); d.id = 'hc-panel'; return d; };
+  const grid = document.getElementById('grid');
+
+  CASES.forEach((c, idx) => {
+    const box = h('section', 'case');
+    box.append(h('h2', null, c.name));
+    const act = toolAction(c.tool, c.args);
+    box.append(h('span', 'state', `${act.icon} ${act.text}`));
+
+    const before = h('div', 'before', JSON.stringify({ tool: c.tool, arguments: c.args, output: String(c.result).slice(0, 120) + '…' }));
+    box.append(before);
+
+    const panel = panelEl();
+    const row = h('div', 'hc-tool');
+    const line = h('div', 'hc-tool-line');
+    // mirrors renderTraceInto(): status glyph (● live / ✓ done), step number,
+    // tool-name pill, monospace command.
+    const status = h('span', 'hc-tool-status' + (c.ms === undefined ? ' hc-tool-live' : ''), c.ms === undefined ? '●' : '✓');
+    const num = h('span', 'hc-tool-num', String(idx + 1) + '.');
+    const pill = h('span', 'hc-tool-name', act.name);
+    const cmd = h('code', 'hc-tool-cmd', act.text);
+    line.append(status, num, pill, cmd);
+    if (c.ms !== undefined) line.append(h('span', 'hc-tool-ms', formatDuration(c.ms)));
+    row.append(line);
+    if (c.result !== undefined) {
+      const summary = resultSummary(String(c.result));
+      // mirrors renderTraceInto(): failures (summary starts with "failed · ")
+      // get the hc-tool-failed class so the red styling is exercised here too.
+      row.append(h('div', 'hc-tool-out' + (summary.startsWith('failed · ') ? ' hc-tool-failed' : ''), '→ ' + summary));
+      if (hasMoreDetail(String(c.result))) {
+        const more = h('details', 'hc-tool-more');
+        more.append(h('summary', null, 'output'), h('pre', 'hc-tool-result', String(c.result)));
+        row.append(more);
+      }
+    }
+    panel.append(row);
+    box.append(panel);
+    grid.append(box);
+  });
+
+  // The trace headline shown while a task is running.
+  const steps = CASES.slice(0, 3).map(c => ({ label: c.tool, args: c.args }));
+  const last = steps[steps.length - 1];
+  const head = document.createElement('section');
+  head.className = 'case';
+  head.append(h('h2', null, 'trace headline (live)'));
+  head.append(h('span', 'state', `Working — ${toolAction(last.label, last.args).text} · ${steps.length} steps`));
+  const p2 = panelEl();
+  p2.append(h('div', 'hc-trace-summary-preview', ''));
+  p2.querySelector('.hc-trace-summary-preview').textContent =
+    `Working — ${toolAction(last.label, last.args).text} · ${steps.length} steps`;
+  head.append(p2);
+  grid.append(head);
+</script>
+</body>
+</html>

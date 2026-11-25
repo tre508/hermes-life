@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<!-- Project-tab state harness — the project-files counterpart of composer-telemetry.html.
+     It mounts the REAL phase412-project-ui.ts module (real markup, real CSS, real
+     handlers) into a scaffold that mirrors #workspace-conversations, with fetch
+     stubbed to fixture data so every state is reachable without the gate or the
+     backend: tabs, rail (projects + registration + tree), stage (open/edit/save),
+     upload button, attachments. Serve via the Vite dev server:
+       http://127.0.0.1:5173/harness/project-tab.html
+     Keep in sync with src/phase412-project-ui.ts when its markup changes. -->
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Project tab — state harness</title>
+<link rel="stylesheet" href="/src/phase415-workspace.css" />
+<style>
+  body{margin:0;background:#06141d;color:#e7f6f5;font:13px system-ui,sans-serif}
+  .scaffold{display:flex;flex-direction:column;height:100vh;max-width:1400px;margin:0 auto}
+  .workspace-heading{padding:10px 1.25rem 6px}
+  .workspace-heading h2{margin:0;font-size:16px}
+  .workspace-heading p{margin:2px 0 0;color:#9fbfbd;font-size:12px}
+  #chat-focus-host,#project-focus-host{border:1px dashed #315d63;border-radius:10px}
+  #chat-focus-host .placeholder{margin:auto;color:#7f9aa0;padding:40px;text-align:center}
+</style>
+</head>
+<body>
+<script>window.__errs=[];window.addEventListener('error',e=>window.__errs.push(String(e.message||e.error)))</script>
+<div class="scaffold" id="workspace-conversations">
+  <header class="workspace-heading">
+    <h2>Conversations <small>one canonical thread system</small> — HARNESS</h2>
+    <p>Chat tab shows the chat placeholder; the Project tab is the real phase412 surface.</p>
+  </header>
+  <nav id="conv-tabs" class="conv-tabs" role="tablist" aria-label="Conversation surfaces">
+    <button id="conv-tab-chat" class="conv-tab active" role="tab" aria-selected="true" type="button">Chat</button>
+    <button id="conv-tab-project" class="conv-tab" role="tab" aria-selected="false" type="button">Project</button>
+  </nav>
+  <div id="chat-focus-host" class="chat-focus-host">
+    <p class="placeholder">#hermes-chat-root lives here in the real app.<br/>Switch to the Project tab →</p>
+  </div>
+  <section id="project-focus-host" role="tabpanel" aria-label="Project files" hidden></section>
+</div>
+
+<!-- Minimal chat-panel stub: phase412 anchors on #hc-panel / #hc-form / #hc-input and
+     mounts its project selector into #hc-project-slot (mirrors src/hermes-chat.ts). -->
+<div id="hc-panel" hidden>
+  <form id="hc-form"><div class="hc-composer-box"><textarea id="hc-input" rows="1" placeholder="Ask Hermesha to build, explain, fix, or research…" aria-label="Message Hermesha"></textarea><div class="hc-composer-tools"><button id="hc-attach" type="button"><span aria-hidden="true">＋</span> Attach</button><span id="hc-project-slot" class="hc-project-slot"></span></div><div class="hc-composer-actions"><button id="hc-model-button" type="button"><span id="hc-model-button-label">Worker default</span></button><button id="hc-usage-chip" type="button"><span id="hc-usage-chip-label">Context unavailable</span></button><button id="hc-send" type="submit"><span aria-hidden="true">➤</span> Send</button></div></div></form>
+</div>
+
+<script type="module">
+// ---- fetch stub: fixture routes mirroring /api/projects/* -------------------
+const TREE={
+  root:'/home/gayzer/Apps/hl-demo-worker',count:5,truncated:false,
+  entries:[
+    {path:'README.md',size:1203,type:'file'},
+    {path:'src/app.py',size:8421,type:'file'},
+    {path:'src/main.ts',size:1587,type:'file'},
+    {path:'tests/test_app.py',size:2410,type:'file'},
+    {path:'start.sh',size:2413,type:'file'},
+  ],
+  host_version:{commit:'aabbdde',dirty:false},
+};
+const FILES={
+  'README.md':'# demo worker\n\nA registered project fixture for the Project tab harness.\n',
+  'src/app.py':'def main():\n    print("hello from the fixture")\n',
+  'src/main.ts':'console.log("fixture");\n',
+  'tests/test_app.py':'def test_ok():\n    assert True\n',
+  'start.sh':'#!/usr/bin/env bash\nset -eu\n',
+};
+const PROJECTS=[{name:'hl-demo-worker',host_path:'/home/gayzer/Apps/hl-demo-worker',remote_path:null,commit_hash:'aabbdde'}];
+const ROOTS={
+  allowed_root:'/home/gayzer/Apps',
+  roots:[
+    {name:'hl-demo-worker',path:'/home/gayzer/Apps/hl-demo-worker',registered:true,version:{commit:'aabbdde',dirty:false}},
+    {name:'Vid-Gayzer',path:'/home/gayzer/Apps/Vid-Gayzer',registered:false,version:{commit:'b956141',dirty:true}},
+    {name:'slasher',path:'/home/gayzer/Apps/slasher',registered:false,version:null},
+  ],
+};
+const json=(data,status=200)=>new Response(JSON.stringify(data),{status,headers:{'Content-Type':'application/json'}});
+window.fetch=async(input,init)=>{
+  const url=typeof input==='string'?input:(input&&input.url)||String(input);
+  const method=(init?.method||'GET').toUpperCase();
+  const path=url.replace(/^https?:\/\/[^/]+/,'').split('?')[0];
+  if(path==='/api/projects'&&method==='GET')return json({projects:PROJECTS});
+  if(path==='/api/projects'&&method==='POST'){
+    const body=JSON.parse(String(init?.body||'{}'));
+    PROJECTS.push({name:body.name,host_path:body.host_path,remote_path:null,commit_hash:null});
+    TREE.entries.push({path:'HARNESS.md',size:88,type:'file'});TREE.count=TREE.entries.length;
+    FILES['HARNESS.md']='newly registered via the harness\n';
+    for(const r of ROOTS.roots)if(r.path===body.host_path)r.registered=true;
+    return json({name:body.name},201);
+  }
+  if(path==='/api/projects/roots')return json(ROOTS);
+  const m2=path.match(/^\/api\/projects\/([a-z0-9-]+)\/(tree|file|changes)$/);
+  if(m2){
+    const name=m2[1],what=m2[2];
+    if(what==='tree')return json({...TREE,root:'/home/gayzer/Apps/'+name});
+    if(what==='changes')return json({workspace:'/home/gayzer/Apps/'+name+' (live host repository)',output:'M src/app.py\n---GIT-STATUS---\n---END-DIFF---'});
+    const m=method==='GET'
+      ?new URLSearchParams(url.split('?')[1]||'').get('path')||''
+      :JSON.parse(String(init?.body||'{}')).path;
+    if(method==='GET')return json({path:m,size:(FILES[m]||'').length,mtime:1700000000,mode:'-rw-r--r--',truncated:false,content:FILES[m]||'',host_version:{commit:'aabbdde',dirty:false}});
+    if(method==='PUT'){const body=JSON.parse(String(init?.body||'{}'));if('expected_mtime' in body&&Math.abs(body.expected_mtime-1700000000)>0.001)return json({detail:'File changed on disk since it was loaded — reload it before saving'},409);FILES[m]=body.content;return json({path:m,size:body.content.length,mtime:1700000001,created:false,host_version:{commit:'aabbdde',dirty:true}})}
+  }
+  console.warn('[harness] unstubbed',method,path);return json({detail:'unstubbed '+path},404);
+};
+// ---- boot the REAL module ----------------------------------------------------
+await import('/src/phase412-project-ui.ts');
+</script>
+</body>
+</html>

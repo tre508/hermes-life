@@ -25,6 +25,7 @@ import { mountThread, type Turn } from './conv-thread.ts';
 import { mountTaskComposer, type TaskComposerHandle } from './task-composer.ts';
 import { openWorkView, openTask, openActivityForTask, onNavigationChange, getCurrentWorkView, registerTaskValidator, setSelection, type WorkView } from './navigation-state.ts';
 import { registerKindRenderer, registerSummaryProvider } from './context-inspector.ts';
+import { FQ, fqLine } from './five-questions.ts';
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string): T | null => document.getElementById(id) as T | null;
 const str = (v: unknown): string => (typeof v === 'string' ? v : v == null ? '' : String(v));
@@ -553,8 +554,24 @@ registerKindRenderer('task', (sel, body) => {
     }
     const c = chainByTask[sel.id];
     body.append(node('strong', str(t.prompt) || 'Task'));
-    body.append(node('p', `${str(t.state)} · ${c ? str(c.status) : 'manual task'}`));
+    // Spec §10: the inspector card answers the SAME questions with the SAME
+    // records the task's center context card (buildFactsCard) renders — one
+    // selection, one set of answers, no contradiction between surfaces.
+    body.append(fqLine(FQ.status, `${str(t.state)} · ${c ? str(c.status) : 'manual task'}`));
+    body.append(fqLine(FQ.why, c?.project
+        ? `project ${str(c.project)}${c.reason ? ` — ${str(c.reason)}` : ''}`
+        : 'user-directed — started from chat or a manual goal, no linked project'));
     body.append(node('p', `Created ${new Date(str(t.created_at)).toLocaleString()}`));
+    if (c) {
+        body.append(fqLine(FQ.evidence, `chain stage ${str(c.stage) || '—'}` +
+            (c.run_id ? ` · implementation run ${str(c.run_id).slice(0, 8)}` : '') +
+            (c.path ? ` · ${str(c.path)}` : '')));
+        const next = str(c.next_action);
+        if (next === 'approve_plan' || next === 'review_investigation')
+            body.append(fqLine(FQ.decision, 'your approval is the next permissible step — the approval card is on the task panel'));
+    } else {
+        body.append(fqLine(FQ.evidence, 'no workflow chain linked yet'));
+    }
     const open = node('button', 'Open in Results →', '') as HTMLButtonElement;
     open.type = 'button';
     open.addEventListener('click', () => openResults(sel.id));

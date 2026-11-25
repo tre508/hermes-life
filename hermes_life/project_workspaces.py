@@ -1,7 +1,10 @@
 """Phase 4.11 project registry and isolated, Git-backed work-machine workspaces.
 
-No direct host source writes. Each synchronization creates a new immutable-base
-checkout; modifications on the work machine are reviewable via `git diff`.
+No direct host source writes through the SYNC pipeline: each synchronization creates
+a new immutable-base checkout; modifications on the work machine are reviewable via
+`git diff`. The chat UI's own file editor is the one deliberate exception and is
+provisional by the same rule as the agent's edits — it writes the host working tree
+UNCOMMITTED, so `changes()`/review shows the exact diff and Git remains the safety net.
 """
 from __future__ import annotations
 import hashlib
@@ -25,6 +28,16 @@ class ProjectInput(BaseModel):
     host_path: str = Field(min_length=1, max_length=1024)
     spec_path: str | None = None
 
+class ProjectCreate(BaseModel):
+    name: str = Field(min_length=2, max_length=48)
+    spec_path: str | None = None
+    git: bool = False  # optional repository init; plain folder is the default
+
+class FileWrite(BaseModel):
+    path: str = Field(min_length=1, max_length=1024)
+    content: str
+    expected_mtime: float | None = None
+
 class WorkspaceError(ValueError): pass
 
 # HL-CHAT-006: file-context manager. Whole-tree inspection must never silently
@@ -37,6 +50,9 @@ DENY_FILE = re.compile(r'(^\.env|\.env$|\.pem$|\.key$|\.p12$|\.pfx$|id_rsa|id_ed
 MAX_TREE_ENTRIES = 3000
 MAX_FILE_BYTES = 200_000
 MAX_DEPTH = 12
+#: Writes are bounded separately: an uploaded or edited text file may exceed the
+#: read/attach cap (which exists to protect the model context), but must stay finite.
+MAX_WRITE_BYTES = 1_000_000
 
 
 def workspace_dest(name, commit):
@@ -49,6 +65,16 @@ class ProjectWorkspaces:
         self.runtime = runtime
         self.lock = threading.RLock()
         self.allowed_root = Path(os.environ.get('HERMES_LIFE_PROJECT_ROOT', str(Path.home()/'Apps'))).resolve()
+        # Additional allowed roots (HERMES_LIFE_PROJECT_EXTRA_ROOTS, colon-separated):
+        # project directories do not all live under ~/Apps. Registration stays
+        # config-bounded — an arbitrary host path is still refused unless it sits
+        # under one of these roots, so the agent's workspace reach never grows
+        # because of a UI click.
+        self.allowed_roots = [self.allowed_root]
+        for raw in os.environ.get('HERMES_LIFE_PROJECT_EXTRA_ROOTS', '').split(':'):
+            candidate = raw.strip()
+            if candidate:
+                self.allowed_roots.append(Path(candidate).expanduser().resolve())
         with runtime.store.lock:
             runtime.store.connection.execute('''CREATE TABLE IF NOT EXISTS hl_projects (
                 name TEXT PRIMARY KEY, host_path TEXT NOT NULL, spec_path TEXT,
@@ -68,10 +94,12 @@ class ProjectWorkspaces:
     def register(self, name, host_path, spec_path=None):
         if not SLUG.fullmatch(name): raise WorkspaceError('Invalid project name (lowercase letters, digits, hyphens)')
         root=Path(host_path).expanduser().resolve(strict=True)
-        if not root.is_dir() or not root.is_relative_to(self.allowed_root):
-            raise WorkspaceError('Project must be a directory under '+str(self.allowed_root))
-        top=self._git(['rev-parse','--show-toplevel'],root).strip()
-        if Path(top).resolve()!=root:raise WorkspaceError('Path must be the repository root')
+        if not root.is_dir() or not any(root.is_relative_to(allowed) for allowed in self.allowed_roots):
+            raise WorkspaceError('Project must be a directory under an allowed root: '
+                                 + ' or '.join(str(r) for r in self.allowed_roots))
+        # Git is OPTIONAL (VS Code-style: any directory can be a workspace).
+        # A non-git directory registers fine; sync/review then degrade with an
+        # honest "no git repository" message instead of blocking registration.
         if spec_path:
             p=(root/spec_path).resolve(strict=True)
             if not p.is_file() or not p.is_relative_to(root):raise WorkspaceError('Specification must be a file inside the repository')
@@ -84,6 +112,30 @@ class ProjectWorkspaces:
             db.execute('INSERT INTO hl_projects (name,host_path,spec_path) VALUES (?,?,?) ON CONFLICT(name) DO UPDATE SET spec_path=excluded.spec_path', (name,str(root),spec_path))
             db.commit()
         return self._read(name)
+
+    def create(self, name, spec_path=None, git=False):
+        """Create a brand-new project: directory, README seed, register.
+
+        Git is OPTIONAL (VS Code-style): a plain folder is the default, and
+        git=True initializes a repository for projects that want sync/review.
+        New projects are born under the PRIMARY allowed root — creating a
+        directory is a write, and the primary root is the documented home for
+        workspaces. Registration then runs the exact checks every other project
+        passes, so a created project is indistinguishable from a registered one.
+        """
+        if not SLUG.fullmatch(name): raise WorkspaceError('Invalid project name (lowercase letters, digits, hyphens)')
+        root = self.allowed_root / name
+        if root.exists():
+            if any(root.iterdir()):
+                raise WorkspaceError('Directory already exists and is not empty')
+        else:
+            root.mkdir(parents=True)
+        if git:
+            self._git(['init', '-q'], root)
+        readme = root / 'README.md'
+        if not readme.exists():
+            readme.write_text('# ' + name + '\n\nCreated from the Hermes Life project panel.\n', encoding='utf-8')
+        return self.register(name, str(root), spec_path)
 
     @staticmethod
     def _git(args, cwd):
@@ -112,6 +164,8 @@ class ProjectWorkspaces:
             root=Path(project['host_path'])
             if not root.is_dir() or root.resolve()!=root or not root.is_relative_to(self.allowed_root):
                 raise WorkspaceError('Registered path no longer valid')
+            if not (root/'.git').exists():
+                raise WorkspaceError('No git repository here — sync/review need git. The workspace still works for browsing, reading, and attaching files.')
             # A bundle only includes commits. Never quietly omit uncommitted work.
             if self._git(['status','--porcelain','--untracked-files=all'],root).strip():
                 raise WorkspaceError('Host repository has uncommitted or untracked files; commit or clean before sync')
@@ -259,7 +313,16 @@ class ProjectWorkspaces:
                 'truncated': truncated, 'entries': entries,
                 'host_version': self._host_version(root)}
 
-    def file(self, name, relpath):
+    def file(self, name, relpath, preview=False):
+        """Read a file from the workspace.
+
+        preview=True (the UI stage) never hard-fails on size: files over the
+        attach limit return their first MAX_FILE_BYTES with `truncated: True`
+        and the full size, and binary files return `binary: True` with no
+        content instead of a page of replacement characters. Attach flows
+        (preview=False) keep the strict limit — an inline attachment must be
+        complete or refused, never silently cut.
+        """
         root = self._root(name)
         if not relpath or relpath.startswith('/') or '\\' in relpath or '..' in Path(relpath).parts:
             raise WorkspaceError('Invalid file path')
@@ -272,13 +335,104 @@ class ProjectWorkspaces:
         if not target.is_file():
             raise WorkspaceError('Not a regular file: ' + rel)
         st = target.stat()
-        if st.st_size > MAX_FILE_BYTES:
-            raise WorkspaceError(f'File too large to attach ({st.st_size} bytes; limit {MAX_FILE_BYTES})')
         import stat as stat_module
-        content = target.read_bytes().decode('utf-8', errors='replace')
+        with target.open('rb') as handle:
+            head = handle.read(MAX_FILE_BYTES + 1)
+        is_binary = b'\x00' in head[:8192]
+        if is_binary:
+            return {'path': rel, 'size': st.st_size, 'mtime': st.st_mtime,
+                    'mode': stat_module.filemode(st.st_mode), 'truncated': False,
+                    'binary': True, 'content': '', 'host_version': self._host_version(root)}
+        truncated = st.st_size > MAX_FILE_BYTES
+        if truncated and not preview:
+            raise WorkspaceError(f'File too large to attach ({st.st_size} bytes; limit {MAX_FILE_BYTES})')
+        content = head[:MAX_FILE_BYTES].decode('utf-8', errors='replace')
         return {'path': rel, 'size': st.st_size, 'mtime': st.st_mtime,
-                'mode': stat_module.filemode(st.st_mode), 'truncated': False,
-                'content': content, 'host_version': self._host_version(root)}
+                'mode': stat_module.filemode(st.st_mode), 'truncated': truncated,
+                'binary': False, 'content': content, 'host_version': self._host_version(root)}
+
+    def _resolve_writable(self, name, relpath):
+        """The same containment and denylist rules the reader applies, for writes."""
+        root = self._root(name)
+        if not relpath or relpath.startswith('/') or '\\' in relpath or '..' in Path(relpath).parts:
+            raise WorkspaceError('Invalid file path')
+        target = (root / relpath).resolve()
+        if not target.is_relative_to(root):
+            raise WorkspaceError('Path escapes the project root')
+        rel = target.relative_to(root).as_posix()
+        if self._denied(rel):
+            raise WorkspaceError('File is denylisted (secret or build artifact): ' + rel)
+        return root, target, rel
+
+    def roots(self):
+        """Candidate project directories under every allowed root.
+
+        The registration UI needs something to offer besides a free-text path.
+        Git is optional (VS Code-style): every directory under an allowed root
+        is a candidate, and `git` records whether sync/review features apply.
+        """
+        seen=set()
+        out=[]
+        registered = {r['host_path'] for r in self.list()}
+        for allowed in self.allowed_roots:
+            try:
+                candidates = sorted(p for p in allowed.iterdir()
+                                    if p.is_dir() and not p.name.startswith('.'))
+            except OSError:
+                continue
+            for path in candidates:
+                if str(path) in seen:
+                    continue
+                seen.add(str(path))
+                out.append({'name': path.name, 'path': str(path), 'registered': str(path) in registered,
+                            'git': (path / '.git').exists(),
+                            'version': self._host_version(path)})
+        return out
+
+    def write_file(self, name, relpath, content, expected_mtime=None):
+        """Create or overwrite a UTF-8 text file inside the project workspace.
+
+        Provisional by design, exactly like the agent's own edits: the change lands in
+        the host working tree UNCOMMITTED and is visible through `changes()`. Binary
+        targets are refused (a text round-trip would corrupt them), `expected_mtime`
+        refuses a save over a file that changed on disk since it was loaded, and the
+        write is atomic (tempfile + rename) so a failed save cannot truncate.
+        """
+        root, target, rel = self._resolve_writable(name, relpath)
+        if not isinstance(content, str):
+            raise WorkspaceError('File content must be text')
+        data = content.encode('utf-8')
+        if len(data) > MAX_WRITE_BYTES:
+            raise WorkspaceError(f'File too large to write ({len(data)} bytes; limit {MAX_WRITE_BYTES})')
+        created = not target.exists()
+        mode = 0o644
+        if not created:
+            if not target.is_file():
+                raise WorkspaceError('Not a regular file: ' + rel)
+            st = target.stat()
+            try:
+                target.read_bytes()[:8192].decode('utf-8', errors='strict')
+            except UnicodeDecodeError:
+                raise WorkspaceError('Binary file — edit it in a real editor, not through chat') from None
+            if expected_mtime is not None and abs(st.st_mtime - float(expected_mtime)) > 0.001:
+                raise WorkspaceError('File changed on disk since it was loaded — reload it before saving')
+            mode = st.st_mode & 0o777
+        if not target.parent.is_dir():
+            raise WorkspaceError('Parent directory does not exist in the project: ' + rel)
+        import tempfile as tempfile_module
+        handle_fd, tmp_name = tempfile_module.mkstemp(dir=target.parent, prefix='.hermes-write-', suffix='.tmp')
+        tmp = Path(tmp_name)
+        try:
+            with os.fdopen(handle_fd, 'wb') as fh:
+                fh.write(data)
+            os.chmod(tmp, mode)
+            os.replace(tmp, target)
+        except BaseException:
+            tmp.unlink(missing_ok=True)
+            raise
+        st = target.stat()
+        return {'path': rel, 'size': st.st_size, 'mtime': st.st_mtime, 'created': created,
+                'host_version': self._host_version(root)}
 
 
 def add_project_routes(app, runtime, manager):
@@ -291,6 +445,14 @@ def add_project_routes(app, runtime, manager):
     def listing():return {'projects':manager.list()}
     @router.post('',status_code=201)
     def register(payload:ProjectInput):return handle(manager.register,payload.name,payload.host_path,payload.spec_path)
+    # Create-before-{name} routes so `create` can never be read as a project name.
+    @router.post('/create',status_code=201)
+    def create(payload:ProjectCreate):return handle(manager.create,payload.name,payload.spec_path,payload.git)
+    # Declare BEFORE the /{name}/... routes so `roots` can never be read as a project name.
+    @router.get('/roots')
+    def roots():return {'allowed_root':str(manager.allowed_root),
+                        'allowed_roots':[str(r) for r in manager.allowed_roots],
+                        'roots':manager.roots()}
     @router.post('/{name}/sync')
     def sync(name:str):return handle(manager.sync,name)
     @router.get('/{name}/changes')
@@ -299,5 +461,11 @@ def add_project_routes(app, runtime, manager):
     @router.get('/{name}/tree')
     def tree(name:str):return handle(manager.tree,name)
     @router.get('/{name}/file')
-    def file(name:str,path:str):return handle(manager.file,name,path)
+    def file(name:str,path:str,preview:bool=False):
+        return handle(manager.file,name,path,preview)
+    # UI edits and uploads: provisional, uncommitted host working-tree writes (see
+    # the module docstring) — the same containment and denylist rules as the reader.
+    @router.put('/{name}/file')
+    def write_file(name:str,payload:FileWrite):
+        return handle(manager.write_file,name,payload.path,payload.content,payload.expected_mtime)
     app.include_router(router)

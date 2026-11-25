@@ -22,18 +22,11 @@
 #hc-panel .hc-bubble.hc-thought .hc-body blockquote { border-left-color:#bb91f2; color:#d3c2ee; background:rgba(62,39,86,.30); }
 #hc-panel .hc-bubble.assistant:not(.hc-thought) .hc-body blockquote { border-left-color:#77d4c6; color:#bed6dc; background:#17323b; }
 #hc-panel .hc-bubble.hc-thought .hc-body h2, #hc-panel .hc-bubble.hc-thought .hc-body h3, #hc-panel .hc-bubble.hc-thought .hc-body h4 { color:#C4A7FF; }
-/* HL-CHAT-004 §2.7 stacked header layout. */
-#hc-model-controls { display:flex; flex-direction:column; gap:6px; padding:10px 14px; }
-#hc-model-controls .hc-model-row, #hc-model-controls .hc-usage-row { display:flex; align-items:center; flex-wrap:wrap; gap:10px 14px; }
-#hc-model-controls .hc-context-row { display:flex; align-items:center; gap:10px; cursor:pointer; }
-#hc-model-controls .hc-context-row #hc-context-bar { flex:1 1 auto; width:auto; min-width:0; }
-/* Responsive: stack provider/model vertically on narrow panels. */
-@media (max-width: 640px) {
-  #hc-model-controls .hc-model-row { flex-direction:column; align-items:stretch; gap:6px; }
-  #hc-model-controls .hc-usage-row { gap:8px 10px; }
-}
+/* V2 audit §3: the model/usage dashboard rows are gone — #hc-model-controls is a
+   hidden state holder (selects only); the visible controls are #hc-model-button and
+   #hc-usage-chip, and the detail panel is #hc-usage-popover (hermes-chat.css). */
 /* HL-CHAT-004 §2.4 expanded context details — only measured values, explicit unavailable otherwise. */
-#hc-panel .hc-context-details { padding:6px 14px 8px; background:#0b2530; border-bottom:1px solid #29444f; }
+#hc-panel .hc-context-details { padding:4px 2px 6px; background:transparent; }
 #hc-panel .hc-context-details-row { display:flex; justify-content:space-between; gap:12px; font-size:12px; color:#bddadf; padding:2px 0; }
 #hc-panel .hc-context-details-row:first-child { font-weight:700; color:#cfe9ec; border-bottom:1px solid #29444f; padding-bottom:4px; }
 #hc-panel .hc-context-details-row .hc-unavailable { color:#7fa3ab; font-style:italic; }
@@ -49,6 +42,5 @@
 #hc-panel .hc-bubble.assistant .hc-body li { margin:.4em 0; }
 #hc-panel .hc-bubble.assistant .hc-body :not(pre)>code { color:#a9e8ee; background:#213e51; font-size:.88em; }
 #hc-panel .hc-bubble.user .hc-body { font-size:16px; line-height:1.65; }
-#hc-model-controls { font-size:13px; gap:10px; }
 #hc-retry-models { border:1px solid #557986; border-radius:6px; padding:4px 9px; background:#14313f; color:#bde9ed; cursor:pointer; }
 #hc-context-label { white-space:normal !important; }

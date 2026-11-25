@@ -31,6 +31,7 @@
             <button id="header-chat-open" type="button" class="header-chat-btn" title="Open Hermes conversation">Chat ✦</button>
             <span id="attention-badge" hidden title="Items awaiting your decision"></span>
             <button id="topbar-logout" type="button" class="header-chat-btn" title="Log out — return to the entrance gate">Logout</button>
+            <button id="topbar-passkey" type="button" class="header-chat-btn" title="Register a passkey on this device for passwordless unlock" hidden>🔑 Passkey</button>
         </div>
     </header>
 
@@ -400,7 +401,15 @@
                 <p>Every thread shares the same canonical conversation IDs as Task Board and Chat — presentation only changes here.</p>
             </div>
         </header>
+        <nav id="conv-tabs" class="conv-tabs" role="tablist" aria-label="Conversation surfaces">
+            <button id="conv-tab-chat" class="conv-tab active" role="tab" aria-selected="true" type="button">Chat</button>
+            <button id="conv-tab-project" class="conv-tab" role="tab" aria-selected="false" type="button">Project</button>
+        </nav>
         <div id="chat-focus-host" class="chat-focus-host"></div>
+        <!-- Project tab: the same two-column anatomy as the chat — the file rail in the
+             thread-list slot, the file stage in the conversation slot. Populated by
+             phase412-project-ui.ts; the cramped in-chat Files sidebar is retired. -->
+        <section id="project-focus-host" class="hc415-project-host" role="tabpanel" aria-label="Project files" hidden></section>
     </section>
 
     <!-- ===================== RESEARCH · session with sources, findings, questions =====================

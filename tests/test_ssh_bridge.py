@@ -12,6 +12,9 @@ def test_ssh_command_and_events(monkeypatch, tmp_path):
     calls = []
     class Probe:
         returncode = 0
+        # The adapter makes TWO kinds of subprocess call now: the availability probe
+        # and the CLI session-store read. Both need a result object.
+        stdout = ''
     class FakeStream:
         def __init__(self, lines): self.lines = iter(lines)
         def __iter__(self): return self
@@ -27,11 +30,16 @@ def test_ssh_command_and_events(monkeypatch, tmp_path):
     monkeypatch.setattr(adapter, '_execute', lambda cmd, prompt, cb, task_id=None: (calls.append((cmd, prompt)), cb('hermes.tool_use', {'name':'terminal'}), {'result':'from VM','session_id':'vm-session'})[-1])
     result = adapter.run('hello; $(dangerous)', lambda *args: events.append(args))
     assert result == {'result':'from VM','session_id':'vm-session'}
-    command, payload = calls[-1]
+    # The run command is the entry paired with the prompt; the session read follows
+    # it and must carry the session id as an argument, never inside the shell string.
+    command, payload = next(entry for entry in calls if isinstance(entry, tuple))
     assert 'hello' not in ' '.join(command)
     assert payload == 'hello; $(dangerous)'
     assert command[-1].startswith('sh -c ')
     assert events[0][0] == 'hermes.tool_use'
+    probe = calls[-1]
+    assert 'python3 -' in ' '.join(probe)
+    assert 'vm-session' in ' '.join(probe)
 
 
 def test_local_transport_remains_default(monkeypatch):

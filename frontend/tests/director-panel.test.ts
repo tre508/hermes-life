@@ -109,6 +109,10 @@ test('index.html declares the Director identity fields and actions', () => {
 });
 
 test('the World surfaces work origin (autonomous vs user-directed)', () => {
-    assert.match(townView, /'Origin'/);
-    assert.match(townView, /Work origin:/);
+    // §10 consistency pass (2026-11-25): the origin answers use the uniform
+    // "Why" label on both World cards, and the resident's why names its cause
+    // (the owning goal's title), not just the classification.
+    assert.match(townView, /fqLine\(FQ\.why, here\.length/);
+    assert.match(townView, /\['Why', isAutonomousTask\(resident\.taskId\)/);
+    assert.match(townView, /goalTitles\.get\(resident\.taskId\)/);
 });

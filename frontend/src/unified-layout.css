@@ -21,6 +21,9 @@
 
 /* ---- region areas ---- */
 #app .topbar            { grid-area: header; min-width: 0; }
+/* The author .header-chat-btn display beats the hidden attribute (the same trap the
+   V2 audit caught on the workspace tabs) — keep hidden topbar buttons truly hidden. */
+#app .topbar button[hidden] { display: none !important; }
 #app #primary-nav       { grid-area: nav;    min-width: 0; min-height: 0; }
 #app #main-workspace    { grid-area: main;   min-width: 0; min-height: 0; overflow: auto; }
 #app #status-strip      { grid-area: status; min-width: 0; }
@@ -1024,6 +1027,11 @@
 #app .ctx-card .kv { padding: 2px 0; font-size: 11.5px; }
 #app .ctx-card .kv strong { color: #a8e7d5; }
 #app .ctx-card .ctx-card__hint { color: #7f9aa0; font-size: 11px; }
+/* Spec §10: the five operational questions — uniform labeled lines shared by
+   every selection card (see five-questions.ts). */
+#app .fq-line { margin: 3px 0; font-size: 11.5px; color: #dcefe9; overflow-wrap: anywhere; }
+#app .fq-line strong { color: #8fb8b5; font-weight: 600; }
+#app .town-card .fq-line, #app #ctx-inspector-body .fq-line { font-size: 12px; }
 #app .ctx-card pre {
     margin: 6px 0 0;
     background: #081519;
@@ -1411,6 +1419,15 @@
    what makes the dead-end failure mode (panel closed, launcher gone, page
    blank) structurally impossible. */
 #workspace-conversations { display: flex; flex-direction: column; overflow: hidden; }
+#app #workspace-conversations {
+    /* Chat scroll fix: a content-sized view makes #main-workspace the scroll
+       container, so the conversation scrolls the page instead of itself.
+       height:100% (the main row is minmax(0,1fr), so it is definite) pins this
+       view to the row and lets #hc-messages own the overflow again. */
+    height: 100%;
+    max-height: 100%;
+    overflow: hidden;
+}
 #workspace-conversations .chat-focus-host {
     position: relative;
     flex: 1 1 auto;
@@ -1486,8 +1503,11 @@
     flex-direction: column;
 }
 /* ===== Chat audit §6: conversation history as a real column ===== */
+/* V2 audit #8: the tabs already name this surface — the heading paragraph is
+   scaffolding text and only eats conversation height. */
+#app #workspace-conversations .workspace-heading p { display: none; }
 #hc-thread-sidebar {
-    flex: 0 0 238px;
+    flex: 0 0 280px; /* V2 audit #10: a real 280px rail, fixed */
     min-width: 0;
     min-height: 0;
     display: flex;
@@ -1539,20 +1559,22 @@
     margin: 10px 4px 4px;
     font-size: 10.5px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; color: #7f9aa0;
 }
+/* V2 audit #10: two-line rows — the title, then a date·time meta line. */
 .hc-thread-item {
-    width: 100%; display: flex; align-items: baseline; gap: 8px;
-    text-align: left; padding: 7px 9px; border: 0; border-radius: 8px;
+    width: 100%; display: flex; flex-direction: column; gap: 2px;
+    text-align: left; padding: 8px 10px; border: 0; border-radius: 8px;
     background: transparent; color: #dbeef0; font: 13px system-ui, sans-serif; cursor: pointer;
 }
 .hc-thread-item:hover { background: #1b3b46; }
 .hc-thread-item[aria-current="true"] { background: #1d4a52; color: #eafff6; box-shadow: inset 2px 0 0 #9ce5c7; }
-.hc-thread-name { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.hc-thread-when { flex: 0 0 auto; font-size: 10.5px; color: #86a6ac; font-variant-numeric: tabular-nums; }
+/* Audit #13: ✦ marks the OPEN thread — the only star in the rail, no badges. */
+.hc-thread-item[aria-current="true"] .hc-thread-name::before { content: '✦ '; color: #9ce5c7; }
+.hc-thread-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hc-thread-when { font-size: 10.5px; color: #86a6ac; font-variant-numeric: tabular-nums; }
 .hc-thread-empty { margin: 12px 6px; color: #86a6ac; font-size: 12px; line-height: 1.6; }
 /* File inspector (HL-CHAT-006) is the right-hand column of the same row. */
-#hc415-file-sidebar { order: 2; flex: 0 0 300px; }
 @media (max-width: 1100px) {
-    #hc-thread-sidebar { flex-basis: 200px; }
+    #hc-thread-sidebar { flex-basis: 240px; }
     #hc415-file-sidebar { flex-basis: 260px; }
 }
 /* Below this width the columns stack: history becomes a scrolling strip above

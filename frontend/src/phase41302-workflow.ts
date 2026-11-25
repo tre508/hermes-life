@@ -6,6 +6,7 @@
 import './phase41302-workflow.css';
 import { makeRefresh } from './refresh-feedback.ts';
 import { registerKindRenderer } from './context-inspector.ts';
+import { FQ, fqLine } from './five-questions.ts';
 import { openWorkView, openTask } from './navigation-state.ts';
 type Obj=Record<string,unknown>;
 type Group='waiting'|'running'|'completed'|'stopped'|'all';
@@ -69,8 +70,12 @@ function setupGoals(){
   const g=data.find(x=>str(x.id)===sel.id);
   if(!g){body.append(txt('p','This goal is not loaded right now (it may have been removed).'));return}
   body.append(txt('strong',str(g.title)||`Goal ${sel.id.slice(0,8)}`));
-  body.append(txt('p',`State: ${str(g.state)} · priority ${str(g.priority)} · created ${date(g.created_at)}`));
-  const p=str(g.prompt);if(p)body.append(txt('p',p.length>300?p.slice(0,300)+'…':p));
+  // Spec §10: the same questions the Goals list cards answer, from the same
+  // records and the same derived-status helpers — no second truth.
+  body.append(fqLine(FQ.status,`${str(g.state)} · priority ${str(g.priority)} · created ${date(g.created_at)}`));
+  const p=str(g.prompt);
+  body.append(fqLine(FQ.why,p?p.length>300?p.slice(0,300)+'…':p:'no goal prompt recorded'));
+  body.append(fqLine(FQ.evidence,`derived status: ${status(g)}${reason(g)?` — ${reason(g)}`:''}`));
   body.append(button('Open in Goals',()=>openWorkView('goals')));
  });
  // UI-01: the controls this tab keeps visible must actually act. The previous main.ts wired

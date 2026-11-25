@@ -163,3 +163,93 @@ def test_endpoints_409_for_unknown_project(tmp_path, monkeypatch):
     client = TestClient(create_app(tmp_path / 'life.db', FakeAdapter()))
     assert client.get('/api/projects/ghost/tree').status_code == 409
     assert client.get('/api/projects/ghost/file', params={'path': 'x'}).status_code == 409
+
+
+# --- UI-driven registration candidates and the write path ---------------------
+
+def test_roots_lists_git_repos_under_the_allowed_root(tmp_path, monkeypatch):
+    client, root = _client(tmp_path, monkeypatch)
+    other = _git_repo(tmp_path, name='beta')
+    plain = tmp_path / 'notarepo'
+    plain.mkdir()
+    (plain / 'x.txt').write_text('x\n')
+    r = client.get('/api/projects/roots')
+    assert r.status_code == 200, r.text
+    data = r.json()
+    assert data['allowed_root'] == str(tmp_path)
+    by_name = {item['name']: item for item in data['roots']}
+    assert by_name['alpha']['registered'] is True
+    assert by_name['alpha']['path'] == str(root)
+    assert by_name['beta']['registered'] is False
+    assert by_name['beta']['path'] == str(other)
+    assert 'notarepo' not in by_name, 'only Git repositories are offered'
+
+
+def test_write_creates_and_overwrites(tmp_path, monkeypatch):
+    client, root = _client(tmp_path, monkeypatch)
+    # The write endpoint refuses to invent directories (a typo must not create one),
+    # so creation happens in the project root.
+    r = client.put('/api/projects/alpha/file',
+                   json={'path': 'notes.md', 'content': '# notes\n'})
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body['created'] is True
+    assert (root / 'notes.md').read_text() == '# notes\n'
+
+    # Read it back through the normal endpoint.
+    got = client.get('/api/projects/alpha/file', params={'path': 'notes.md'})
+    assert got.status_code == 200 and got.json()['content'] == '# notes\n'
+
+    # Overwrite with the mtime the write returned: succeeds, reports created=False.
+    r2 = client.put('/api/projects/alpha/file',
+                    json={'path': 'notes.md', 'content': '# notes v2\n',
+                          'expected_mtime': body['mtime']})
+    assert r2.status_code == 200, r2.text
+    assert r2.json()['created'] is False
+    assert (root / 'notes.md').read_text() == '# notes v2\n'
+
+
+def test_write_refuses_a_stale_save(tmp_path, monkeypatch):
+    client, root = _client(tmp_path, monkeypatch)
+    first = client.put('/api/projects/alpha/file',
+                       json={'path': 'a.txt', 'content': 'one\n'})
+    assert first.status_code == 200
+    mtime = first.json()['mtime']
+    # Simulate the file moving on underneath the editor.
+    (root / 'a.txt').write_text('changed externally\n')
+    import os as _os
+    _os.utime(root / 'a.txt', (mtime + 500, mtime + 500))
+    stale = client.put('/api/projects/alpha/file',
+                       json={'path': 'a.txt', 'content': 'two\n', 'expected_mtime': mtime})
+    assert stale.status_code == 409
+    assert 'changed on disk' in stale.json()['detail']
+    assert (root / 'a.txt').read_text() == 'changed externally\n', 'a stale save must not land'
+
+
+def test_write_enforces_the_same_containment_and_denylist(tmp_path, monkeypatch):
+    client, root = _client(tmp_path, monkeypatch)
+    for bad_path in ('../escaped.txt', '/etc/passwd', '.env', 'node_modules/x.js',
+                     'sub/.env', 'no-such-dir/new.txt'):
+        r = client.put('/api/projects/alpha/file', json={'path': bad_path, 'content': 'x'})
+        assert r.status_code == 409, bad_path
+    assert not (root / 'escaped.txt').exists()
+
+
+def test_write_refuses_a_binary_target(tmp_path, monkeypatch):
+    client, root = _client(tmp_path, monkeypatch)
+    (root / 'logo.png').write_bytes(b'\x89PNG\r\n\x1a\n\x00\x01')
+    r = client.put('/api/projects/alpha/file', json={'path': 'logo.png', 'content': 'text'})
+    assert r.status_code == 409
+    assert 'Binary' in r.json()['detail']
+    assert (root / 'logo.png').read_bytes().startswith(b'\x89PNG'), 'binary content untouched'
+
+
+def test_a_ui_edit_is_visible_to_the_review_flow(tmp_path, monkeypatch):
+    # Provisional-by-design: the edit lands uncommitted in the host working tree,
+    # exactly like the agent's edits, so `changes()` (Review changes) shows it.
+    client, root = _client(tmp_path, monkeypatch)
+    r = client.put('/api/projects/alpha/file',
+                   json={'path': 'src/main.py', 'content': 'print("edited")\n'})
+    assert r.status_code == 200, r.text
+    result = client.get('/api/projects/alpha/changes').json()
+    assert 'src/main.py' in result['output']

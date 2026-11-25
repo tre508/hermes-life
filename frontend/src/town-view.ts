@@ -19,6 +19,7 @@ import {
 import { locationLabel, locationPurpose } from './town-vocabulary';
 import { BubbleController } from './town-world/bubbles';
 import { roomForRole } from './town-world/ship-rooms';
+import { FQ, fqLine } from './five-questions.ts';
 import './town-world/bubbles.css';
 
 const REFRESH_MS = 20_000;
@@ -32,6 +33,8 @@ let refreshing = false;
 let refreshQueued: ReturnType<typeof setTimeout> | undefined;
 /** Task ids owned by an investigation goal, from the last authoritative snapshot. */
 const goalTasks = new Set<string>();
+/** task_id -> goal title, for the resident card's "Why" answer (spec §8/§10). */
+const goalTitles = new Map<string, string>();
 let ui: Ui | null = null;
 let bubbleController: BubbleController | null = null;
 
@@ -108,14 +111,12 @@ export function installTown(): void {
     const purpose = document.createElement('p');
     purpose.textContent = locationPurpose(loc);
     body.append(head, title, purpose);
-    // Spec §8: how much of this room's work is autonomous vs user-directed.
+    // Spec §8/§10: how much of this room's work is autonomous vs user-directed,
+    // under the same "Why" label every other selection card uses.
     const autonomous = here.filter(res => isAutonomousTask(res.taskId)).length;
-    const origin = document.createElement('p');
-    origin.className = 'hint';
-    origin.textContent = here.length
-      ? `Work origin: ${autonomous} autonomous · ${here.length - autonomous} user-directed`
-      : 'No residents assigned here.';
-    body.append(origin);
+    body.append(fqLine(FQ.why, here.length
+      ? `work origin: ${autonomous} autonomous · ${here.length - autonomous} user-directed`
+      : 'no residents assigned here'));
     // Spec §4: the room card carries the room's own workspace action.
     const place = TOWN_LOCATIONS[loc];
     if (place) {
@@ -136,7 +137,10 @@ export function installTown(): void {
       list.style.paddingLeft = '18px';
       for (const res of activity) {
         const item = document.createElement('li');
-        item.textContent = `${res.name}: ${res.label}`;
+        // Spec §10 "what actually happened": the resident's own last event rides
+        // with the linked work instead of requiring a trip to Activity.
+        item.textContent = `${res.name}: ${res.label}` +
+          (res.eventType ? ` · last event ${res.eventType}` : '');
         list.append(item);
         if (res.taskId) {
           const open = document.createElement('button');
@@ -388,7 +392,13 @@ export async function refresh(force = false): Promise<TownState> {
     const signals = await fetchSignals();
     if (signals) {
       goalTasks.clear();
-      for (const goal of signals.goals || []) if (typeof goal.task_id === 'string') goalTasks.add(goal.task_id);
+      goalTitles.clear();
+      for (const goal of signals.goals || []) {
+        if (typeof goal.task_id === 'string') {
+          goalTasks.add(goal.task_id);
+          if (typeof goal.title === 'string' && goal.title) goalTitles.set(goal.task_id, goal.title);
+        }
+      }
       town = setConnection(town, lostAt ? 'reconnecting' : 'live');
       town = withBaseline({ ...town }, signals);
     } else if (town.connection === 'live') {
@@ -594,12 +604,16 @@ function showResident(role: Role): void {
   const state = document.createElement('p');
   state.textContent = `${ACTIVITY_WORDS[resident.state]} · ${resident.label}`;
   const facts = document.createElement('ul');
+  // Spec §8/§10: the three kinds of work must be distinguishable AND the "why"
+  // must name its cause — a task named by a goal shows the goal's title, not
+  // just the classification. A task belongs to an investigation when a goal
+  // names it; otherwise it was user-directed.
+  const goalTitle = resident.taskId ? goalTitles.get(resident.taskId) : undefined;
   const rows: Array<[string, string]> = [
     ['Place', roomForRole(role).label],
-    // Spec §8: the three kinds of work must be distinguishable. A task linked to
-    // an investigation goal is autonomous; otherwise it was user-directed.
-    ['Origin', isAutonomousTask(resident.taskId)
-      ? 'Autonomous — investigation goal' : 'User-directed — chat or manual goal'],
+    ['Why', isAutonomousTask(resident.taskId)
+      ? `Autonomous — investigation goal${goalTitle ? ` “${goalTitle}”` : ''}`
+      : 'User-directed — chat or manual goal'],
     ['Project/task', resident.project || resident.taskId || '—'],
     ['Workflow id', resident.workflowId || '—'],
     ['Last event', resident.eventType ? `${resident.eventType} (#${resident.sequence})` : '—'],

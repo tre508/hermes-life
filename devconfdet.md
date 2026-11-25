@@ -136,3 +136,47 @@ The environment provides a separation between **code development** and **applica
 
 
 This architecture is intended to reduce unnecessary access to personal files, minimize development-related changes outside the selected projects, and maintain a consistent environment for developing and testing Media Viewer and Hermes Life.
+
+## Public Access — Cloudflare Tunnel
+
+The dev deployment is exposed publicly at:
+
+**https://dev.hermeshaplease.com**
+
+### How the tunnel is wired
+
+- **The `cloudflared` client runs on the Lenovo laptop** (`glenn@192.168.178.37`), not on the main computer.
+- It is installed at `/usr/local/bin/cloudflared` and runs as a **systemd service** (`/etc/systemd/system/cloudflared.service`, enabled) with the command `/usr/bin/cloudflared --no-autoupdate tunnel run --token-file /etc/cloudflared/token`.
+- The tunnel is **token-based and remotely managed**: the only local file is `/etc/cloudflared/token` (root-owned, mode 600). There is no local `config.yml` — the ingress rules (which public hostname maps to which origin) are configured in the **Cloudflare Zero Trust dashboard**. Any change to the hostname-to-origin mapping must be made there, not on either machine.
+
+### Tunnel configuration (Cloudflare Zero Trust dashboard)
+
+- **Tunnel name:** `Service MDS v2`
+- **Status:** healthy (connected connectors shown in the dashboard)
+- **Public hostname ingress rule:**
+  - **Hostname:** `dev.hermeshaplease.com`
+  - **Service type:** `HTTP`
+  - **Origin URL:** `192.168.178.23:5173` (the Vite dev server on the main computer)
+  - **Additional settings:** "Using defaults" — no custom HTTP settings, no Cloudflare Access policy attached to this rule (protection is handled by the app's own entrance gate, not Cloudflare Access).
+
+  Any new public hostname, path routing, or access policy for this tunnel is added as an ingress rule under Tunnels → Service MDS v2 → Public Hostname in the dashboard.
+
+### Request path
+
+```
+Browser → dev.hermeshaplease.com (Cloudflare edge)
+        → cloudflared tunnel (Lenovo, 192.168.178.37)
+        → origin: Vite dev server on the main computer (http://192.168.178.23:5173)
+        → Vite proxy: /api, /ws, /health → http://127.0.0.1:8766 (backend)
+```
+
+- The **Vite dev server binds `0.0.0.0:5173`** on the main computer so the tunnel's origin (`192.168.178.23:5173`) is reachable from the Lenovo. It restricts which Host header it accepts via `allowedHosts: ['dev.hermeshaplease.com']` in `frontend/vite.config.js` — any other hostname will get a "blocked host" error.
+- The **backend stays loopback-only** (`127.0.0.1:8766` on the main computer). It is never exposed directly; all public traffic reaches it through the Vite proxy over the tunnel.
+- Verified live: `https://dev.hermeshaplease.com/` serves the Hermes Life frontend (Vite), and `/health` returns 200 through the proxy.
+
+### Security layers in front of the public URL
+
+- **Entrance gate (HL-AUTH-001):** the public deployment is password-protected. The gate is OFF unless `HERMES_LIFE_GATE_PASSWORD_HASH` is set in `config/hermes-life-host.env`; it is set on this host, so the gate is active.
+- **Passkey unlock (HL-AUTH-002):** WebAuthn RP ID / origin defaults already match `dev.hermeshaplease.com`; credentials are stored in `/hermes-life/config/gate-passkey.json`, enrolled via the chat header "Passkey" button after unlocking with the password.
+- The entrance image is served by the backend at `/api/entrance/image`.
+- Note: raw `curl` to the backend on `127.0.0.1:8766` returns "Gate locked" — the gate session lives in the browser, so API checks must go through the browser session or the tunnel URL.

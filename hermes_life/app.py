@@ -68,6 +68,11 @@ class Runtime:
     def __init__(self, database, adapter=None):
         self.store = Store(database)
         self.chat_models = ChatModels(self.store)
+        # ChatModels' table is NOT part of schema.migrate — it used to be created
+        # only in the FastAPI lifespan, so every Runtime used outside the HTTP
+        # app (tests, CLI, background workers) failed its first task with
+        # "no such table: chat_task_models". The runtime owns its schema.
+        self.chat_models.migrate()
         self.personality = Personality(self.store)
         self.conversations = ConversationMemory(self.store)
         self.recall = Recall(self.store)
@@ -148,10 +153,32 @@ class Runtime:
             self.store.update_task(ident, 'running')
             self.store.set_agent('executing',ident)
             self.store.emit('task.started', {'scope': scope}, ident)
-            choice = self.chat_models.for_task(ident)
+            # The model the user CHOSE for this task. selected_for_task() ignores a
+            # row that exists only because telemetry was observed, so an empty
+            # provider/model is never passed to the adapter as a chosen model.
+            choice = self.chat_models.selected_for_task(ident)
             def on_event(name, payload):
-                if name in ('hermes.result', 'hermes.system') and choice:
+                # Recorded for EVERY chat, not only ones where a model was picked:
+                # the runtime names the model it loaded (`hermes.system`) and reports
+                # its counters (`hermes.result`), and this is what creates the usage
+                # row for "Worker default" chats that have no model choice.
+                # `hermes.session_usage` is the CLI's own authoritative record for
+                # the session — the real model, the last request's prompt size and
+                # the price it computed — and it wins where the pairs disagree.
+                if name in ('hermes.result', 'hermes.system', 'hermes.session_usage'):
                     self.chat_models.observe(ident, payload)
+                # The CLI names its session in its init event, before the first
+                # token. Recording it here (not only when the turn ends) is what
+                # lets the chat re-read this turn's transcript WHILE it runs: the
+                # stream carries tool activity but no reasoning, so the stored
+                # transcript is the only place the reasoning exists before the
+                # turn completes. State is preserved — this only adds the id.
+                if isinstance(payload, dict):
+                    early_session = payload.get('session_id')
+                    current = self.store.task(ident) or {}
+                    if early_session and not current.get('session_id'):
+                        self.store.update_task(ident, current.get('state') or 'running',
+                                               session_id=str(early_session))
                 self.store.emit(name, payload, ident)
             conversation_id = self.conversations.conversation_for_task(ident)
             # convo-redesign.md §10: continue the conversation's previous Hermes
@@ -1282,6 +1309,27 @@ def create_app(database=None, adapter=None):
         return runtime.chat_models.for_task(task_id) or {'task_id': task_id,
                                                          'model': None, 'provider': None,
                                                          'input_tokens': None, 'context_window': None}
+
+    @app.get('/api/chat/trace/{task_id}')
+    def chat_trace(task_id: str):
+        """Durable reasoning/tool trace for a turn, read from the CLI session store.
+
+        The trace the chat renders live is transient; this endpoint reconstructs
+        the same interleaved steps from the CLI's own transcript so a reloaded
+        thread still shows reasoning between the tool calls. [] when the task
+        never ran a CLI session — honest absence, not a fabricated trace.
+        """
+        task = runtime.store.task(task_id)
+        if not task:
+            raise HTTPException(404, 'Task not found')
+        session_id = task.get('session_id')
+        if not session_id:
+            return {'task_id': task_id, 'session_id': None, 'steps': []}
+        try:
+            steps = runtime.delegates['interactive'].session_trace(session_id)
+        except Exception:  # noqa: BLE001
+            steps = []
+        return {'task_id': task_id, 'session_id': session_id, 'steps': steps}
 
     @app.get('/api/chat/balance')
     def chat_balance(provider: str):

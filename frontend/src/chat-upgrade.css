@@ -17,8 +17,8 @@
 #hc-panel .hc-body table { border-collapse: collapse; min-width: 100%; font-size: .9em; }
 #hc-panel .hc-body td, #hc-panel .hc-body th { border: 1px solid #385667; padding: .5em .7em; text-align: left; }
 #hc-panel .hc-body th { background: #243846; }
-#hc-model-controls { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; padding: 8px 13px; background: #0f2833; border-bottom: 1px solid #29444f; color: #bddadf; font-size: 12px; }
-#hc-model-controls select { min-width: 110px; max-width: 230px; background: #142d39; color: #e3f6f7; padding: 5px 7px; border: 1px solid #48636b; border-radius: 6px; }
-#hc-model-controls select:disabled { opacity: .55; }
-#hc-model-controls .hc-metric { white-space: nowrap; }
+/* Lives inside the composer box now — no chrome of its own, the box already frames it. */
+/* The composer's model/usage dashboard rows were removed (V2 audit §3): the selects
+   live as hidden state holders inside #hc-model-controls and the visible controls are
+   #hc-model-button / #hc-usage-chip (styled in hermes-chat.css). */
 #hc-context-bar { width: 76px; height: 5px; vertical-align: middle; accent-color: #6fd7bf; }

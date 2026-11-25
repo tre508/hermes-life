@@ -3,82 +3,139 @@
 > vite --host 0.0.0.0
 
 
-  VITE v6.4.5  ready in 271 ms
+  VITE v6.4.5  ready in 164 ms
 
   ➜  Local:   http://localhost:5173/
   ➜  Network: http://192.168.178.23:5173/
-6:32:22 PM [vite] (client) page reload src/hermes-chat.ts
-6:32:22 PM [vite] (client) page reload src/hermes-chat.ts
-6:32:29 PM [vite] (client) page reload src/hermes-chat.ts
-6:32:35 PM [vite] (client) page reload src/hermes-chat.ts
-6:32:35 PM [vite] (client) hmr update /src/hermes-chat.css
-6:32:42 PM [vite] (client) hmr update /src/unified-layout.css?direct
-6:32:42 PM [vite] (client) hmr update /src/chat-clarity.css
-6:33:39 PM [vite] (client) hmr update /src/unified-layout.css?direct
-6:41:29 PM [vite] (client) page reload src/hermes-chat.ts
-6:41:29 PM [vite] (client) page reload src/hermes-chat.ts
-6:41:48 PM [vite] (client) page reload src/hermes-chat.ts
-6:41:48 PM [vite] (client) page reload src/hermes-chat.ts
-6:41:56 PM [vite] (client) page reload src/phase412-project-ui.ts
-6:41:56 PM [vite] (client) hmr update /src/hermes-chat.css
-6:42:15 PM [vite] (client) page reload src/hermes-chat.ts
-6:43:16 PM [vite] (client) page reload src/hermes-chat.ts
-6:43:16 PM [vite] (client) page reload src/hermes-chat.ts
-6:43:28 PM [vite] (client) hmr update /src/hermes-chat.css
-6:43:28 PM [vite] (client) hmr update /src/unified-layout.css?direct
-6:44:19 PM [vite] (client) hmr update /src/hermes-chat.css
-6:44:45 PM [vite] (client) hmr update /src/unified-layout.css?direct
-6:44:45 PM [vite] (client) hmr update /src/hermes-chat.css
-11:03:48 PM [vite] (client) page reload src/hermes-chat.ts
-11:03:48 PM [vite] (client) page reload src/hermes-chat.ts
-11:03:48 PM [vite] (client) page reload src/hermes-chat.ts
-11:03:52 PM [vite] (client) page reload src/main.v2.ts
-11:03:52 PM [vite] (client) page reload src/main.v2.ts
-11:03:54 PM [vite] (client) page reload src/main.v2.ts
-11:03:55 PM [vite] (client) hmr update /src/chat-overlay.css
-11:04:07 PM [vite] (client) hmr update /src/unified-layout.css?direct
-11:04:15 PM [vite] (client) hmr update /src/unified-layout.css?direct
-11:04:15 PM [vite] (client) hmr update /src/hermes-chat.css
-11:04:25 PM [vite] (client) hmr update /src/phase415-workspace.css
-11:04:25 PM [vite] (client) hmr update /src/unified-layout.css?direct
-11:04:32 PM [vite] (client) page reload src/phase412-project-ui.ts
-11:04:34 PM [vite] (client) page reload src/phase412-project-ui.ts
-11:04:34 PM [vite] (client) page reload src/phase412-project-ui.ts
-11:04:34 PM [vite] (client) page reload src/phase412-project-ui.ts
-11:04:45 PM [vite] (client) hmr update /src/hermes-chat.css
-11:04:45 PM [vite] (client) hmr update /src/phase415-workspace.css
-11:04:49 PM [vite] (client) page reload src/phase412-project-ui.ts
-11:05:06 PM [vite] (client) hmr update /src/phase415-workspace.css
-11:05:19 PM [vite] (client) page reload src/main.v2.ts
-11:05:19 PM [vite] (client) hmr update /src/unified-layout.css?direct
-11:06:50 PM [vite] (client) hmr update /src/unified-layout.css?direct
-11:06:50 PM [vite] (client) page reload src/hermes-chat.ts
-11:50:06 PM [vite] (client) page reload src/hermes-chat.ts
-11:50:07 PM [vite] (client) page reload src/hermes-chat.ts
-11:50:07 PM [vite] (client) page reload src/hermes-chat.ts
-11:50:11 PM [vite] (client) page reload src/hermes-chat.ts
-11:50:11 PM [vite] (client) page reload src/hermes-chat.ts
-11:50:18 PM [vite] (client) hmr update /src/unified-layout.css?direct
-11:50:18 PM [vite] (client) hmr update /src/phase415-workspace.css
-11:50:23 PM [vite] (client) hmr update /src/phase415-workspace.css
-11:50:23 PM [vite] (client) page reload src/phase412-project-ui.ts
-11:50:23 PM [vite] (client) hmr update /src/unified-layout.css?direct
-11:50:28 PM [vite] (client) page reload src/hermes-chat.ts
-11:50:30 PM [vite] (client) page reload src/hermes-chat.ts
-11:52:03 PM [vite] (client) page reload src/hermes-chat.ts
-11:52:03 PM [vite] (client) page reload src/hermes-chat.ts
-11:52:23 PM [vite] (client) page reload harness/thread-sidebar.html
-11:53:16 PM [vite] (client) page reload harness/thread-sidebar.html
-11:53:16 PM [vite] (client) hmr update /src/unified-layout.css?direct
-12:03:27 AM [vite] (client) hmr update /src/unified-layout.css?direct
-12:03:27 AM [vite] (client) hmr update /src/unified-layout.css?direct
-12:03:31 AM [vite] (client) page reload src/main.v2.ts
-12:03:31 AM [vite] (client) hmr update /src/phase415-workspace.css, /src/phase415-workspace.css?direct
-12:03:31 AM [vite] (client) hmr update /src/unified-layout.css?direct
-12:12:27 AM [vite] (client) hmr update /src/style.css?direct
-12:12:33 AM [vite] (client) hmr update /src/style.css?direct
-12:13:01 AM [vite] (client) hmr update /src/style.css?direct
-12:13:51 AM [vite] (client) hmr update /src/style.css?direct
-12:13:58 AM [vite] (client) hmr update /src/style.css?direct
-12:14:45 AM [vite] (client) hmr update /src/phase415-workspace.css, /src/phase415-workspace.css?direct
-12:14:45 AM [vite] (client) hmr update /src/unified-layout.css?direct
+8:46:17 AM [vite] (client) page reload index.html
+8:46:28 AM [vite] (client) page reload src/phase412-project-ui.ts
+8:46:28 AM [vite] (client) page reload src/phase412-project-ui.ts
+8:46:28 AM [vite] (client) page reload src/phase412-project-ui.ts
+8:46:28 AM [vite] (client) page reload src/phase412-project-ui.ts
+8:46:31 AM [vite] (client) page reload src/phase412-project-ui.ts
+8:46:36 AM [vite] (client) page reload src/phase412-project-ui.ts
+8:46:37 AM [vite] (client) page reload src/phase412-project-ui.ts
+8:46:42 AM [vite] (client) page reload src/phase412-project-ui.ts
+8:46:42 AM [vite] (client) page reload src/phase412-project-ui.ts
+8:46:42 AM [vite] (client) page reload src/phase412-project-ui.ts
+8:46:42 AM [vite] (client) page reload src/phase412-project-ui.ts
+8:46:42 AM [vite] (client) page reload src/phase412-project-ui.ts
+8:46:45 AM [vite] (client) page reload src/phase412-project-ui.ts
+8:46:54 AM [vite] (client) hmr update /src/phase415-workspace.css
+8:47:33 AM [vite] (client) page reload harness/project-tab.html
+8:47:38 AM [vite] (client) page reload harness/project-tab.html
+8:47:46 AM [vite] (client) page reload harness/project-tab.html
+8:49:02 AM [vite] (client) page reload harness/project-tab.html
+8:50:59 AM [vite] (client) page reload harness/project-tab.html
+8:52:02 AM [vite] (client) page reload src/phase412-project-ui.ts
+8:53:09 AM [vite] (client) hmr update /src/phase415-workspace.css, /src/phase415-workspace.css?direct
+9:00:55 AM [vite] (client) hmr update /src/phase415-workspace.css, /src/phase415-workspace.css?direct
+9:01:23 AM [vite] (client) page reload harness/project-tab.html
+9:03:00 AM [vite] (client) hmr update /src/phase415-workspace.css, /src/phase415-workspace.css?direct
+9:04:03 AM [vite] (client) hmr update /src/phase415-workspace.css, /src/phase415-workspace.css?direct
+9:36:06 AM [vite] (client) hmr update /src/unified-layout.css?direct
+9:36:11 AM [vite] (client) page reload src/work-workspace.ts
+9:36:11 AM [vite] (client) page reload src/work-workspace.ts
+9:36:18 AM [vite] (client) page reload src/phase41302-workflow.ts
+9:36:18 AM [vite] (client) page reload src/phase41301-rework.ts
+9:36:18 AM [vite] (client) page reload src/phase41302-workflow.ts
+9:36:19 AM [vite] (client) page reload src/phase41301-rework.ts
+9:36:31 AM [vite] (client) page reload src/town-view.ts
+9:36:31 AM [vite] (client) page reload src/town-view.ts
+9:36:31 AM [vite] (client) page reload src/town-view.ts
+9:36:31 AM [vite] (client) page reload src/town-view.ts
+9:36:31 AM [vite] (client) page reload src/town-view.ts
+9:36:31 AM [vite] (client) page reload src/town-view.ts
+9:36:37 AM [vite] (client) page reload src/town-view.ts
+9:42:44 AM [vite] (client) hmr update /src/phase415-workspace.css, /src/phase415-workspace.css?direct
+10:02:49 AM [vite] (client) page reload src/hermes-chat.ts
+10:02:49 AM [vite] (client) page reload src/hermes-chat.ts
+10:02:56 AM [vite] (client) page reload src/hermes-chat.ts
+10:02:56 AM [vite] (client) page reload src/hermes-chat.ts
+10:03:01 AM [vite] (client) page reload src/hermes-chat.ts
+10:03:01 AM [vite] (client) page reload src/hermes-chat.ts
+10:03:06 AM [vite] (client) page reload src/hermes-chat.ts
+10:03:06 AM [vite] (client) page reload src/hermes-chat.ts
+10:03:06 AM [vite] (client) page reload src/hermes-chat.ts
+10:03:11 AM [vite] (client) page reload src/phase412-project-ui.ts
+10:03:16 AM [vite] (client) page reload src/phase412-project-ui.ts
+10:03:16 AM [vite] (client) page reload src/phase412-project-ui.ts
+10:03:23 AM [vite] (client) page reload src/phase412-project-ui.ts
+10:03:23 AM [vite] (client) page reload src/phase412-project-ui.ts
+10:03:23 AM [vite] (client) page reload src/phase412-project-ui.ts
+10:03:23 AM [vite] (client) page reload src/phase412-project-ui.ts
+10:03:29 AM [vite] (client) page reload src/phase412-project-ui.ts
+10:03:39 AM [vite] (client) hmr update /src/hermes-chat.css
+10:03:39 AM [vite] (client) hmr update /src/chat-upgrade.css
+10:03:43 AM [vite] (client) page reload src/phase412-project-ui.ts
+10:03:47 AM [vite] (client) hmr update /src/chat-clarity.css
+10:04:17 AM [vite] (client) page reload harness/composer-telemetry.html
+10:04:26 AM [vite] (client) page reload harness/composer-telemetry.html
+10:05:09 AM [vite] (client) page reload src/hermes-chat.ts
+10:05:35 AM [vite] (client) page reload harness/project-tab.html
+10:42:49 AM [vite] (client) page reload index.html
+10:42:49 AM [vite] (client) page reload src/hermes-chat.ts
+10:42:49 AM [vite] (client) page reload src/hermes-chat.ts
+10:42:54 AM [vite] (client) hmr update /src/unified-layout.css?direct
+10:42:54 AM [vite] (client) page reload src/hermes-chat.ts
+10:42:54 AM [vite] (client) hmr update /src/unified-layout.css?direct
+10:42:58 AM [vite] (client) hmr update /src/unified-layout.css?direct
+10:42:58 AM [vite] (client) hmr update /src/hermes-chat.css, /src/hermes-chat.css?direct
+10:43:42 AM [vite] (client) page reload src/hermes-chat.ts
+10:43:42 AM [vite] (client) page reload src/hermes-chat.ts
+10:43:42 AM [vite] (client) hmr update /src/hermes-chat.css, /src/hermes-chat.css?direct
+10:44:12 AM [vite] (client) page reload harness/chat-shell.html
+10:45:09 AM [vite] (client) page reload harness/chat-shell.html
+10:46:03 AM [vite] (client) page reload harness/chat-shell.html
+10:47:20 AM [vite] (client) page reload harness/chat-shell.html
+10:47:52 AM [vite] (client) hmr update /src/unified-layout.css?direct
+10:54:02 AM [vite] (client) page reload src/phase412-project-ui.ts
+10:54:02 AM [vite] (client) page reload src/phase412-project-ui.ts
+10:54:02 AM [vite] (client) page reload src/phase412-project-ui.ts
+10:54:06 AM [vite] (client) page reload src/phase412-project-ui.ts
+10:54:06 AM [vite] (client) hmr update /src/unified-layout.css?direct
+10:54:06 AM [vite] (client) page reload src/phase412-project-ui.ts
+10:54:16 AM [vite] (client) hmr update /src/phase415-workspace.css, /src/phase415-workspace.css?direct
+10:54:23 AM [vite] (client) hmr update /src/phase415-workspace.css, /src/phase415-workspace.css?direct
+10:54:40 AM [vite] (client) hmr update /src/phase415-workspace.css, /src/phase415-workspace.css?direct
+10:57:24 AM [vite] (client) hmr update /src/style.css?direct
+10:57:24 AM [vite] (client) hmr update /src/phase415-workspace.css, /src/phase415-workspace.css?direct
+10:57:27 AM [vite] (client) hmr update /src/phase415-workspace.css, /src/phase415-workspace.css?direct
+10:58:13 AM [vite] (client) hmr update /src/style.css?direct
+10:58:43 AM [vite] (client) hmr update /src/style.css?direct
+10:59:21 AM [vite] (client) hmr update /src/style.css?direct
+11:10:49 AM [vite] (client) hmr update /src/phase415-workspace.css, /src/phase415-workspace.css?direct
+11:12:05 AM [vite] (client) hmr update /src/phase415-workspace.css, /src/phase415-workspace.css?direct
+11:33:01 AM [vite] (client) page reload src/hermes-chat.ts
+11:33:01 AM [vite] (client) page reload src/hermes-chat.ts
+11:33:01 AM [vite] (client) page reload src/hermes-chat.ts
+11:33:07 AM [vite] (client) page reload src/hermes-chat.ts
+11:33:07 AM [vite] (client) page reload src/hermes-chat.ts
+11:33:07 AM [vite] (client) page reload src/hermes-chat.ts
+11:33:13 AM [vite] (client) page reload src/phase412-project-ui.ts
+11:33:14 AM [vite] (client) page reload src/phase412-project-ui.ts
+11:33:18 AM [vite] (client) page reload src/phase412-project-ui.ts
+11:33:18 AM [vite] (client) page reload src/phase412-project-ui.ts
+11:33:18 AM [vite] (client) page reload src/phase412-project-ui.ts
+11:33:18 AM [vite] (client) page reload src/phase412-project-ui.ts
+11:33:26 AM [vite] (client) hmr update /src/phase415-workspace.css, /src/phase415-workspace.css?direct
+12:59:01 PM [vite] (client) page reload src/hermes-chat.ts
+12:59:01 PM [vite] (client) page reload src/hermes-chat.ts
+12:59:12 PM [vite] (client) page reload src/hermes-chat.ts
+12:59:12 PM [vite] (client) page reload src/hermes-chat.ts
+12:59:17 PM [vite] (client) page reload src/hermes-chat.ts
+12:59:21 PM [vite] (client) page reload src/hermes-chat.ts
+12:59:26 PM [vite] (client) hmr update /src/hermes-chat.css, /src/hermes-chat.css?direct
+1:37:39 PM [vite] (client) page reload src/phase412-project-ui.ts
+1:37:39 PM [vite] (client) page reload src/phase412-project-ui.ts
+1:37:43 PM [vite] (client) page reload src/phase412-project-ui.ts
+1:37:58 PM [vite] (client) page reload src/hermes-chat.ts
+1:38:09 PM [vite] (client) page reload src/phase412-project-ui.ts
+1:38:09 PM [vite] (client) page reload src/phase412-project-ui.ts
+1:38:19 PM [vite] (client) page reload src/phase412-project-ui.ts
+1:38:19 PM [vite] (client) page reload src/phase412-project-ui.ts
+1:38:26 PM [vite] (client) hmr update /src/phase415-workspace.css, /src/phase415-workspace.css?direct
+1:38:52 PM [vite] (client) page reload src/hermes-chat.ts
+1:42:10 PM [vite] ws proxy socket error:
+Error: read ECONNRESET
+    at TCP.onStreamRead (node:internal/stream_base_commons:216:20)

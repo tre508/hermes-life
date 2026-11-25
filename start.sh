@@ -4,7 +4,12 @@ cd "$(dirname "$0")"
 if [[ ! -d .venv ]]; then
   python3 -m venv .venv
 fi
-. .venv/bin/activate
+# Address the venv's interpreter BY PATH rather than sourcing bin/activate. This
+# venv was copied from the worker host, so its activate script (and every console
+# script's shebang) still points at /home/glenn/Projects/hermes-life/.venv — sourcing
+# it leaves this venv off PATH and `exec uvicorn` dies with "uvicorn: not found",
+# even though the interpreter itself is fine.
+VENV="$PWD/.venv"
 # Import the application module, not just the package: this is what actually
 # pulls in fastapi/pydantic and every project module, so a venv broken by an
 # incompatible dependency pair fails here instead of inside uvicorn later.
@@ -36,4 +41,4 @@ if [[ -f "$worker_env" ]]; then
 else
   echo "worker: none configured; transport=${HERMES_LIFE_TRANSPORT:-local}. Set one with HERMES_LIFE_WORKER_ENV." >&2
 fi
-exec uvicorn hermes_life.app:create_app --factory --host 127.0.0.1 --port 8766
+exec "$VENV/bin/python" -m uvicorn hermes_life.app:create_app --factory --host 127.0.0.1 --port 8766

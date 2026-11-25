@@ -3,6 +3,18 @@ import './phase415-workspace.css';
 type Project = {name:string;host_path:string;remote_path:string|null;commit_hash:string|null};
 type Review = {review_id:string;project:string;base_commit:string;sha256:string;diff:string;confirmation_required:string};
 const key='hermes-life-active-project';
+// General chat is the DEFAULT for a new conversation: the project choice is
+// remembered PER CONVERSATION, not globally — a fresh thread never inherits the
+// last project. The legacy single-value key seeds the first conversation only.
+const CONV_PROJECT_KEY='hermes-life-project-by-conversation';
+const CHAT_CONVERSATION_KEY='hermes-life-chat-conversation';
+function conversationIdNow():string{return localStorage.getItem(CHAT_CONVERSATION_KEY)||''}
+function projectByConversation():Record<string,string>{
+  try{const parsed=JSON.parse(localStorage.getItem(CONV_PROJECT_KEY)||'{}');return parsed&&typeof parsed==='object'?parsed:{}}catch{return{}}}
+function rememberProjectForConversation(slug:string):void{
+  const map=projectByConversation();const cid=conversationIdNow();
+  if(slug)map[cid]=slug;else delete map[cid];
+  localStorage.setItem(CONV_PROJECT_KEY,JSON.stringify(map));}
 const errText=(e:unknown)=>e instanceof Error?e.message:String(e);
 async function api<T>(path:string, init?:RequestInit):Promise<T>{
   const r=await fetch(path,init);if(!r.ok){let detail='';try{detail=JSON.stringify(await r.json())}catch{}throw new Error(`HTTP ${r.status}: ${detail}`)}
@@ -15,26 +27,41 @@ function setup():boolean{
   if(!panel||!form||!input)return false;
   if(document.getElementById('hc-project-workspace'))return true;
   const chatPanel=panel;
-  const bar=document.createElement('section');bar.id='hc-project-workspace';bar.setAttribute('aria-label','Coding project');
   // HL-CHAT-006 2.1: the <select> stays in the DOM as the state holder but is visually hidden;
   // the visible control is the workspace selector button + overlay below.
   const pickerLabel=document.createElement('label');pickerLabel.htmlFor='hc-project-picker';pickerLabel.textContent='Project';pickerLabel.className='hc415-visually-hidden';
   const picker=document.createElement('select');picker.id='hc-project-picker';picker.setAttribute('aria-label','Coding project');picker.className='hc415-visually-hidden';picker.tabIndex=-1;picker.setAttribute('aria-hidden','true');
-  const selectorBtn=button('Workspace: General chat','hc415-ws-selector');selectorBtn.id='hc415-ws-selector';
+  // V2 audit #19/#41: ONE authoritative project control — this selector lives in the
+  // composer's tools row (hermes-chat provides #hc-project-slot); the old project bar
+  // with its three duplicate buttons is gone.
+  const selectorBtn=button('Project: General chat','hc415-ws-selector');selectorBtn.id='hc415-ws-selector';
   selectorBtn.title='Select the working directory for this conversation';selectorBtn.setAttribute('aria-haspopup','dialog');selectorBtn.setAttribute('aria-expanded','false');
-  const workspaceButton=button('Workspace ▸','hc415-workspace-button');workspaceButton.setAttribute('aria-haspopup','dialog');
   const filesBtn=button('🗂 Files','hc415-files-button');filesBtn.title='Browse project files and attach them to the conversation';
-  const hint=document.createElement('span');hint.id='hc415-project-hint';hint.setAttribute('role','status');
-  bar.append(pickerLabel,picker,selectorBtn,filesBtn,workspaceButton,hint);form.parentElement?.insertBefore(bar,form);
+  // ＋ Attach already opens the Project tab, so a second visible Files button would be
+  // redundant (audit #19) — but the World composer's handoff clicks this button by id,
+  // and a detached node is not findable: keep it connected, out of sight.
+  filesBtn.className='hc415-files-button hc415-visually-hidden';filesBtn.tabIndex=-1;
+  // Mount the ONE project control into the composer's tools row (＋ Attach sits
+  // beside it and opens the Project tab, where files and attachment live).
+  const projectSlot=document.getElementById('hc-project-slot')||form.querySelector('.hc-composer-tools');
+  projectSlot?.append(pickerLabel,picker,selectorBtn,filesBtn);
 
-  const drawer=document.createElement('section');drawer.id='hc415-workspace-drawer';drawer.hidden=true;drawer.setAttribute('role','dialog');drawer.setAttribute('aria-modal','true');drawer.setAttribute('aria-label','Project workspace and code review');
-  const head=document.createElement('header');head.className='hc415-drawer-head';
-  const title=document.createElement('strong');title.textContent='Project workspace';
-  const close=button('✕ Close','hc415-close');head.append(title,close);
+  // The workspace drawer and the in-chat Files sidebar are RETIRED: the Conversations
+  // workspace now has Chat | Project tabs, and the Project tab mirrors the chat's
+  // two-column anatomy — the file rail in the thread-list slot, the file stage in the
+  // conversation slot (user redesign, 2026-11-25). Element ids are unchanged so every
+  // existing rule, handler and test keeps resolving; only the mount points moved.
+  const stage=document.createElement('section');stage.id='hc415-stage';stage.setAttribute('aria-label','Project files');
+  // V2 audit: the stage is the CONTENT column (the conversation slot) — the file
+  // preview lives here, and the project's actions are its header toolbar. The old
+  // drawer header ("Project workspace" + a back-to-chat button) is gone: the tabs
+  // above the panel already do that switching.
+  const head=document.createElement('header');head.className='hc415-stage-head';
   const info=document.createElement('p');info.id='hc415-info';
   const actions=document.createElement('div');actions.className='hc415-actions';
-  const refresh=button('Refresh projects');const sync=button('Sync to work machine');const reviewBtn=button('Review changes');
-  actions.append(refresh,sync,reviewBtn);
+  const refresh=button('↻','hc415-refresh');refresh.title='Refresh projects';
+  const sync=button('Sync to work machine');const reviewBtn=button('Review changes');
+  head.append(info,actions);actions.append(refresh,sync,reviewBtn);
   const status=document.createElement('div');status.id='hc415-status';status.setAttribute('role','status');status.setAttribute('aria-live','polite');
   const reviewPanel=document.createElement('section');reviewPanel.id='hc415-review';reviewPanel.hidden=true;
   const reviewHeading=document.createElement('h3');reviewHeading.textContent='Proposed host changes';
@@ -44,7 +71,34 @@ function setup():boolean{
   const confirmation=document.createElement('input');confirmation.id='hc415-confirmation';confirmation.autocomplete='off';confirmation.spellcheck=false;
   const applyBtn=button('Apply reviewed changes to host','hc415-apply');
   reviewPanel.append(reviewHeading,reviewMeta,diff,confirmationLabel,confirmation,applyBtn);
-  drawer.append(head,info,actions,status,reviewPanel);panel.append(drawer);
+  // Registered projects, selectable right in the drawer: the sync/review actions above
+  // answer "Select a project first" until one is chosen, and nothing here showed the list.
+  const projectList=document.createElement('div');projectList.id='hc415-project-list';projectList.setAttribute('role','listbox');projectList.setAttribute('aria-label','Registered projects');
+  // Registration: POST /api/projects always existed but nothing in the UI called it, so
+  // with zero projects registered every control here was a dead end. Offer the
+  // directories under the allowed roots as one-click candidates instead of a
+  // free-text path. Git is OPTIONAL (VS Code-style): any directory registers,
+  // and a git badge marks which ones support sync/review.
+  const registerPanel=document.createElement('section');registerPanel.id='hc415-register';
+  const regHead=document.createElement('h4');regHead.textContent='Register a project directory';
+  const regList=document.createElement('div');regList.id='hc415-register-list';
+  const regRow=document.createElement('div');regRow.className='hc415-register-row';
+  const regName=document.createElement('input');regName.id='hc415-register-name';regName.maxLength=48;regName.autocomplete='off';regName.spellcheck=false;regName.placeholder='project-name (lowercase, digits, hyphens)';
+  const regBtn=button('Register','hc415-register-btn');regBtn.title='Register a directory as a chat workspace (any directory under an allowed root; git optional — sync/review need a repository)';
+  regRow.append(regName,regBtn);
+  // Beyond the candidate chips: paste any directory under an allowed root, or
+  // create a brand-new project from just a name (directory + optional git + README).
+  const createRow=document.createElement('div');createRow.className='hc415-register-row';
+  const regPath=document.createElement('input');regPath.id='hc415-register-path';regPath.maxLength=1024;regPath.autocomplete='off';regPath.spellcheck=false;regPath.placeholder='…or paste a directory path under an allowed root';
+  const createBtn=button('＋ Create','hc415-register-btn');createBtn.title='Create a brand-new project from the name above — makes the directory, seeds a README, and registers it. Git is optional: tick the checkbox to also initialize a repository (needed for sync/review).';
+  const createGit=document.createElement('input');createGit.type='checkbox';createGit.id='hc415-create-git';
+  const createGitLabel=document.createElement('label');createGitLabel.htmlFor='hc415-create-git';createGitLabel.textContent='git';createGitLabel.title='Also initialize a git repository (needed for sync/review). Leave unticked for a plain folder.';
+  createRow.append(regPath,createGit,createGitLabel,createBtn);
+  registerPanel.append(regHead,regList,regRow,createRow);
+  // Empty state for the content column: honest about what opens here.
+  const stageEmpty=document.createElement('div');stageEmpty.id='hc415-stage-empty';
+  stageEmpty.textContent='Select a file from the rail to open it here — attach it with ＋ Attach in the preview header or the row\'s ⊕. Review changes shows what the workspace would apply.';
+  stage.append(head,status,reviewPanel,stageEmpty);
 
   // HL-CHAT-006: file-context sidebar — DOM shell only; behaviour wired below.
   // HL-CHAT-006 2.3: attachment modes. A = workspace access (paths only, Hermesha inspects
@@ -56,21 +110,22 @@ function setup():boolean{
   try{modeMap=JSON.parse(localStorage.getItem(MODE_KEY)||'{}') as Record<string,AttachMode>}catch{modeMap={}}
   function attachMode():AttachMode{return modeMap[choice()]||'A'}
   function setMode(m:AttachMode){const n=choice();if(!n)return;modeMap[n]=m;localStorage.setItem(MODE_KEY,JSON.stringify(modeMap));refreshModeUI();renderAttachments();setStatus('Attachment mode '+(m==='A'?'A — workspace access':m==='B'?'B — manifest attachment':'C — inline contents'))}
-  const sidebar=document.createElement('aside');sidebar.id='hc415-file-sidebar';sidebar.hidden=true;sidebar.setAttribute('aria-label','Project files');
+  const sidebar=document.createElement('aside');sidebar.id='hc415-file-sidebar';sidebar.setAttribute('aria-label','Project files');
   const sbHead=document.createElement('header');sbHead.className='hc415-side-head';
-  const sbTitle=document.createElement('strong');sbTitle.textContent='Files';
-  const sbHide=button('◀ Hide','hc415-side-hide');sbHide.title='Hide file sidebar';
-  sbHead.append(sbTitle,sbHide);
+  const sbTitle=document.createElement('strong');sbTitle.textContent='Project files';
+  sbHead.append(sbTitle);
   const sbStatus=document.createElement('div');sbStatus.id='hc415-file-status';sbStatus.setAttribute('role','status');
   const sbTree=document.createElement('nav');sbTree.id='hc415-file-tree';sbTree.setAttribute('aria-label','Project file tree');
   const sbAttach=document.createElement('section');sbAttach.id='hc415-attachments';
   const sbAttachHead=document.createElement('h4');
   const sbAttachCount=document.createElement('span');sbAttachCount.textContent='Attachments (0)';
+  const sbUpload=button('⬆ Upload','hc415-attach-clear');sbUpload.title='Upload local text files into the project workspace — they then behave like any project file';
+  const sbInput=document.createElement('input');sbInput.type='file';sbInput.multiple=true;sbInput.id='hc415-file-input';sbInput.className='hc415-visually-hidden';sbInput.tabIndex=-1;sbInput.setAttribute('aria-hidden','true');
   const sbClear=button('Clear all','hc415-attach-clear');sbClear.title='Remove all attachments';
   sbClear.onclick=()=>{if(!attached.size)return;attached.clear();saveAttached();renderTree();setStatus('All attachments removed')};
   const sbSelectAll=button('Select all','hc415-attach-clear');sbSelectAll.title='Attach every file in the tree';
   sbSelectAll.onclick=()=>{if(!treeData)return setStatus('Load a project tree first');let n=0;for(const e of treeData.entries)if(!attached.has(e.path)){attached.add(e.path);n++}if(n){saveAttached();renderTree()}setStatus(n?`Attached ${n} more file(s)`:'Every tree file is already attached')};
-  sbAttachHead.append(sbAttachCount,sbSelectAll,sbClear);
+  sbAttachHead.append(sbAttachCount,sbUpload,sbSelectAll,sbClear);
   const sbAttachList=document.createElement('ul');sbAttachList.id='hc415-attach-list';
   const sbModeRow=document.createElement('div');sbModeRow.id='hc415-attach-mode';sbModeRow.setAttribute('role','group');sbModeRow.setAttribute('aria-label','Attachment mode');
   const sbModeLabel=document.createElement('span');sbModeLabel.className='hc415-mode-label';sbModeLabel.textContent='Mode:';
@@ -88,8 +143,27 @@ function setup():boolean{
   const sbVer=document.createElement('span');sbVer.id='hc415-host-ver';sbVer.textContent='';sbVer.title='Git version of the host workspace the attached files were read from';
   sbAttach.append(sbVer);
   const sbPreview=document.createElement('pre');sbPreview.id='hc415-file-preview';sbPreview.tabIndex=0;sbPreview.hidden=true;
+  // Open/edit like an editor: the preview gets a header (path + Edit/Save/Cancel/Close)
+  // and a textarea; saving writes the project workspace via PUT (uncommitted host change).
+  const sbPreviewWrap=document.createElement('section');sbPreviewWrap.id='hc415-preview';sbPreviewWrap.hidden=true;
+  const sbPreviewHead=document.createElement('header');sbPreviewHead.className='hc415-preview-head';
+  const sbPreviewPath=document.createElement('code');sbPreviewPath.id='hc415-preview-path';
+  // The attach control lives where the user's eyes already are: the opened file's
+  // header. The row's ⊕ still works, but the preview is the surface people act on
+  // after opening a file — "click opens, then attach here" reads as one flow.
+  const sbAttachToggle=button('＋ Attach','hc415-preview-attach');
+  sbAttachToggle.title='Attach this file to the next message';
+  const sbEditBtn=button('✎ Edit','hc415-preview-btn');sbEditBtn.title='Edit this file in place — saves to the project workspace (uncommitted; Review changes shows the diff)';
+  const sbSaveBtn=button('Save','hc415-preview-btn');sbSaveBtn.hidden=true;
+  const sbCancelBtn=button('Cancel','hc415-preview-btn');sbCancelBtn.hidden=true;
+  const sbPreviewClose=button('×','hc415-preview-close');sbPreviewClose.title='Close the file preview';
+  sbPreviewHead.append(sbPreviewPath,sbAttachToggle,sbEditBtn,sbSaveBtn,sbCancelBtn,sbPreviewClose);
+  const sbEditor=document.createElement('textarea');sbEditor.id='hc415-file-editor';sbEditor.spellcheck=false;sbEditor.hidden=true;sbEditor.setAttribute('aria-label','File editor');
+  sbPreviewWrap.append(sbPreviewHead,sbPreview,sbEditor);
   const sbMeter=document.createElement('div');sbMeter.id='hc415-file-meter';sbMeter.setAttribute('role','status');
-  sidebar.append(sbHead,sbStatus,sbTree,sbAttach,sbPreview,sbMeter);panel.append(sidebar);
+  // The rail's thread-list analog: project identity first (registered list +
+  // registration), then the file tree as the main list, attachments as its composer.
+  sidebar.append(sbHead,projectList,registerPanel,sbTree,sbAttach,sbStatus,sbInput);
 
   // HL-CHAT-006 2.1: SELECT WORKSPACE overlay — General Chat + registered projects,
   // with Host (authoritative NUC repo) and Worker (execution workspace) paths labeled separately.
@@ -103,57 +177,88 @@ function setup():boolean{
   const wsBrowse=button('Browse registered projects','hc415-ws-browse');wsBrowse.id='hc415-ws-browse';wsBrowse.title='Open the project workspace drawer';
   const wsExplorer=button('Open File Explorer','hc415-ws-explorer');wsExplorer.id='hc415-ws-explorer';wsExplorer.title='Browse and attach files from the selected project';
   wsActions.append(wsBrowse,wsExplorer);
-  wsSelect.append(wsHead,wsList,wsInfo,wsActions);panel.append(wsSelect);
+  wsSelect.append(wsHead,wsList,wsInfo,wsActions);
+  // The overlay covers the chat panel (#hc-panel is position:absolute, so it is
+  // the containing block for the overlay's inset:0). Without this append the
+  // selector button had no reachable General-chat option — the reported bug.
+  panel.append(wsSelect);
+
+  // PROJECT TAB mount: the rail and the stage fill #project-focus-host, the
+  // chat's own host keeps #hermes-chat-root — one workspace, two tabs.
+  const projectHost=document.getElementById('project-focus-host');
+  const view=document.createElement('div');view.id='hc415-project-view';
+  stage.append(sbPreviewWrap,sbMeter);
+  view.append(sidebar,stage);
+  (projectHost||panel).append(view);
+  let projectTab=false;
+  function showProjectTab(on:boolean){
+    projectTab=on;
+    const chatHost=document.getElementById('chat-focus-host');
+    const tabChat=document.getElementById('conv-tab-chat') as HTMLButtonElement|null;
+    const tabProject=document.getElementById('conv-tab-project') as HTMLButtonElement|null;
+    if(!chatHost||!projectHost||!tabChat||!tabProject)return;
+    chatHost.hidden=on;projectHost.hidden=!on;
+    tabChat.classList.toggle('active',!on);tabChat.setAttribute('aria-selected',String(!on));
+    tabProject.classList.toggle('active',on);tabProject.setAttribute('aria-selected',String(on));
+    if(on){if(!choice())void load();void refreshFileContext();}
+  }
+  document.getElementById('conv-tab-chat')?.addEventListener('click',()=>showProjectTab(false));
+  document.getElementById('conv-tab-project')?.addEventListener('click',()=>showProjectTab(true));
 
   // Chat audit §8: the floating assistant is retired, so there is no float/wide/
   // fullscreen mode machine and no Expand control. The single presentation is
   // the Conversations workspace; the file-context sidebar (HL-CHAT-006) is just
   // a column that opens and closes inside it.
-  function sidebarWanted():boolean{return localStorage.getItem('hermes-life-chat-sidebar')!=='0'&&!!choice()}
-  function showSidebar(open:boolean,persist=true){
-    if(persist)localStorage.setItem('hermes-life-chat-sidebar',open?'1':'0');
-    sidebar.hidden=!open;
-    if(open)void refreshFileContext();
-  }
-  // Escape closes the sidebar, matching the Hide button.
-  chatPanel.addEventListener('keydown',(e:KeyboardEvent)=>{if(e.key==='Escape'&&!sidebar.hidden){e.preventDefault();showSidebar(false)}});
-  showSidebar(sidebarWanted(),false);
+  // Entry points all land on the Project tab now: there is no sidebar toggle to
+  // persist and no overlay for Escape to close — the tab bar and the composer
+  // buttons switch surfaces directly.
+  function showSidebar(open:boolean){if(open)showProjectTab(true)}
 
-  let projects:Project[]=[];let selected=localStorage.getItem(key)||'';let activeReview:Review|null=null;let busy=false;
+  let projects:Project[]=[];let selected=(projectByConversation()[conversationIdNow()]||localStorage.getItem(key)||'');let activeReview:Review|null=null;let busy=false;
   function choice(){return picker.value}
   function current(){return projects.find(p=>p.name===choice())}
   function clearReview(){activeReview=null;confirmation.value='';reviewPanel.hidden=true;reviewMeta.textContent='';diff.textContent=''}
   function setStatus(s:string){status.textContent=s}
-  function renderHint(){refreshModeUI();const p=current();const base=!p?'General chat':p.remote_path?'Synced':'Not synced';hint.textContent=attached.size?`${base} · ${attached.size} attached`:base;info.textContent=p?`${p.name} · ${p.remote_path||'Work-machine workspace not synchronized'}`:'Select a registered project to synchronize or review changes.'}
-  function setBusy(value:boolean){busy=value;refresh.disabled=value;sync.disabled=value;reviewBtn.disabled=value;applyBtn.disabled=value}
-  function openDrawer(){drawer.hidden=false;renderHint();workspaceButton.setAttribute('aria-expanded','true');close.focus()}
-  function closeDrawer(){drawer.hidden=true;workspaceButton.setAttribute('aria-expanded','false');workspaceButton.focus()}
-  workspaceButton.onclick=()=>drawer.hidden?openDrawer():closeDrawer();close.onclick=closeDrawer;
-  drawer.addEventListener('keydown',(e:KeyboardEvent)=>{if(e.key==='Escape'){e.preventDefault();closeDrawer();return}
-    if(e.key==='Tab'){
-      const controls=Array.from(drawer.querySelectorAll<HTMLElement>('button:not([disabled]), input:not([disabled])')).filter(n=>n.getClientRects().length>0);
-      if(!controls.length)return;const first=controls[0],last=controls[controls.length-1];
-      if(e.shiftKey&&document.activeElement===first){e.preventDefault();last.focus()}
-      else if(!e.shiftKey&&document.activeElement===last){e.preventDefault();first.focus()}
-    }
-  });
+  function renderHint(){refreshModeUI();const p=current();info.textContent=p?`${p.name} · ${p.remote_path||'Work-machine workspace not synchronized'}`:'Select a registered project to synchronize or review changes.'}
+  function setBusy(value:boolean){busy=value;refresh.disabled=value;sync.disabled=value;reviewBtn.disabled=value;applyBtn.disabled=value;regBtn.disabled=value;createBtn.disabled=value}
+  function openDrawer(){showProjectTab(true)}
+  // The stage's back-to-chat button is gone with the drawer header — the tabs switch.
   async function load(){try{
     const data=await api<{projects:Project[]}>('/api/projects');projects=data.projects;
     picker.replaceChildren(new Option('General chat',''));for(const p of projects)picker.append(new Option(p.name,p.name));
-    picker.value=projects.some(p=>p.name===selected)?selected:'';selected=choice();renderHint();renderSelector();
-    if(!projects.length)setStatus('No projects registered. Register a project through the project manager API.');
-  }catch(e){setStatus('Project list unavailable: '+errText(e));hint.textContent='Connection error'}}
+    picker.value=projects.some(p=>p.name===selected)?selected:'';selected=choice();renderHint();renderSelector();renderProjectList();
+    if(!projects.length)setStatus('No projects registered — pick one below under "Register a project directory".');
+  }catch(e){setStatus('Project list unavailable: '+errText(e));info.textContent='Connection error'}
+  void loadRoots();}
   // HL-CHAT-006 2.1: one shared selection path used by both the hidden <select> and the overlay.
   function selectProject(name:string){
-    picker.value=name;selected=choice();localStorage.setItem(key,selected);clearReview();renderHint();
+    picker.value=name;selected=choice();
+    rememberProjectForConversation(name);
+    localStorage.setItem(key,name); // kept for the first-conversation seed only
+    clearReview();renderHint();
     setStatus(selected?'Selected '+selected:'General chat');void refreshFileContext();
     renderSelector();
   }
   picker.onchange=()=>selectProject(choice());
+  // The chat module announces conversation switches; the project choice follows
+  // the conversation. A conversation KNOWN to the map gets its stored project
+  // (General chat when it never had one); a BRAND-NEW conversation carries the
+  // current choice forward — the message just sent defined this thread's
+  // project, so the pill must not flip to General under the user.
+  let lastSeenConversation=conversationIdNow();
+  window.addEventListener('hc-conversation-changed',(ev)=>{
+    const cid=String((ev as CustomEvent).detail||'');
+    if(cid===lastSeenConversation)return;
+    const map=projectByConversation();
+    const wanted=Object.prototype.hasOwnProperty.call(map,cid)?(map[cid]||''):choice();
+    lastSeenConversation=cid;
+    if(wanted!==choice())selectProject(wanted);
+  });
+  {const wanted=projectByConversation()[conversationIdNow()]||'';if(wanted&&wanted!==choice())selectProject(wanted);}
   // HL-CHAT-006 2.1: workspace selector overlay behaviour.
   function renderSelectorLabel(){
     const p=current();
-    selectorBtn.textContent='Working Directory: '+(p?p.name:'General chat');
+    selectorBtn.textContent='Project: '+(p?p.name:'General chat');
     selectorBtn.classList.toggle('hc415-ws-active',!!p);
   }
   function renderSelector(){
@@ -173,7 +278,7 @@ function setup():boolean{
   }
   function openWsSelect(){renderSelector();wsSelect.hidden=false;selectorBtn.setAttribute('aria-expanded','true');wsClose.focus()}
   function closeWsSelect(){wsSelect.hidden=true;selectorBtn.setAttribute('aria-expanded','false')}
-  selectorBtn.onclick=()=>wsSelect.hidden?openWsSelect():closeWsSelect();
+  selectorBtn.onclick=openWsSelect; // the overlay IS the workspace selector; the Project tab is the files button's job
   wsClose.onclick=closeWsSelect;
   wsSelect.addEventListener('keydown',(e:KeyboardEvent)=>{
     if(e.key==='Escape'){e.preventDefault();e.stopPropagation();closeWsSelect();return}
@@ -189,7 +294,7 @@ function setup():boolean{
   // HL-CHAT-006: file-context manager behaviour.
   type TreeEntry={path:string;size:number;type:'file'};
   type TreeData={root:string;count:number;truncated:boolean;entries:TreeEntry[];host_version?:{commit:string;dirty:boolean}|null};
-  type FileData={path:string;size:number;mtime?:number;mode:string;truncated:boolean;content:string;host_version?:{commit:string;dirty:boolean}|null};
+  type FileData={path:string;size:number;mtime?:number;mode:string;truncated:boolean;binary?:boolean;content:string;host_version?:{commit:string;dirty:boolean}|null};
   const ATT_KEY='hermes-life-chat-attachments';
   let treeData:TreeData|null=null;let attached=new Set<string>();let expanded=new Set<string>();
   let hostVer:{commit:string;dirty:boolean}|null=null;
@@ -232,10 +337,14 @@ function setup():boolean{
     sortNode(root);return root.children;
   }
   function treeNote(text:string){const d=document.createElement('div');d.className='hc415-tree-note';d.textContent=text;return d}
+  // Tree rows are div[role=button], not <button>: a file row carries its own attach
+  // toggle, and a <button> cannot legally nest inside a <button>.
   function treeNode(node:TreeNode,depth:number):HTMLElement{
     const wrap=document.createElement('div');wrap.className='hc415-tree-node';
-    const row=document.createElement('button');row.type='button';
+    const row=document.createElement('div');
     row.className='hc415-tree-row'+(node.isDir?' hc415-tree-dir':' hc415-tree-file');
+    row.tabIndex=0;row.setAttribute('role','button');
+    row.addEventListener('keydown',(e:KeyboardEvent)=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();row.click()}});
     row.style.paddingLeft=`${8+depth*14}px`;row.title=node.path;
     const icon=document.createElement('span');icon.className='hc415-tree-icon';
     icon.textContent=node.isDir?(expanded.has(node.path)?'▾':'▸'):(attached.has(node.path)?'✓':'·');
@@ -256,7 +365,15 @@ function setup():boolean{
     }else{
       row.classList.toggle('hc415-attached',attached.has(node.path));
       row.setAttribute('aria-pressed',String(attached.has(node.path)));
-      row.onclick=()=>{void toggleFile(node.path)};
+      // VS Code-like: clicking the name OPENS the file (preview + edit); attaching is
+      // the explicit ⊕/✓ control, so opening a file no longer doubles as attaching it.
+      const attach=button(attached.has(node.path)?'✓':'⊕','hc415-dir-attach');
+      attach.title=(attached.has(node.path)?'Detach ':'Attach ')+node.path;
+      attach.setAttribute('aria-label',attach.title);
+      if(attached.has(node.path))attach.classList.add('hc415-attached');
+      attach.onclick=(ev)=>{ev.stopPropagation();void toggleFile(node.path)};
+      row.append(attach);
+      row.onclick=()=>{void openFile(node.path)};
     }
     wrap.append(row);
     if(node.isDir&&expanded.has(node.path))for(const c of node.children)wrap.append(treeNode(c,depth+1));
@@ -273,7 +390,6 @@ function setup():boolean{
     try{
       const f=await api<FileData>(`/api/projects/${encodeURIComponent(choice())}/file?path=${encodeURIComponent(path)}`);
       attached.add(path);saveAttached();renderTree();
-      sbPreview.hidden=false;sbPreview.textContent=f.content;sbPreview.setAttribute('aria-label','Preview of '+path);
       setStatus('Attached '+path+(f.truncated?' (truncated)':''));
     }catch(e){setStatus(errText(e))}
   }
@@ -296,16 +412,159 @@ function setup():boolean{
     saveAttached();renderTree();
     setStatus((st==='all'?'Detached ':'Attached ')+files.length+' file(s) under '+node.path);
   }
-  function resetTree(){treeData=null;expanded=new Set();hostVer=null;sbPreview.hidden=true;renderTree()}
+  function resetTree(){treeData=null;expanded=new Set();hostVer=null;closePreview();renderTree()}
   async function loadTree(){
     const name=choice();if(!name){resetTree();return}
     try{treeData=await api<TreeData>(`/api/projects/${encodeURIComponent(name)}/tree`);hostVer=treeData.host_version||null;renderTree();renderAttachments();if(treeData.count)setStatus(`Loaded ${treeData.count} files from ${name} — ${verLabel()}`)}
     catch(e){resetTree();setStatus('File tree unavailable: '+errText(e))}
   }
   async function refreshFileContext(){loadAttached();await loadTree()}
-  sbHide.onclick=()=>showSidebar(false);
-  filesBtn.onclick=()=>showSidebar(true);
-  refresh.onclick=()=>{if(!busy)void load()};
+  // --- write path: in-place edit and upload (PUT /api/projects/{name}/file) ---
+  const MAX_UPLOAD_BYTES=1_000_000; // mirrors the server's MAX_WRITE_BYTES
+  async function putFile(path:string,content:string,expected_mtime?:number){
+    return await api<{path:string;size:number;mtime:number;created:boolean;host_version:{commit:string;dirty:boolean}|null}>(
+      `/api/projects/${encodeURIComponent(choice())}/file`,
+      {method:'PUT',headers:{'Content-Type':'application/json'},
+       body:JSON.stringify({path,content,...(expected_mtime===undefined?{}:{expected_mtime})})});
+  }
+  let openFileState:{path:string;mtime?:number}|null=null;
+  function previewReadMode(){
+    if(!openFileState){sbPreviewWrap.hidden=true;return}
+    sbEditor.hidden=true;sbPreview.hidden=false;
+    sbEditBtn.hidden=false;sbSaveBtn.hidden=true;sbCancelBtn.hidden=true;
+  }
+  function closePreview(){openFileState=null;sbPreviewWrap.hidden=true;stageEmpty.hidden=false}
+  // The preview header's attach toggle mirrors the OPEN file's attachment state.
+  function syncPreviewAttach(){
+    const p=openFileState?.path;
+    if(!p){sbAttachToggle.hidden=true;return}
+    sbAttachToggle.hidden=false;
+    const on=attached.has(p);
+    sbAttachToggle.textContent=on?'✓ Attached':'＋ Attach';
+    sbAttachToggle.classList.toggle('hc415-attached',on);
+    sbAttachToggle.title=(on?'Detach ':'Attach ')+p+(on?' from the next message':' into the next message');
+  }
+  async function openFile(path:string){
+    if(!choice())return setStatus('Select a project first — Workspace ▸ lists and registers directories');
+    setStatus('Opening '+path+'…');
+    try{
+      // preview=1: the stage tolerates big files (truncated honestly) and
+      // binary files (metadata only) instead of a 409 wall.
+      const f=await api<FileData>(`/api/projects/${encodeURIComponent(choice())}/file?path=${encodeURIComponent(path)}&preview=1`);
+      if(f.host_version)hostVer=f.host_version;
+      openFileState={path:f.path,mtime:f.mtime};
+      sbPreviewPath.textContent=f.path+(f.size?' · '+f.size.toLocaleString()+' bytes':'');
+      if(f.binary){
+        sbPreview.textContent='Binary file — not rendered as text. Size '+f.size.toLocaleString()+' bytes. Attach it (mode A workspace access) and Hermesha can inspect it with its own tools.';
+        sbEditor.value='';
+      }else{
+        sbPreview.textContent=f.content;
+        sbEditor.value=f.content;
+        if(f.truncated)sbPreview.textContent+='\n\n[Showing the first 200,000 bytes of '+f.size.toLocaleString()+' — the rest is available to Hermesha through workspace access (mode A), not inline.]';
+      }
+      sbPreviewWrap.hidden=false;stageEmpty.hidden=true;previewReadMode();syncPreviewAttach();
+      setStatus('Opened '+f.path+(f.truncated?' (truncated preview)':'')+' — '+verLabel());
+    }catch(e){setStatus(errText(e))}
+  }
+  sbEditBtn.onclick=()=>{if(!openFileState)return;
+    sbPreview.hidden=true;sbEditor.hidden=false;sbEditor.value=sbPreview.textContent||'';
+    sbEditBtn.hidden=true;sbSaveBtn.hidden=false;sbCancelBtn.hidden=false;sbEditor.focus()};
+  sbCancelBtn.onclick=previewReadMode;
+  sbSaveBtn.onclick=async()=>{
+    const state=openFileState;if(!state||!choice())return;
+    sbSaveBtn.disabled=true;setStatus('Saving '+state.path+'…');
+    try{
+      const res=await putFile(state.path,sbEditor.value,state.mtime);
+      if(res.host_version)hostVer=res.host_version;
+      openFileState={path:state.path,mtime:res.mtime};
+      sbPreview.textContent=sbEditor.value;
+      sbPreviewPath.textContent=state.path+' · '+res.size.toLocaleString()+' bytes';
+      previewReadMode();
+      setStatus('Saved '+state.path+' — uncommitted; Workspace ▸ Review changes shows the diff');
+      renderAttachments();
+    }catch(e){setStatus(errText(e))}
+    finally{sbSaveBtn.disabled=false}
+  };
+  sbPreviewClose.onclick=closePreview;
+  sbAttachToggle.onclick=()=>{const p=openFileState?.path;if(!p)return;void toggleFile(p).then(syncPreviewAttach)};
+  // Upload: local text files become files IN the selected project workspace, then
+  // attach exactly like anything else in the tree.
+  sbUpload.onclick=()=>{if(!choice())return setStatus('Select a project first — Workspace ▸ lists and registers directories');sbInput.click()};
+  sbInput.onchange=async()=>{
+    const list=sbInput.files;const files:File[]=[];
+    for(let i=0;list&&i<list.length;i++)files.push(list[i]);
+    sbInput.value='';
+    if(!files.length)return;
+    if(!choice())return setStatus('Select a project first');
+    setStatus('Uploading '+files.length+' file(s) into '+choice()+'…');
+    const existing=new Set((treeData?.entries||[]).map(e=>e.path));
+    const errors:string[]=[];let saved=0;
+    for(const f of files){
+      try{
+        if(f.size>MAX_UPLOAD_BYTES)throw new Error(f.name+' exceeds the 1 MB upload limit');
+        const buf=new Uint8Array(await f.arrayBuffer());
+        if(buf.subarray(0,4096).includes(0))throw new Error(f.name+' looks binary — text files only');
+        if(existing.has(f.name)&&!window.confirm(f.name+' already exists in the project. Overwrite it?')){errors.push(f.name+' skipped');continue}
+        await putFile(f.name,new TextDecoder().decode(buf));
+        existing.add(f.name);attached.add(f.name);saved++;
+      }catch(e){errors.push(errText(e))}
+    }
+    if(saved){saveAttached()}
+    await loadTree();renderAttachments();
+    setStatus((saved?`Uploaded ${saved} file(s) into ${choice()}`:'Nothing uploaded')+(errors.length?' — '+errors.join('; '):''));
+  };
+  // --- registration: choose a Git repository under the allowed root, name it, register ---
+  const slugify=(s:string)=>s.toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-+|-+$/g,'');
+  let chosenRoot='';
+  function renderProjectList(){
+    projectList.replaceChildren(...projects.map(p=>{
+      const b=button((choice()===p.name?'◉ ':'○ ')+p.name,'hc415-project-select');
+      b.title=p.host_path+(choice()===p.name?' (current workspace)':'');
+      b.onclick=()=>{selectProject(p.name);renderProjectList()};return b}));
+  }
+  async function loadRoots(){
+    try{
+      const data=await api<{roots:{name:string;path:string;registered:boolean;git?:boolean}[]}>('/api/projects/roots');
+      const buttons=(data.roots||[]).map(r=>{
+        const b=button((r.registered?'✓ ':'')+r.name+(r.git===false?' ◦plain':''),'hc415-register-option');
+        b.title=r.path+(r.git===false?' — plain directory (no git; sync/review unavailable)':'');b.disabled=r.registered;
+        b.onclick=()=>{chosenRoot=r.path;regName.value=slugify(r.name);
+          for(const o of Array.from(regList.children) as HTMLElement[])o.classList.toggle('hc415-chosen',o===b)};
+        return b});
+      regList.replaceChildren(...buttons);
+    }catch(e){
+      const note=document.createElement('div');note.className='hc415-tree-note';
+      note.textContent='Directory list unavailable: '+errText(e);regList.replaceChildren(note);
+    }
+  }
+  regBtn.onclick=async()=>{
+    const name=regName.value.trim();
+    const pasted=regPath.value.trim();
+    const root=pasted||chosenRoot;
+    if(!root)return setStatus('Choose a directory from the list, or paste a path first');
+    if(!/^[a-z][a-z0-9-]{1,47}$/.test(name))return setStatus('Project name must be lowercase letters, digits and hyphens, starting with a letter');
+    regBtn.disabled=true;setStatus('Registering '+name+'…');
+    try{
+      await post('/api/projects',{name,host_path:root});
+      selected=name;
+      await load();selectProject(name);renderProjectList();await loadRoots();
+      setStatus('Registered '+name+' — its file tree is now browsable');
+    }catch(e){setStatus(errText(e))}
+    finally{regBtn.disabled=false}
+  };
+  createBtn.onclick=async()=>{
+    const name=regName.value.trim();
+    if(!/^[a-z][a-z0-9-]{1,47}$/.test(name))return setStatus('Project name must be lowercase letters, digits and hyphens, starting with a letter');
+    createBtn.disabled=true;setStatus('Creating '+name+'…');
+    try{
+      await post('/api/projects/create',{name,git:createGit.checked});
+      await load();selectProject(name);renderProjectList();await loadRoots();
+      setStatus('Created '+name+' — directory and README are ready'+(createGit.checked?' (git repository initialized)':' (plain folder — no git; sync/review unavailable)'));
+    }catch(e){setStatus(errText(e))}
+    finally{createBtn.disabled=false}
+  };
+  filesBtn.onclick=()=>showProjectTab(true);
+  refresh.onclick=()=>{if(!busy){void load();renderProjectList();void loadRoots()}};
   sync.onclick=async()=>{const name=choice();if(!name)return setStatus('Select a project first');setBusy(true);clearReview();setStatus('Synchronizing committed Git contents…');try{
     await post(`/api/projects/${encodeURIComponent(name)}/sync`);setStatus('Synchronized work-machine workspace: '+name);await load();
   }catch(e){setStatus(errText(e))}finally{setBusy(false)}};
@@ -346,7 +605,7 @@ function setup():boolean{
         setStatus('Building attachment manifest…');
         const rows:string[]=[];const missing:string[]=[];
         for(const p of paths){
-          try{const f=await api<FileData>(`/api/projects/${encodeURIComponent(name)}/file?path=${encodeURIComponent(p)}`);
+          try{const f=await api<FileData>(`/api/projects/${encodeURIComponent(name)}/file?path=${encodeURIComponent(p)}&preview=1`);
             if(f.host_version)hostVer=f.host_version;
             rows.push(`${p} | ${f.mode||'file'} | ${f.size} bytes | modified ${f.mtime?new Date(f.mtime*1000).toISOString().replace('T',' ').slice(0,19):'unknown'}`);
           }catch(e){missing.push(p+' ('+errText(e)+')')}
@@ -367,12 +626,15 @@ function setup():boolean{
       const parts:string[]=[];const dropped:string[]=[];let total=0;
       for(const p of paths){
         let f:FileData|null=null;
-        try{f=await api<FileData>(`/api/projects/${encodeURIComponent(name)}/file?path=${encodeURIComponent(p)}`)}
+        try{f=await api<FileData>(`/api/projects/${encodeURIComponent(name)}/file?path=${encodeURIComponent(p)}&preview=1`)}
         catch(e){dropped.push(p+' ('+errText(e)+')');continue}
         if(!f)continue;
         if(total+f.content.length>budget){dropped.push(p+` (${(f.content.length/4|0).toLocaleString()} est. tokens — exceeds remaining model context capacity)`);continue}
         if(f.host_version)hostVer=f.host_version;
-        total+=f.content.length;parts.push('--- '+p+' ---\n'+f.content);
+        // preview=1 truncates over-limit files honestly: inline what fits and
+        // say so, instead of silently attaching a cut file or refusing it.
+        const tail=f.truncated?`\n[Truncated inline at ${f.content.length.toLocaleString()} of ${f.size.toLocaleString()} bytes — the full file is available through workspace access (mode A).]`:'';
+        total+=f.content.length;parts.push('--- '+p+' ---\n'+f.content+tail);
       }
       const capNote=win?`Context check: ${Math.ceil(total/4).toLocaleString()} est. tokens of ${win.toLocaleString()} window tokens (50% attach budget).`
         :'Context check: selected model reports no context window — using 300 KB fallback budget.';
@@ -485,7 +747,7 @@ function setup():boolean{
     w.observe(document.documentElement,{childList:true,subtree:true});
   }
   void load();loadAttached();
-  if(!sidebar.hidden&&choice())void refreshFileContext();
+  if(choice())void refreshFileContext();
   return true;
 }
 try{

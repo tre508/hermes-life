@@ -8,6 +8,7 @@ import './phase41301-rework.css';
 import { makeRefresh } from './refresh-feedback.ts';
 import { openWorkView, openTask } from './navigation-state.ts';
 import { registerKindRenderer } from './context-inspector.ts';
+import { FQ, fqLine } from './five-questions.ts';
 type R=Record<string,unknown>;
 const $=(id:string)=>document.getElementById(id);
 const val=(x:unknown)=>String(x??'');
@@ -91,9 +92,16 @@ const refresh=makeRefresh({
   const dsc=ds.find(x=>val(x.id)===sel.id);
   if(!dsc){body.append(node('p','hl413r-muted','This discovery is not loaded right now (it may have been removed).'));return}
   body.append(node('strong','',val(dsc.title)||`Discovery ${sel.id.slice(0,8)}`));
-  body.append(node('p','hl413r-muted',`State: ${val(dsc.state)}${val(dsc.project)?` - project ${val(dsc.project)}`:''}`));
-  const ev=val(dsc.evidence||dsc.excerpt||dsc.summary);if(ev)body.append(node('p','',ev.length>400?ev.slice(0,400)+'...':ev));
+  // Spec §10: the same questions the dashboard cards answer, with the same
+  // derived-state helpers — and the same real next operations, not just a
+  // pointer to the view that owns them.
+  body.append(fqLine(FQ.status,`${val(dsc.state)} · ${stage(dsc)}`));
+  body.append(fqLine(FQ.why,val(dsc.project)?`project ${val(dsc.project)}`:'no project recorded'));
+  const ev=val(dsc.evidence||dsc.excerpt||dsc.summary);if(ev)body.append(fqLine(FQ.evidence,ev.length>400?ev.slice(0,400)+'...':ev));
   if(val(dsc.file_path)||val(dsc.path))body.append(node('p','hl413r-muted',`Source: ${val(dsc.file_path||dsc.path)}${val(dsc.line)?':'+val(dsc.line):''}`));
+  if(dsc.can_investigate===true&&stage(dsc)==='active')body.append(btn('Investigate',()=>void investigate(dsc)));
+  if(dsc.task_id)body.append(btn('View findings',()=>openTask(val(dsc.task_id),{destination:'results'})));
+  if(wfNext(dsc)==='open_review')body.append(btn('Review candidate',()=>openWorkView('builds')));
   body.append(btn('Open in Discover',()=>openWorkView('discoveries')));
  });
 function render(){
