@@ -1,6 +1,9 @@
 Hermesha isn't simply a personal assistant with autonomous features. You're creating something closer to a persistent autonomous intelligence with its own operational environment, which you can communicate with, collaborate with, direct, and observe.
 
 # Hermesha — A Living Autonomous AI Environment
+
+**Type:** VISION — narrative intent; no authority and not a specification
+
 ### Evolving the existing Hermes Life interface rather than replacing it
 
 Hermesha isn't simply a personal assistant with autonomous features. I'm creating something closer to a **persistent autonomous intelligence with its own operational environment**, which you can communicate with, collaborate with, direct, and observe.

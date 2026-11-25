@@ -1,5 +1,7 @@
 # Hermes Life — Task Interaction & Conversation Redesign
 
+**Type:** DESIGN PROPOSAL — investigation input; the master specification §5 and §27 own conversation behaviour
+
 **The main problem is that Hermes Life treats task submission, execution monitoring, conversation, and results as separate experiences, when they should be parts of one continuous interaction.**
 
 Your latest screenshots expose a more fundamental usability issue than the earlier layout problems.

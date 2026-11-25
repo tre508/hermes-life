@@ -1,5 +1,7 @@
 # UI-VIS-007 — Live Agent Thought & Execution Bubbles
 
+**Type:** DESIGN PROPOSAL — UI-VIS-007; the master specification §15 owns the World
+
 **Project:** Hermes Life — AI Operations Lab  
 **Priority:** HIGH  
 **Scope:** Three.js character visualization, real-time execution events, contextual thought bubbles, tool-call visualization, and execution history.

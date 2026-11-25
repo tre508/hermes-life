@@ -6,6 +6,8 @@ Autonomous Learning, Project Ideation & Self-Directed Development
 
 Status: Proposed implementation milestone  |  Version: 1.0  |  10 November 2026
 
+**Type:** DEVELOPMENT SPECIFICATION — absorbed into §26 of the master specification; no independent authority
+
 1. Purpose and boundaries
 
 Enable Hermes Life to initiate useful work without a user-authored ticket: learn, discover opportunities, propose and create new applications or research projects, execute and test them in authorized isolated workspaces, evaluate outcomes, and resume or revise work across sessions. Self-improvement of Hermes itself is one eligible project category, not the only category.

@@ -1,5 +1,7 @@
 # UUX-004A — Ownership and Navigation Baseline Inventory
 
+**Type:** INVENTORY — point-in-time baseline of the v1 shell; historical reference, not a plan
+
 **Status**: Complete audit before any DOM moves
 **Date**: 2026-11-10
 **Scope**: All frontend/src modules that attach handlers, fetch state, or produce navigation events

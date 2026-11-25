@@ -1,6 +1,7 @@
-but yesterday we did the&#x20;
 
 # Remote Development Environment — Architecture & Workflow
+
+**Type:** RECORD — operations runbook for the development environment; never a plan
 
 ## Overview
 

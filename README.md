@@ -1,5 +1,7 @@
 # Hermes Life — nameplate and departmental color pass
 
+**Type:** RECORD — design note; never a plan
+
 Apply to the same codebase that already received `hermes-life-character-refinement.zip`.
 
 ## Changed files

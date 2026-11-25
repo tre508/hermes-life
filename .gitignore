@@ -27,3 +27,28 @@ frontend/dist/
 # Local environment / secrets
 .env
 *.local
+
+# Backups & debris — a copy of a live file must never be committed.
+# Committed variants of these sat inside frontend/src/ and the frontend root,
+# shadowing the live files they were copied from. Dated suffixes are covered too
+# (`*.backup-*`, `*.before-*`), and `.run/` plus `screenshots/` hold runtime
+# state and PNG evidence that do not belong in a commit's diff.
+*.bak
+*.backup-*
+*.before-*
+.run/
+screenshots/
+
+# Installer backups and superseded trees. These were tracked in full (47 files
+# across 12 directories); each one is a dated copy of a live file. The content is
+# in git history, so these are recovery points, not sources — never re-add them.
+.hermesha-*-backups/
+.hermesha-*-installed
+.hl-chat-*-backups/
+.hl-chat-*-rescue-*/
+Hermes_Life_HL-CHAT-*_Patch_Packet/
+
+# Every virtualenv, not just the exact name ".venv": three dead ones
+# (.venv-broken, .venv-broken-gayzer, .venv-lenovo-backup, 447 MB) were invisible
+# to git only because a venv ships its own .gitignore containing "*".
+.venv*/

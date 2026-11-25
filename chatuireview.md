@@ -1,5 +1,7 @@
 # HERMES LIFE — UI/UX AUDIT V2
 
+**Type:** AUDIT — point-in-time UI/UX assessment; findings are inputs, not requirements
+
 > **STATUS 2026-11-25 — see the delivery record, not the line numbers below.**
 > The user's live direction on 2026-11-25 supersedes parts of this document where the
 > two disagree (the composer, in particular, was rebuilt to the three-area shape the

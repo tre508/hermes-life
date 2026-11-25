@@ -1,5 +1,7 @@
 # Context-Assembly Architecture (HL-PERS-001 §9 deliverable)
 
+**Type:** RECORD — supporting architecture note for HL-PERS-001 §9; not a governing document
+
 The normative assembly order is implemented in one place: `compose_prompt()` in
 `hermes_life/personality.py`. Nothing else concatenates these sources, so a source cannot
 be injected twice or in an unstated position.

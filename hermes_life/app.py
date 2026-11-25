@@ -998,6 +998,20 @@ def create_app(database=None, adapter=None):
     def conversation(conversation_id: str):
         return {'conversation_id':conversation_id,'turns':runtime.conversations.turns(conversation_id)}
 
+    @app.delete('/api/conversations/{conversation_id}')
+    def delete_conversation(conversation_id: str):
+        """Delete one conversation from the host's own store.
+
+        Irreversible by design: the chat list is the user's own surface, and a
+        delete that leaves a restorable copy somewhere would be a lie about what
+        happened. Tasks are untouched (see ConversationMemory.delete). 404 when
+        the id is unknown, so the client can tell "gone" from "never existed"
+        and stop showing a row that is already removed.
+        """
+        if not runtime.conversations.delete(conversation_id):
+            raise HTTPException(404, 'Conversation not found')
+        return {'deleted': conversation_id}
+
     @app.get('/api/conversations/{conversation_id}/revisions')
     def conversation_revisions(conversation_id: str):
         return {'revisions':runtime.recall.revisions(conversation_id)}

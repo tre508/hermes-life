@@ -1,6 +1,6 @@
 # UI-VIS-002 — Hermes Town Multi-Avatar Visualization
 
-**Type:** Development specification / implementation milestone  
+**Type:** DESIGN PROPOSAL — UI-VIS-002; the master specification §15 owns the World
 **Priority:** UI enhancement (after visualization-event correctness)  
 **Status:** Implemented — the town shipped and is pinned by tests (`frontend/tests/town-model.test.ts`, `control-wiring.test.ts`). §3 (visual structure and scene) and §8 (art, animation and performance) are superseded by UI-VIS-003; the rest remains in force.  
 **Scope:** Frontend visualization only  

@@ -592,6 +592,32 @@ function paintThreadTitle(){const t=el('hc-thread-title');if(!t)return;const kno
    open thread. One fetch fills a cache; the search field filters it locally so
    typing does not re-hit the API on every keystroke. */
 let threadCache:Conversation[]=[];
+/** Delete one conversation, behind the user's own confirmation.
+ *
+ * The confirmation is the point: history is the user's surface, the delete is
+ * irreversible, and a rail of rows must not let a stray click destroy a thread.
+ * While a turn is running the delete is refused — the run would keep writing
+ * turns into a conversation that no longer exists — and it says so rather than
+ * failing silently. The row disappears only after the server confirms. */
+async function deleteConversation(id:string,title:string,btn:HTMLButtonElement):Promise<void>{
+  if(activeTask){feedback.textContent='A task is running — stop it before deleting this conversation.';return;}
+  const label=title.trim()||'this conversation';
+  if(!window.confirm(`Delete “${label}”?\n\nIts messages are removed from the history. This cannot be undone.`))return;
+  btn.disabled=true;
+  try{
+    await request<{deleted:string}>(`/api/conversations/${encodeURIComponent(id)}`,{method:'DELETE'});
+    threadTitles.delete(id);
+    traces.delete(id);
+    if(conversationId===id){
+      conversationId='';localStorage.removeItem(stored);clearStream();paintThreadTitle();await render(true);
+    }
+    await refreshThreads();
+    feedback.textContent='Conversation deleted.';
+  }catch(err){
+    btn.disabled=false;
+    feedback.textContent='Delete failed: '+String(err);
+  }
+}
 function renderThreadList(){
   const nav=el('hc-threads');
   const groups=groupThreads(threadCache,(el('hc-thread-filter') as HTMLInputElement).value);
@@ -615,7 +641,16 @@ function renderThreadList(){
       btn.append(name,when);
       if(t.id===conversationId)btn.setAttribute('aria-current','true');
       btn.onclick=()=>{conversationId=t.id;localStorage.setItem(stored,t.id);clearStream();activeTask='';restoreChatSelection();paintThreadTitle();void render(true);void refreshThreads()};
-      nav.append(btn);
+      // The row is a wrapper, not the button itself: a delete control nested
+      // inside a button would be invalid markup and unclickable by keyboard.
+      const row=document.createElement('div');row.className='hc-thread-row';
+      const del=document.createElement('button');
+      del.type='button';del.className='hc-thread-del';del.textContent='✕';
+      del.title='Delete this conversation';
+      del.setAttribute('aria-label','Delete '+(t.title||'this conversation'));
+      del.onclick=(ev)=>{ev.stopPropagation();void deleteConversation(t.id,t.title||'',del)};
+      row.append(btn,del);
+      nav.append(row);
     }
   }
 }
@@ -631,7 +666,23 @@ async function renderFinished(taskId=''){
 function eventItem(e:Evt){if(e.task_id!==activeTask)return;if(e.sequence<=lastSeq)return;lastSeq=e.sequence;if(e.type==='hermes.text'){const delta=e.payload?.text;if(typeof delta==='string'){if(hasExplicitThoughtMarker(e.payload))showExplicitThought(e.task_id||'',delta);else streamBubble(e.task_id||'',delta);}return;}
 if(e.type==='hermes.tool_use'||e.type==='hermes.tool_result'){const p=e.payload||{};const t=traceOf(e.task_id||'');if(e.type==='hermes.tool_use')t.steps.push({kind:'tool',label:toolName(p),args:toolArgs(p),startedAt:Date.parse(e.timestamp)||Date.now()});else{for(let i=t.steps.length-1;i>=0;i--){const st=t.steps[i];if(st.kind==='tool'){st.result=toolResultRaw(p);const done=Date.parse(e.timestamp);if(Number.isFinite(done)&&st.startedAt)st.ms=Math.max(0,done-st.startedAt);break}}}if(activeTask)refreshTrace(e.task_id||'');}
 const events=el('hc-events');const d=document.createElement('div');d.textContent=`${new Date(e.timestamp).toLocaleTimeString()} · ${e.type} · ${JSON.stringify(e.payload).slice(0,550)}`;events.append(d);while(events.childElementCount>120)events.firstElementChild?.remove();events.scrollTop=events.scrollHeight;if(e.type==='task.completed'||e.type==='task.failed'||e.type==='task.cancelled'){void pollTask()}else if(e.type==='task.started')state('Hermes is executing');}
-function connect(){socket?.close();const ws=new WebSocket(`${location.protocol==='https:'?'wss':'ws'}://${location.host}/ws/events?after=${lastSeq}`);socket=ws;ws.onmessage=ev=>{try{eventItem(JSON.parse(ev.data) as Evt)}catch{}};ws.onclose=()=>{if(socket===ws)setTimeout(connect,2500)};}
+function connect(){
+ socket?.close();
+ const open=(after:number)=>{
+  const ws=new WebSocket(`${location.protocol==='https:'?'wss':'ws'}://${location.host}/ws/events?after=${after}`);
+  socket=ws;ws.onmessage=ev=>{try{eventItem(JSON.parse(ev.data) as Evt)}catch{}};ws.onclose=()=>{if(socket===ws)setTimeout(connect,2500)};
+ };
+ if(lastSeq>0){open(lastSeq);return;}
+ // First connection of a page: seed the cursor with the NEWEST event before
+ // opening the socket. Connecting with `after=0` makes the server replay the
+ // entire event log, so a running turn's events queue behind thousands of
+ // historical ones and the chat looks silent until the backlog drains. History
+ // is painted from the REST endpoints; this socket only carries what happens
+ // next. (UI-VIS-002's tail= is exactly the "recent activity, then live" read.)
+ void request<Evt[]>('/api/events?tail=1')
+  .then(rows=>{const newest=Array.isArray(rows)&&rows.length?rows[rows.length-1]:null;open(newest&&newest.sequence?newest.sequence:0)})
+  .catch(()=>open(0));
+}
 // HL-CONV-001: Hermes Chat is the primary conversational surface. Any
 // workspace (Task Board, thread views) can request a hand-off here —
 // with the conversation to continue and optional prefill text. If only

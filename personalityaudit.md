@@ -1,5 +1,7 @@
 # personalityaudit.md — audit against HL-PERS-001 (Adaptive Personality & Persistent Experience Integration)
 
+**Type:** AUDIT — point-in-time assessment against HL-PERS-001; findings are inputs, not requirements
+
 **Scope:** the personality/persona subsystem as the lens, and the codebase's discrepancies, incomplete or
 missing implementations, circular dependencies and redundancy.
 **Type:** investigation and documentation only. **No application code, config, dependency or migration was changed.**

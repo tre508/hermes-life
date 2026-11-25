@@ -121,3 +121,47 @@ class ConversationMemory:
     def turns(self, ident):
         with self.store.lock:
             return [dict(x) for x in self.store.connection.execute('SELECT id,role,content,created_at,task_id FROM hl_conversation_turns WHERE conversation_id=? ORDER BY id',(ident,)).fetchall()]
+
+    def delete(self, ident):
+        """Delete one conversation and everything that points at it.
+
+        A conversation owns exactly two dependent tables — its turns and the
+        revisions recorded against those turns — so both are cleared in the same
+        transaction as the header row, and the Obsidian mirror note is removed
+        afterwards (best effort: a missing vault must never fail the delete).
+
+        The TASK records are deliberately left alone. A task is the worker's own
+        audit trail — which model ran, what it cost, what it executed — and
+        deleting a chat must not rewrite that history. Returns False when the
+        conversation does not exist, so the route can answer 404 honestly.
+        """
+        with self.store.lock:
+            db = self.store.connection
+            exists = db.execute('SELECT 1 FROM hl_conversations WHERE id=?', (ident,)).fetchone()
+            if not exists:
+                return False
+            db.execute('DELETE FROM hl_turn_revisions WHERE conversation_id=?', (ident,))
+            db.execute('DELETE FROM hl_conversation_turns WHERE conversation_id=?', (ident,))
+            db.execute('DELETE FROM hl_conversations WHERE id=?', (ident,))
+            db.commit()
+        self._unmirror(ident)
+        return True
+
+    def _unmirror(self, ident):
+        """Remove this conversation's mirror note, and only that file.
+
+        Scoped to the id we generated: the filename must be exactly
+        ``<uuid>.md`` inside our own Conversations directory, so a malformed id
+        can never be talked into deleting a note the user owns.
+        """
+        if not re.fullmatch(r'[a-f0-9-]{36}', ident or ''):
+            return 'refused'
+        try:
+            base = self.root / 'Conversations'
+            target = base / (ident + '.md')
+            if target.is_file() and target.parent == base:
+                target.unlink()
+                return 'removed'
+        except OSError:
+            return 'failed'
+        return 'missing'

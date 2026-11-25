@@ -1,4 +1,6 @@
-t# HERMESHA — Unified UI/UX, World, Work Graph & Obsidian Memory Bank
+# HERMESHA — Unified UI/UX, World, Work Graph & Obsidian Memory Bank
+
+**Type:** DESIGN PROPOSAL — absorbed into §27 of the master specification; no independent authority
 
 **Status:** Proposed design specification; implementation and existing Obsidian integration are **not verified**.
 

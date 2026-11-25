@@ -1,5 +1,7 @@
 # Phase 6 — final acceptance checklist
 
+**Type:** RECORD — phase acceptance checklist; evidence capture, not a requirement
+
 Fill in results with actual observations and screenshot/test file links. Never mark unchecked items as completed just because the installer ran.
 
 | Gate | Expected behavior | Evidence | Status |

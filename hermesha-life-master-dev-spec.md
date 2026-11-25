@@ -1,5 +1,7 @@
 # HERMES LIFE — MASTER PRODUCT, UI & ENGINEERING SPECIFICATION
 
+**Type:** NORMATIVE SPECIFICATION — governs this project; registered as the project specification (`hl_projects.spec_path`)
+
 **Document ID:** HL-SOT-002  
 **Version:** 2.2 (Hermesha unified experience and Obsidian wiring design)  
 **Prepared:** 2026-11-04  
@@ -39,6 +41,7 @@ The **Hermesha Command Centre / World** is a primary, persistent, spatial repres
 6. Never silently rewrite this specification to excuse a defective implementation. Record the gap, then create a narrowly scoped development goal.
 7. Every requirement has a durable ID. A completed goal cites its requirement IDs and verifiable evidence. An obsolete issue is changed to `resolved` or `historical`, not left as an active bug.
 8. Maintain an implementation status registry (§22) separate from normative requirements. Do not let a model invent completion statuses.
+9. Requirements owned outside this file are indexed at §22.1. An identifier that is neither defined here nor listed there is a dangling reference, not a requirement.
 
 ### 0.4 Product principles
 
@@ -715,6 +718,29 @@ This roadmap is **dependency-based**, not a promise that every earlier patch has
 | Obsidian read/write/search sync | Prior vault location and partial memory integration noted; live mount/index/permissions not inspected in this revision | Proposed wiring; current implementation unverified |
 
 **Known conflict with older spec:** The earlier `HL-SOT-001` §15 `HL-BUG-001` and milestone sequence were a snapshot from November 2; they should not be treated as currently confirmed defects. This document's registry and verified source/runtime evidence supersede those stale status claims once this document is adopted.
+
+### 22.1 Out-of-line requirement documents
+
+This document is the registry, not a copy of every requirement. Some requirements
+are owned and maintained outside it. Each is listed here so that an identifier
+appearing elsewhere in this document resolves to a definition — a reader who sees
+`HL-PERS-001` in the registry above must be able to find what it required.
+
+| Identifier | Document | Status |
+|---|---|---|
+| `HL-PERS-001` | `hermes-personality.md` | Implemented and verified end-to-end; findings PSP-01…PSP-07 and UI-01 closed |
+| `HL-LIB-001` | `docs/hl-lib-001-library-embeddings.md` | Planned — not started |
+| `HL-WORK-001` | `docs/hl-work-001-unified-work-management.md` | In progress — M1 (typed selection model) landed |
+
+**Rule.** An identifier is either defined in this document or listed in this
+table. An identifier that is in neither is an unresolved reference, not a
+requirement. Adding a requirement to this document requires adding its row here.
+
+**Historical inputs, already absorbed.** `autonomy.md` (the original HL-AUTO-001
+development specification) is superseded by §26 of this document, and
+`hermesha-ui-ux-obsidian-spec.md` (the approved 2026-11-23 UI/UX concept) is
+superseded by §27. Both retain value as the record of intent and are not
+governing documents; do not treat either as a second authority.
 
 ---
 

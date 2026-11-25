@@ -1569,6 +1569,27 @@
 .hc-thread-item[aria-current="true"] { background: #1d4a52; color: #eafff6; box-shadow: inset 2px 0 0 #9ce5c7; }
 /* Audit #13: ✦ marks the OPEN thread — the only star in the rail, no badges. */
 .hc-thread-item[aria-current="true"] .hc-thread-name::before { content: '✦ '; color: #9ce5c7; }
+/* Delete lives on the row that is being pointed at or tabbed into — never on
+   every row at once. A destructive control should not be the thing a glance
+   lands on, and it must still be reachable by keyboard. */
+/* The `#hc-threads` prefix is load-bearing: hermes-chat.css ships
+   `#hc-threads button { width: 100% }`, and an ID selector beats these classes,
+   so an unprefixed `.hc-thread-del` was stretched to the full row and pushed
+   out of the rail (the sidebar grew a horizontal scrollbar). */
+#hc-threads .hc-thread-row { display: flex; align-items: stretch; gap: 2px; border-radius: 8px; }
+/* The label yields space instead of claiming it: the row keeps its two-line
+   layout, the title still ellipsises, and the delete control stays inside. */
+#hc-threads .hc-thread-row .hc-thread-item { flex: 1 1 auto; width: auto; min-width: 0; }
+#hc-threads .hc-thread-del {
+    flex: 0 0 auto; width: 28px; padding: 0; border: 0; border-radius: 8px; background: transparent;
+    color: #86a6ac; font: 13px system-ui, sans-serif; text-align: center; cursor: pointer;
+    opacity: 0; transition: opacity .12s ease, background .12s ease, color .12s ease;
+}
+#hc-threads .hc-thread-row:hover .hc-thread-del,
+#hc-threads .hc-thread-row:focus-within .hc-thread-del { opacity: 1; }
+#hc-threads .hc-thread-del:hover { background: #4a1f26; color: #ffb3c0; }
+#hc-threads .hc-thread-del:focus-visible { opacity: 1; outline: 2px solid #9ce5c7; outline-offset: 1px; }
+#hc-threads .hc-thread-del:disabled { opacity: .35; cursor: default; background: transparent; color: #86a6ac; }
 .hc-thread-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .hc-thread-when { font-size: 10.5px; color: #86a6ac; font-variant-numeric: tabular-nums; }
 .hc-thread-empty { margin: 12px 6px; color: #86a6ac; font-size: 12px; line-height: 1.6; }
@@ -1584,7 +1605,10 @@
     #hc-thread-sidebar { flex: 0 0 auto; border-right: 0; border-bottom: 1px solid #315d63; }
     #hc-thread-sidebar #hc-threads { max-height: 132px; overflow-x: auto; flex-direction: row; }
     .hc-thread-group, .hc-thread-empty { display: none; }
-    .hc-thread-item { width: auto; }
+    #hc-threads .hc-thread-item { width: auto; }
+    #hc-threads .hc-thread-row { flex: 0 0 auto; }
+    /* No hover to reveal it on touch — the control stays visible in the strip. */
+    #hc-threads .hc-thread-del { opacity: 1; }
 }
 /* The file inspector is the right-hand column of the panel's flex row; its
    visibility is just its own `hidden` attribute (phase415-workspace.css). */

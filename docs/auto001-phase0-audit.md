@@ -1,5 +1,7 @@
 # HL-AUTO-001 Phase 0 — Audit & Contract Map (2026-11-10)
 
+**Type:** AUDIT — point-in-time assessment; findings are inputs, not requirements
+
 Live inspection of repo (branch main), schema v33→34, existing services. Naming follows the
 actual code, not the proposal DOCX.
 

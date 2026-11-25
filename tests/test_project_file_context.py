@@ -167,7 +167,14 @@ def test_endpoints_409_for_unknown_project(tmp_path, monkeypatch):
 
 # --- UI-driven registration candidates and the write path ---------------------
 
-def test_roots_lists_git_repos_under_the_allowed_root(tmp_path, monkeypatch):
+def test_roots_lists_every_directory_under_the_allowed_root(tmp_path, monkeypatch):
+    """Candidates are directories; `git` reports whether sync/review apply.
+
+    This used to assert a Git-repositories-only list. That contract changed when
+    registration became VS Code-style (any folder is a project), so the test now
+    pins the two cases apart instead of hiding one of them: a repo and a plain
+    directory are both offered, in the same shape, differing only in `git`.
+    """
     client, root = _client(tmp_path, monkeypatch)
     other = _git_repo(tmp_path, name='beta')
     plain = tmp_path / 'notarepo'
@@ -180,9 +187,17 @@ def test_roots_lists_git_repos_under_the_allowed_root(tmp_path, monkeypatch):
     by_name = {item['name']: item for item in data['roots']}
     assert by_name['alpha']['registered'] is True
     assert by_name['alpha']['path'] == str(root)
+    assert by_name['alpha']['git'] is True
     assert by_name['beta']['registered'] is False
     assert by_name['beta']['path'] == str(other)
-    assert 'notarepo' not in by_name, 'only Git repositories are offered'
+    assert by_name['beta']['git'] is True
+    # A folder without a repository is still a candidate — it just says so, so
+    # the UI can offer it without promising sync it cannot deliver.
+    assert by_name['notarepo']['path'] == str(plain)
+    assert by_name['notarepo']['registered'] is False
+    assert by_name['notarepo']['git'] is False
+    # Hidden directories are not offered at all (no `.git`, no caches).
+    assert not [item for item in data['roots'] if item['name'].startswith('.')]
 
 
 def test_write_creates_and_overwrites(tmp_path, monkeypatch):

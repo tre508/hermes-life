@@ -1,6 +1,6 @@
 # HL-LIB-001 — Embedding-Based Ranking for the Knowledge Library
 
-**Type:** Development specification (design + implementation plan)
+**Type:** DEVELOPMENT SPECIFICATION — HL-LIB-001; owned outside the master specification (indexed at §22.1)
 **Priority:** Medium
 **Status:** Planned — not started
 **Scope:** `hermes_life/knowledge_library.py`, `hermes_life/schema.py`, `tests/`, `docs/`. No changes to `personality.py`, no API shape changes, no worker/study subsystem changes.

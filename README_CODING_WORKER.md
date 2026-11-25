@@ -1,5 +1,7 @@
 # Coding worker — Hermes Life runs on the NUC, codes on the Lenovo
 
+**Type:** RECORD — operations runbook; describes what is, not what is required
+
 Hermes Life keeps its controller on this NUC and moves all autonomous execution to a dedicated
 worker machine. The split is configuration, not code: one environment file selects the worker, and
 the guest scripts execute there over SSH.

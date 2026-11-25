@@ -1,5 +1,7 @@
 # Hermesha Command Centre — Phase 6 Validation
 
+**Type:** RECORD — generated validation evidence for Phase 6; not a plan
+
 Generated UTC: 2026-11-10T00:14:46.947264+00:00
 
 ## Automated source checks

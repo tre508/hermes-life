@@ -1,6 +1,6 @@
 # HL-WORK-001 — Unified Work Management & Contextual Workspace Architecture
 
-**Type:** Development specification (design + implementation plan)
+**Type:** DEVELOPMENT SPECIFICATION — HL-WORK-001; owned outside the master specification (indexed at §22.1)
 **Priority:** High
 **Status:** In progress — M1 landed (typed selection model + Context Inspector shell); M2 landed (registered-projects section, registry contract tests, sync 500→409 fix); M3–M5 pending
 **Scope:** `frontend/src/` (work-workspace.ts, portfolio-view.ts, phase41301-rework.ts, phase41302-workflow.ts, phase412-project-ui.ts, main.v2.ts, index.html, workspace CSS), `hermes_life/app.py` (read-only decoration endpoints if needed). No changes to the task execution pipeline, autonomy scheduler, or conversation architecture (HL-CONV-001 is a prerequisite and is complete).

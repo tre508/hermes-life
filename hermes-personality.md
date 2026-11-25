@@ -1,5 +1,7 @@
 # HL-PERS-001 — Adaptive Personality & Persistent Experience Integration
 
+**Type:** DEVELOPMENT SPECIFICATION — HL-PERS-001; owned outside the master specification (indexed at §22.1)
+
 **Severity:** Medium — Functional and architectural gap  
 **Category:** Personality, Memory, Learning & Architecture  
 **Status:** Implemented and verified end-to-end — the personality findings (PSP-01…PSP-07, UI-01) are closed; the §9 standalone context-assembly architecture note is `docs/context-assembly.md`, and the personality/project-selection policy separation is pinned by `tests/test_pers001_policy_separation.py`  
