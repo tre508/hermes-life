@@ -50,10 +50,35 @@
 #hc-input{width:100%;min-height:52px;max-height:42vh;resize:none;overflow-y:auto;background:transparent;border:0;padding:2px 2px 0;font:15.5px/1.5 Inter,system-ui,sans-serif;color:#edfafa;outline:none}
 #hc-input::placeholder{color:#8fb0b8}
 #hc-input:focus{box-shadow:none;border-color:transparent}
-/* V2 audit §3: three areas — text entry, tools row, action row. The project control
-   (phase412) mounts into the slot; the slot itself must not generate a box. */
-.hc-project-slot{display:contents}
-.hc-composer-tools{display:flex;align-items:center;gap:6px;flex-wrap:wrap;line-height:1.3}
+/* V2 audit §3: three areas — text entry, tools row, action row. The tools row is
+   the menu's positioning anchor. */
+.hc-composer-tools{display:flex;align-items:center;gap:6px;flex-wrap:wrap;line-height:1.3;position:relative}
+/* Chat attach (user redesign 2026-11-25): chips above the entry area + the
+   Desktop-style menu. The chips row is flex even when empty so the composer
+   chrome height is stable (every composer row is chrome — re-measure the total
+   after changing this block). */
+#hc-attach-chips{display:flex;flex-wrap:wrap;gap:4px;padding:2px 2px 0;min-height:0}
+#hc-attach-chips[hidden]{display:none!important}
+.hc-attach-chip{display:inline-flex;align-items:center;gap:4px;max-width:100%;padding:2px 4px 2px 7px;border-radius:8px;border:1px solid #3c6a70;background:#15323d;color:#cfe9e2;font:600 11px/1.4 system-ui,sans-serif}
+.hc-attach-chip-label{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:34ch}
+.hc-attach-chip-rm{background:none;border:none;color:#8fb8b0;cursor:pointer;font-size:10px;padding:1px 3px;line-height:1}
+.hc-attach-chip-rm:hover{color:#ffd7d7}
+#hc-attach-menu{position:absolute;bottom:calc(100% + 6px);left:0;z-index:60;display:flex;flex-direction:column;min-width:210px;padding:4px;border-radius:10px;border:1px solid #3c6a70;background:#122a33;box-shadow:0 8px 28px rgba(0,0,0,.55)}
+#hc-attach-menu[hidden]{display:none!important}
+.hc-attach-item{display:flex;align-items:center;gap:8px;width:100%;text-align:left;padding:7px 9px;border:none;border-radius:7px;background:none;color:#d9efe9;font:500 12.5px/1.3 system-ui,sans-serif;cursor:pointer}
+.hc-attach-item:hover{background:#20515a}
+.hc-attach-item-glyph{width:16px;text-align:center}
+.hc-attach-item.hc-attach-disabled{opacity:.45;cursor:not-allowed}
+.hc-attach-item.hc-attach-disabled:hover{background:none}
+.hc-attach-tip{margin:4px 6px 2px;padding-top:6px;border-top:1px solid #24464f;color:#8fb8b0;font:400 10.5px/1.4 system-ui,sans-serif}
+.hc-attach-dialog{border:1px solid #3c6a70;border-radius:12px;background:#122a33;color:#d9efe9;padding:14px 16px;min-width:340px}
+.hc-attach-dialog::backdrop{background:rgba(0,0,0,.5)}
+.hc-attach-dialog h3{margin:0 0 8px;font:600 13px/1.3 system-ui,sans-serif}
+.hc-attach-dialog input{width:100%;box-sizing:border-box;padding:7px 9px;border-radius:8px;border:1px solid #3c6a70;background:#0c1f26;color:#e6f5f0;font:500 12.5px/1.4 system-ui,sans-serif}
+.hc-attach-dialog-err{min-height:1.2em;margin:4px 0 0;color:#ffb3b3;font:400 11px/1.3 system-ui,sans-serif}
+.hc-attach-dialog-row{display:flex;justify-content:flex-end;gap:8px;margin-top:8px}
+.hc-attach-dialog button{padding:6px 14px;border-radius:8px;border:1px solid #3c6a70;background:#15323d;color:#cfe9e2;font:600 12px/1.3 system-ui,sans-serif;cursor:pointer}
+.hc-attach-dialog .hc-attach-ok{background:#1d5b4c;border-color:#9ce5c7;color:#b8f4dc}
 #hc-attach{display:inline-flex;align-items:center;gap:5px;padding:3px 8px;border-radius:8px;border:1px solid #3c6a70;background:#15323d;color:#cfe9e2;font:600 11.5px/1.3 system-ui,sans-serif;cursor:pointer}
 #hc-attach:hover{background:#20515a;border-color:#9ce5c7}
 .hc-composer-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap;border-top:1px solid #1f3d47;padding-top:6px;line-height:1.3}

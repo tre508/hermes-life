@@ -61,6 +61,23 @@ def test_reasoning_interleaves_with_tool_calls():
     assert all('final answer' not in json.dumps(s) for s in steps)
 
 
+def test_one_shot_reasoning_on_the_final_row_is_a_thought_step():
+    # The tool-less shape: user prompt, then ONE assistant row carrying both
+    # the reasoning and the final answer (regression 2026-11-26 — new single-turn
+    # conversations rendered with no trace at all because the mapper broke at
+    # final_index before reading that row's reasoning).
+    rows = [
+        _row('user', content='how would they recover files?', timestamp=1.0),
+        _row('assistant', reasoning='Think about recovery options…',
+             content='The final answer text.', timestamp=2.0),
+    ]
+    steps = _trace_steps(rows)
+    assert [s['kind'] for s in steps] == ['thought']
+    assert steps[0]['text'] == 'Think about recovery options…'
+    # The answer text itself must still stay out of the trace.
+    assert all('final answer' not in json.dumps(s) for s in steps)
+
+
 def test_unmatched_result_attaches_in_call_order():
     rows = [
         _row('assistant', tool_calls=json.dumps([

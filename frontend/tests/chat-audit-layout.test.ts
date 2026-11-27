@@ -44,7 +44,10 @@ test('§2 the composer is three areas: text entry / tools row / action row (V2 a
     assert.match(chat, /class="hc-composer-actions"/);
     assert.match(chat, /id="hc-model-button"/);
     assert.match(chat, /id="hc-usage-chip"/);
-    assert.match(chat, /id="hc-project-slot"/, 'the single project control mounts here');
+    // User redesign 2026-11-25: the composer carries NO project control — the
+    // attach chips row replaced the project slot.
+    assert.match(chat, /id="hc-attach-chips"/);
+    assert.ok(!/hc-project-slot/.test(chat), 'the project slot is gone from the chat');
     // The dashboard rows and their duplicates are gone.
     assert.ok(!/hc-composer-foot/.test(chat), 'the foot is replaced by the action row');
     assert.ok(!/hc-composer-hint/.test(chat), 'the keyboard hint moved to the Send tooltip');
@@ -56,6 +59,9 @@ test('§2 the composer is three areas: text entry / tools row / action row (V2 a
     // Popovers toggle via the hidden attribute WITH an explicit display override —
     // the author-display-beats-[hidden] trap that broke the workspace tabs.
     assert.match(chatCss, /#hc-model-popover\[hidden\],#hc-usage-popover\[hidden\]\{display:none!important\}/);
+    // The attach menu and chips carry the same guard (their own display rules).
+    assert.match(chatCss, /#hc-attach-menu\[hidden\]\{display:none!important\}/);
+    assert.match(chatCss, /#hc-attach-chips\[hidden\]\{display:none!important\}/);
 });
 
 test('§3 the scroll region has a floor and the event log can shrink', () => {
@@ -125,10 +131,17 @@ test('§9F Send becomes Stop while a task runs, and Stop is clickable', () => {
 });
 
 test('§9D/§9E one project control, one model selector, one usage chip', () => {
-    // V2 audit #19/#41: the project pill is gone — phase412 mounts its selector into
-    // the composer's tools slot; Attach delegates to the files workflow.
-    assert.match(chat, /hc-attach'\)\.onclick[\s\S]{0,90}hc415-files-button/);
+    // User redesign 2026-11-25: the chat is NOT pre-attached to a project — the
+    // composer's Attach is a self-contained menu (chat-attach.ts), not a handoff
+    // to the project surface, and the project selector lives in the Project tab.
+    assert.match(chat, /import \{ initChatAttach, chatAttachmentBlock, clearChatAttachments \} from '\.\/chat-attach'/);
+    assert.match(chat, /initChatAttach\(\)/);
+    assert.match(chat, /chatAttachmentBlock\(\)/, 'the send path prepends the attachment references');
+    assert.match(chat, /clearChatAttachments\(\)/, 'attachments clear after a successful send');
+    assert.ok(!/hc-attach'\)\.onclick[\s\S]{0,90}hc415-files-button/.test(chat), 'no Attach→project-tab handoff');
     assert.ok(!/hc-composer-context'/.test(chat), 'the delegating pill is gone');
+    const project = readFileSync(join(src, 'phase412-project-ui.ts'), 'utf8');
+    assert.ok(!/hc-project-slot/.test(project), 'phase412 no longer mounts into the chat composer');
     // ...and only one set of selects exists.
     assert.equal((chat.match(/id="hc-model"/g) || []).length, 1);
 });
@@ -180,15 +193,34 @@ test('§6 threads are grouped by day, marked when current, and filtered locally'
 
 test('§6 project files are the Project tab, not a cramped chat sidebar', () => {
     // User redesign (2026-11-25): the Conversations workspace has Chat | Project
-    // tabs; the Project tab mirrors the chat's two-column anatomy (file rail in
-    // the thread-list slot, file stage in the conversation slot) instead of the
-    // old 300px sidebar wedged into the chat panel row.
+    // tabs. The Project tab then became an IDE-shaped WORKSPACE (user brief,
+    // 2026-11-25) — icon activity bar, ONE sidebar view at a time, tabbed editor,
+    // collapsible bottom panel, status bar — mounted whole into
+    // #project-focus-host. The rail is still the sidebar column and the stage is
+    // still the editor column, now inside #hc415-main. The old contract
+    // (`view.append(sidebar,stage)`) is superseded, not relaxed: registration and
+    // directory discovery must live in the dialog, never permanently in the rail.
     const html = readFileSync(join(src, '..', 'index.html'), 'utf8');
     assert.match(html, /id="conv-tab-chat"/);
     assert.match(html, /id="conv-tab-project"/);
     assert.match(html, /id="project-focus-host"/);
     const ui = readFileSync(join(src, 'phase412-project-ui.ts'), 'utf8');
-    assert.match(ui, /view\.append\(sidebar,stage\)/, 'rail | stage — the chat anatomy');
+    assert.match(ui, /view\.append\(activity,sidebar,mainCol,ideStatus\)/, 'activity bar | rail | editor | status bar');
+    for (const id of ['hc415-activity','hc415-views','hc415-view-explorer','hc415-view-search','hc415-view-scm',
+                      'hc415-view-attachments','hc415-main','hc415-tabs','hc415-bottom','hc415-ide-status',
+                      'hc415-breadcrumb','hc415-rowmenu']) {
+      assert.match(ui, new RegExp(`id='${id}'`), `${id} is a region of the IDE shell`);
+    }
+    // Multi-file editing: the open-document LIST is the model, the strip is its view.
+    assert.match(ui, /let openDocs:string\[\]=\[\]/, 'the editor keeps an open-document list');
+    assert.match(ui, /function closeDoc\(path:string\)/, 'a single tab can be closed');
+    assert.match(ui, /function renderBreadcrumb\(\)/, 'the active document has a breadcrumb');
+    // The row menu is DELEGATED off the row's own title, so it can never act on a
+    // different file than the row it was opened from — and it is a context menu,
+    // not another row of permanent buttons.
+    assert.match(ui, /sbTree\.addEventListener\('contextmenu'/, 'rows carry a context menu');
+    assert.match(ui, /wsSelect\.append\(wsHead,wsList,wsInfo,registerPanel,projectList,wsActions\)/,
+      'the workspace dialog owns registration, not the permanent rail');
     assert.match(ui, /function showProjectTab\(on:boolean\)/);
     assert.match(ui, /getElementById\('conv-tab-project'\)\?\.addEventListener\('click',\(\)=>showProjectTab\(true\)/);
     assert.match(ui, /filesBtn\.onclick=\(\)=>showProjectTab\(true\)/);

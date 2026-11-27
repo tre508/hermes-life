@@ -258,6 +258,13 @@ def _trace_steps(rows):
     for index, row in enumerate(rows[:_MAX_STEPS if final_index is None else final_index + 1]):
         role = row.get('role')
         if index == final_index:
+            # The answer bubble owns this row's CONTENT — but the same row can
+            # also carry the turn's reasoning (a tool-less one-shot answer is
+            # exactly this shape: user, then assistant[reasoning + answer]).
+            # Break AFTER the reasoning is taken; the content stays out.
+            reasoning = row.get('reasoning')
+            if isinstance(reasoning, str) and reasoning.strip():
+                extend_thought(reasoning.strip())
             break  # the answer bubble owns this text; trace stops before it
         if role == 'assistant':
             reasoning = row.get('reasoning')

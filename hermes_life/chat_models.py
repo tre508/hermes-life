@@ -224,11 +224,25 @@ class ChatModels:
 
         Configured rows keep their curated labels and stay pinned at the top;
         the live list follows, alphabetically, de-duplicated against them.
+        Pricing is included for all models where the provider publishes it.
         """
         pinned = _configured()
         configured = {(r['provider'], r['model']) for r in pinned}
-        return pinned + [r for r in _live_catalogue()
-                         if (r['provider'], r['model']) not in configured]
+        live = [r for r in _live_catalogue()
+                if (r['provider'], r['model']) not in configured]
+        # Attach pricing from the cached catalogue to both pinned and live rows.
+        with _catalogue_lock:
+            pricing = dict(_catalogue_cache['pricing'])
+        for row in pinned + live:
+            rates = pricing.get(row['model'])
+            if rates:
+                row['pricing'] = {
+                    'prompt': rates['prompt'],
+                    'completion': rates['completion'],
+                    'cache_read': rates.get('cache_read'),
+                    'cache_write': rates.get('cache_write'),
+                }
+        return pinned + live
 
     def validate(self, provider, model):
         if not provider and not model:

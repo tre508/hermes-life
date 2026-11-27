@@ -1313,8 +1313,17 @@ def create_app(database=None, adapter=None):
 
     @app.get('/api/chat/models')
     def chat_models():
-        return {'models': runtime.chat_models.catalog(),
-                'default': {'provider': None, 'model': None}}
+        catalog = runtime.chat_models.catalog()
+        # Resolve the worker's configured default model from the first live catalogue entry
+        # or from the configured list. This is shown when "Worker default" is selected.
+        default_model = None
+        default_provider = None
+        if catalog:
+            # Prefer a configured default (first pinned entry), else first live
+            default_model = catalog[0]['model']
+            default_provider = catalog[0]['provider']
+        return {'models': catalog,
+                'default': {'provider': default_provider, 'model': default_model}}
 
     @app.get('/api/chat/usage/{task_id}')
     def chat_usage(task_id: str):

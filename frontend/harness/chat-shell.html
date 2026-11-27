@@ -89,7 +89,7 @@ Scroll up and the ↓ Latest chip appears; click it to return.</div></div>
   <button id="hc-jump-latest" type="button" title="Jump to the latest messages" hidden>↓ Latest</button>
  </main>
  <div id="hc-feedback" role="status"></div>
- <form id="hc-form"><div class="hc-composer-box"><textarea id="hc-input" rows="1" placeholder="Ask Hermesha to build, explain, fix, or research…" aria-label="Message Hermesha"></textarea><div class="hc-composer-tools"><button id="hc-attach" type="button"><span aria-hidden="true">＋</span> Attach</button><span id="hc-project-slot" class="hc-project-slot"></span></div><div class="hc-composer-actions"><button id="hc-model-button" type="button"><span id="hc-model-button-label">GLM 5.3 Flash (default)</span><span class="hc-caret" aria-hidden="true"> ▾</span></button><button id="hc-usage-chip" type="button"><span id="hc-usage-chip-label">Context 6% · $0.11</span></button><button id="hc-send" type="submit"><span aria-hidden="true">➤</span> Send</button></div></div></form>
+ <form id="hc-form"><div class="hc-composer-box"><div id="hc-attach-chips" class="hc-attach-chips" hidden></div><textarea id="hc-input" rows="1" placeholder="Ask Hermesha to build, explain, fix, or research…" aria-label="Message Hermesha"></textarea><div class="hc-composer-tools"><button id="hc-attach" type="button" title="Attach files, folders, images or a URL to this message"><span aria-hidden="true">＋</span> Attach</button></div><div class="hc-composer-actions"><button id="hc-model-button" type="button"><span id="hc-model-button-label">GLM 5.3 Flash (default)</span><span class="hc-caret" aria-hidden="true"> ▾</span></button><button id="hc-usage-chip" type="button"><span id="hc-usage-chip-label">Context 6% · $0.11</span></button><button id="hc-send" type="submit"><span aria-hidden="true">➤</span> Send</button></div></div></form>
  </div>
 </section>
 </div>
@@ -106,6 +106,15 @@ Scroll up and the ↓ Latest chip appears; click it to return.</div></div>
   jump.onclick=()=>{messages.scrollTop=messages.scrollHeight;jump.hidden=true;};
   const box=document.getElementById('hc-input');
   box.style.height='auto';box.style.height=Math.min(box.scrollHeight,Math.round(innerHeight*0.42))+'px';
+</script>
+<script type="module">
+  // The attach menu is the REAL module (chat-attach.ts) — no markup to keep in
+  // sync beyond the composer fragment above. Module scripts defer like the real
+  // app, and nothing here needs fetch.
+  import * as chatAttach from '/src/chat-attach.ts';
+  addEventListener('DOMContentLoaded',()=>setTimeout(chatAttach.initChatAttach,0));
+  // Probe handle for headless verification: the harness's own module instance.
+  window.__chatAttach=chatAttach;
 </script>
 </body>
 </html>

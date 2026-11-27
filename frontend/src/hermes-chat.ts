@@ -2,6 +2,7 @@ import './hermes-chat.css';
 import './chat-upgrade.css';
 import './chat-clarity.css';
 import { renderHermesMarkdown } from './chat-markdown';
+import { initChatAttach, chatAttachmentBlock, clearChatAttachments } from './chat-attach';
 import { gateLogout, gateRegisterPasskey } from './gate';
 import { groupThreads } from './thread-groups';
 import { toolAction, resultSummary, hasMoreDetail, formatDuration } from './trace-format';
@@ -30,7 +31,7 @@ root.innerHTML=`<section id="hc-panel" role="region" aria-label="Hermes conversa
  <div id="hc-progress" hidden><span id="hc-progress-label">Hermes is working…</span><button id="hc-details">Activity ▾</button><button id="hc-stop" type="button" title="Stop current task">Stop</button></div>
  <div id="hc-events" hidden></div>
  <div id="hc-feedback" role="status"></div>
- <form id="hc-form"><div class="hc-composer-box"><textarea id="hc-input" rows="1" placeholder="Ask Hermesha to build, explain, fix, or research…" aria-label="Message Hermesha"></textarea><div class="hc-composer-tools"><button id="hc-attach" type="button" title="Browse project files and attach them"><span aria-hidden="true">＋</span> Attach</button><span id="hc-project-slot" class="hc-project-slot"></span></div><div class="hc-composer-actions"><button id="hc-model-button" type="button" aria-haspopup="dialog" aria-expanded="false" title="Change the chat model — provider and catalogue inside"><span id="hc-model-button-label">Worker default</span><span class="hc-caret" aria-hidden="true"> ▾</span></button><button id="hc-usage-chip" type="button" aria-haspopup="dialog" aria-expanded="false" title="Context, tokens and session cost — click for the detail panel"><span id="hc-usage-chip-label">Context unavailable</span></button><button id="hc-send" type="submit" title="Send message (Enter) · Shift+Enter adds a new line"><span aria-hidden="true">➤</span> Send</button></div></div></form>
+ <form id="hc-form"><div class="hc-composer-box"><div id="hc-attach-chips" class="hc-attach-chips" hidden></div><textarea id="hc-input" rows="1" placeholder="Ask Hermesha to build, explain, fix, or research…" aria-label="Message Hermesha"></textarea><div class="hc-composer-tools"><button id="hc-attach" type="button" title="Attach files, folders, images or a URL to this message"><span aria-hidden="true">＋</span> Attach</button></div><div class="hc-composer-actions"><button id="hc-model-button" type="button" aria-haspopup="dialog" aria-expanded="false" title="Change the chat model — provider and catalogue inside"><span id="hc-model-button-label">Worker default</span><span class="hc-caret" aria-hidden="true"> ▾</span></button><button id="hc-usage-chip" type="button" aria-haspopup="dialog" aria-expanded="false" title="Context, tokens and session cost — click for the detail panel"><span id="hc-usage-chip-label">Context unavailable</span></button><button id="hc-send" type="submit" title="Send message (Enter) · Shift+Enter adds a new line"><span aria-hidden="true">➤</span> Send</button></div></div></form>
  </div>
 </section>`;
 /* Chat audit §8: the floating assistant is RETIRED. There is exactly ONE chat
@@ -655,7 +656,7 @@ function renderThreadList(){
   }
 }
 async function refreshThreads(){try{const data=await request<{conversations:Conversation[]}>('/api/conversations');threadCache=data.conversations||[];for(const t of threadCache)threadTitles.set(t.id,t.title||'');renderThreadList();paintThreadTitle()}catch(err){feedback.textContent=String(err)}}
-async function pollTask(){if(!activeTask)return;try{const t=await request<Task>('/api/tasks/'+encodeURIComponent(activeTask));activeState=t.state;state('Task '+t.state);const running=['queued','running','pending'].includes(t.state);setRunning(running);if(!running){const finishedId=activeTask;activeTask='';await renderFinished(finishedId);void refreshChatUsage(finishedId);}}catch(err){feedback.textContent=String(err)}}
+async function pollTask(){if(!activeTask)return;try{const t=await request<Task>('/api/tasks/'+encodeURIComponent(activeTask));activeState=t.state;state('Task '+t.state);const running=['queued','running','pending'].includes(t.state);setRunning(running);if(!running){const finishedId=activeTask;activeTask='';window.dispatchEvent(new CustomEvent('hc-task-finished',{detail:finishedId}));await renderFinished(finishedId);void refreshChatUsage(finishedId);}}catch(err){feedback.textContent=String(err)}}
 async function renderFinished(taskId=''){
  clearStream();await render(true);
  // The live capture only ever held the tool rows (the worker's stream labels no
@@ -750,17 +751,21 @@ el('hc-stop').onclick=async()=>{
     feedback.textContent='Stop failed: '+String(err);
   }
 };
-el('hc-form').addEventListener('submit',async ev=>{ev.preventDefault();const box=el('hc-input') as HTMLTextAreaElement;const prompt=box.value.trim();if(!prompt||activeTask)return;feedback.textContent='';setRunning(true);try{const t=await request<Task&{conversation_id:string}>('/api/tasks',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({prompt,conversation_id:conversationId||null,...chatModelSelection(),...(pendingRevision?{revision_of:pendingRevision.id,revision_text:pendingRevision.content}:{})})});conversationId=t.conversation_id;localStorage.setItem(stored,conversationId);clearStream();activeTask=t.id;activeState=t.state;void refreshChatUsage(t.id);box.value='';autogrow();pendingRevision=null;await render();state('Hermes is working');}catch(err){feedback.textContent='Not submitted: '+String(err);setRunning(false)}});
+el('hc-form').addEventListener('submit',async ev=>{ev.preventDefault();const box=el('hc-input') as HTMLTextAreaElement;const typed=box.value.trim();const attachBlock=chatAttachmentBlock();const prompt=attachBlock?attachBlock+'\n\n'+typed:typed;if(!typed&&!attachBlock)return;if(!prompt||activeTask)return;feedback.textContent='';setRunning(true);try{const t=await request<Task&{conversation_id:string}>('/api/tasks',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({prompt,conversation_id:conversationId||null,...chatModelSelection(),...(pendingRevision?{revision_of:pendingRevision.id,revision_text:pendingRevision.content}:{})})});conversationId=t.conversation_id;localStorage.setItem(stored,conversationId);clearStream();activeTask=t.id;activeState=t.state;void refreshChatUsage(t.id);box.value='';clearChatAttachments();autogrow();pendingRevision=null;await render();state('Hermes is working');}catch(err){feedback.textContent='Not submitted: '+String(err);setRunning(false)}});
 (el('hc-input') as HTMLTextAreaElement).addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();el('hc-form').dispatchEvent(new Event('submit',{cancelable:true}))}});
 /* Audit §9A/§9B: the composer grows with the prompt instead of staying a
    one-line box, capped so a long prompt can never swallow the conversation. */
 function autogrow(){const box=el('hc-input') as HTMLTextAreaElement;box.style.height='auto';const cap=Math.round(window.innerHeight*0.42);box.style.height=Math.min(box.scrollHeight,cap)+'px';}
 (el('hc-input') as HTMLTextAreaElement).addEventListener('input',autogrow);
 window.addEventListener('resize',()=>autogrow());
-/* V2 audit #19/#41: the project pill is gone — the ONE project control is
-   phase412's selector, which mounts itself into the composer's tools row. */
+/* User redesign 2026-11-25: the chat composer carries NO project control —
+   the ONE project selector is phase412's, and it lives in the Project tab. */
 const byClassOrId=(id:string)=>document.getElementById(id)||document.querySelector<HTMLElement>('.'+id);
-el('hc-attach').onclick=()=>{byClassOrId('hc415-files-button')?.click()};
+/* User redesign 2026-11-25: the chat is NOT pre-attached to any project — the
+   ＋ Attach control is a Hermes-Desktop-style menu (files/folders/images/URL)
+   that attaches references to THIS message; the project selector lives in the
+   Project tab only. No handoff to the project surface from here. */
+initChatAttach();
 /* Audit §9F: the same control stops a run in flight. */
 (el('hc-send') as HTMLButtonElement).addEventListener('click',ev=>{
   if((el('hc-send') as HTMLButtonElement).dataset.mode==='stop'){ev.preventDefault();el('hc-stop').click();}

@@ -31,20 +31,23 @@ function setup():boolean{
   // the visible control is the workspace selector button + overlay below.
   const pickerLabel=document.createElement('label');pickerLabel.htmlFor='hc-project-picker';pickerLabel.textContent='Project';pickerLabel.className='hc415-visually-hidden';
   const picker=document.createElement('select');picker.id='hc-project-picker';picker.setAttribute('aria-label','Coding project');picker.className='hc415-visually-hidden';picker.tabIndex=-1;picker.setAttribute('aria-hidden','true');
-  // V2 audit #19/#41: ONE authoritative project control — this selector lives in the
-  // composer's tools row (hermes-chat provides #hc-project-slot); the old project bar
-  // with its three duplicate buttons is gone.
-  const selectorBtn=button('Project: General chat','hc415-ws-selector');selectorBtn.id='hc415-ws-selector';
+  // ONE authoritative project control: this selector opens the workspace dialog
+  // but is itself visually hidden (see mount comment below).
+  const selectorBtn=button('Project: General chat','hc415-ws-selector hc415-visually-hidden');selectorBtn.id='hc415-ws-selector';
   selectorBtn.title='Select the working directory for this conversation';selectorBtn.setAttribute('aria-haspopup','dialog');selectorBtn.setAttribute('aria-expanded','false');
+  selectorBtn.tabIndex=-1; // selection UI is the workspace dialog; the button stays only as a programmatic handle
   const filesBtn=button('🗂 Files','hc415-files-button');filesBtn.title='Browse project files and attach them to the conversation';
   // ＋ Attach already opens the Project tab, so a second visible Files button would be
   // redundant (audit #19) — but the World composer's handoff clicks this button by id,
   // and a detached node is not findable: keep it connected, out of sight.
   filesBtn.className='hc415-files-button hc415-visually-hidden';filesBtn.tabIndex=-1;
-  // Mount the ONE project control into the composer's tools row (＋ Attach sits
-  // beside it and opens the Project tab, where files and attachment live).
-  const projectSlot=document.getElementById('hc-project-slot')||form.querySelector('.hc-composer-tools');
-  projectSlot?.append(pickerLabel,picker,selectorBtn,filesBtn);
+  // User redesign 2026-11-25: the chat composer carries NO project control —
+  // "the chat should not be pre-attached to any project or directory". These
+  // controls therefore mount INSIDE the Project tab (kept connected but out of
+  // sight: the World composer's handoffs click them by id, and a detached node
+  // is not findable). The selector button still opens the workspace dialog.
+  const projectSlot=document.getElementById('project-focus-host');
+  (projectSlot||panel).append(pickerLabel,picker,selectorBtn,filesBtn);
 
   // The workspace drawer and the in-chat Files sidebar are RETIRED: the Conversations
   // workspace now has Chat | Project tabs, and the Project tab mirrors the chat's
@@ -156,14 +159,129 @@ function setup():boolean{
   const sbEditBtn=button('✎ Edit','hc415-preview-btn');sbEditBtn.title='Edit this file in place — saves to the project workspace (uncommitted; Review changes shows the diff)';
   const sbSaveBtn=button('Save','hc415-preview-btn');sbSaveBtn.hidden=true;
   const sbCancelBtn=button('Cancel','hc415-preview-btn');sbCancelBtn.hidden=true;
+  // Soft delete (user decision, 2026-11-25): the control sits where the eyes are
+  // (the opened file's header) and MOVES the file to <project>/.trash/ — the
+  // confirm names the file so a glance can't destroy the wrong thing.
+  const sbDeleteBtn=button('🗑 Delete','hc415-preview-delete');sbDeleteBtn.title='Move this file to the project .trash (recoverable)';
   const sbPreviewClose=button('×','hc415-preview-close');sbPreviewClose.title='Close the file preview';
-  sbPreviewHead.append(sbPreviewPath,sbAttachToggle,sbEditBtn,sbSaveBtn,sbCancelBtn,sbPreviewClose);
+  sbPreviewHead.append(sbPreviewPath,sbAttachToggle,sbEditBtn,sbSaveBtn,sbCancelBtn,sbDeleteBtn,sbPreviewClose);
   const sbEditor=document.createElement('textarea');sbEditor.id='hc415-file-editor';sbEditor.spellcheck=false;sbEditor.hidden=true;sbEditor.setAttribute('aria-label','File editor');
   sbPreviewWrap.append(sbPreviewHead,sbPreview,sbEditor);
   const sbMeter=document.createElement('div');sbMeter.id='hc415-file-meter';sbMeter.setAttribute('role','status');
   // The rail's thread-list analog: project identity first (registered list +
   // registration), then the file tree as the main list, attachments as its composer.
-  sidebar.append(sbHead,projectList,registerPanel,sbTree,sbAttach,sbStatus,sbInput);
+  // ─────────────────────── IDE shell (2026-11-25) ────────────────────────────
+  // The Project tab is a WORKSPACE, not a dashboard. This rail previously stacked
+  // ~25 permanently exposed controls — 2 workspace chips, 11 directory chips, two
+  // text inputs, Register/Create, Upload/Select-all/Clear-all, three mode buttons
+  // and a commit line — into a ~300px column, while the editor column sat empty.
+  //
+  // Every element and id below SURVIVES; only the MOUNT POINTS move (append moves
+  // a connected node), so every CSS rule, handler, delegation and structural test
+  // keeps resolving. Registration + directory discovery leave the rail for the
+  // Workspace dialog; the rail shows ONE view at a time behind an activity bar.
+  const activity=document.createElement('nav');activity.id='hc415-activity';
+  activity.setAttribute('aria-label','Project views');
+  const VIEWS:[string,string,string][]=[['explorer','🗂','Explorer'],['search','⌕','Search'],['scm','⑂','Source control'],['attachments','📎','Attachments']];
+  const activityBtns:Record<string,HTMLButtonElement>={};
+  for(const [vid,icon,label] of VIEWS){
+    const b=button(icon,'hc415-activity-btn');b.dataset.view=vid;b.title=label;b.setAttribute('aria-label',label);
+    b.setAttribute('aria-pressed','false');activityBtns[vid]=b;activity.append(b);
+  }
+  const activitySpacer=document.createElement('span');activitySpacer.className='hc415-activity-spacer';
+  const activityMore=button('⋯','hc415-activity-btn');
+  activityMore.title='Workspace — register a directory, create a project, open another folder';
+  activityMore.setAttribute('aria-label','Workspace actions');
+  activity.append(activitySpacer,activityMore);
+
+  const viewExplorer=document.createElement('section');viewExplorer.id='hc415-view-explorer';viewExplorer.className='hc415-view';
+  const viewSearch=document.createElement('section');viewSearch.id='hc415-view-search';viewSearch.className='hc415-view';
+  const viewScm=document.createElement('section');viewScm.id='hc415-view-scm';viewScm.className='hc415-view';
+  const viewAttachments=document.createElement('section');viewAttachments.id='hc415-view-attachments';viewAttachments.className='hc415-view';
+  // Search filters the ALREADY-RENDERED tree by path: no second data source, no refetch.
+  const searchInput=document.createElement('input');searchInput.id='hc415-search';searchInput.type='search';searchInput.autocomplete='off';
+  searchInput.placeholder='Filter files by path…';searchInput.setAttribute('aria-label','Filter project files');
+  const searchNote=document.createElement('div');searchNote.id='hc415-search-note';searchNote.className='hc415-tree-note';
+  viewSearch.append(searchInput,searchNote);
+  const scmBody=document.createElement('div');scmBody.id='hc415-scm-body';viewScm.append(scmBody);
+  const views=document.createElement('div');views.id='hc415-views';
+  // The tree and the attachment list MOVE into their views. Without these two
+  // appends the containers exist and the handlers run against detached nodes:
+  // every chip reports "310 files" while the explorer shows nothing at all.
+  viewExplorer.append(sbTree);viewAttachments.append(sbAttach);
+  views.append(viewExplorer,viewSearch,viewScm,viewAttachments);
+
+  const viewTools=document.createElement('div');viewTools.className='hc415-view-tools';
+  const collapseAll=button('⌄','hc415-icon-btn');collapseAll.id='hc415-collapse-all';collapseAll.title='Collapse all folders';
+  viewTools.append(refresh,collapseAll);
+  sbHead.append(viewTools);
+  const sideFoot=document.createElement('div');sideFoot.id='hc415-side-foot';sideFoot.append(sbStatus,sbInput);
+  sidebar.append(sbHead,views,sideFoot);
+
+  const mainCol=document.createElement('div');mainCol.id='hc415-main';
+  const editorHead=document.createElement('div');editorHead.id='hc415-editor-head';
+  const tabStrip=document.createElement('div');tabStrip.id='hc415-tabs';tabStrip.setAttribute('role','tablist');tabStrip.setAttribute('aria-label','Open files');
+  const editorTools=document.createElement('div');editorTools.className='hc415-editor-tools';
+  editorHead.append(tabStrip,editorTools);
+  const bottom=document.createElement('div');bottom.id='hc415-bottom';
+  const bottomTabs=document.createElement('div');bottomTabs.id='hc415-bottom-tabs';bottomTabs.setAttribute('role','tablist');
+  const bottomBody=document.createElement('div');bottomBody.id='hc415-bottom-body';
+  const bottomPaneChanges=document.createElement('div');bottomPaneChanges.className='hc415-bottom-pane';bottomPaneChanges.id='hc415-pane-changes';
+  const bottomPaneActivity=document.createElement('div');bottomPaneActivity.className='hc415-bottom-pane';bottomPaneActivity.id='hc415-pane-activity';
+  const BOTTOM_TABS:[string,string][]=[['changes','Changes'],['activity','Activity']];
+  const bottomBtns:Record<string,HTMLButtonElement>={};
+  for(const [bid,label] of BOTTOM_TABS){
+    const b=button(label,'hc415-bottom-tab');b.dataset.pane=bid;b.setAttribute('role','tab');bottomBtns[bid]=b;bottomTabs.append(b);
+  }
+  const bottomToggle=button('⌄','hc415-icon-btn');bottomToggle.id='hc415-bottom-toggle';bottomToggle.title='Collapse or expand this panel';
+  bottomTabs.append(bottomToggle);
+  bottomBody.append(bottomPaneChanges,bottomPaneActivity);
+  bottom.append(bottomTabs,bottomBody);
+  // the stage keeps only the editor surface: the summary goes to Source control,
+  // the diff to the bottom panel, and sync/review become compact editor tools.
+  scmBody.append(info);editorTools.append(actions);
+  bottomPaneChanges.append(reviewPanel);bottomPaneActivity.append(status);
+  // Breadcrumb row: the active document's path as segments, between the tabs and
+  // the editor (the editor's own idea of "where am I", not the explorer's).
+  const breadcrumb=document.createElement('div');breadcrumb.id='hc415-breadcrumb';breadcrumb.hidden=true;
+  mainCol.append(editorHead,breadcrumb,stage,bottom);
+
+  const ideStatus=document.createElement('div');ideStatus.id='hc415-ide-status';
+  const ideChips=document.createElement('div');ideChips.id='hc415-ide-chips';
+  const ideActions=document.createElement('div');ideActions.id='hc415-ide-actions';
+  ideStatus.append(ideChips,ideActions);
+
+  function setIdeView(which:string){
+    for(const [vid] of VIEWS)activityBtns[vid].setAttribute('aria-pressed',String(vid===which));
+    viewExplorer.hidden=which!=='explorer';viewSearch.hidden=which!=='search';
+    viewScm.hidden=which!=='scm';viewAttachments.hidden=which!=='attachments';
+    sbTitle.textContent=which==='explorer'?'EXPLORER':which==='search'?'SEARCH':which==='scm'?'SOURCE CONTROL':'ATTACHMENTS';
+    if(which==='search')searchInput.focus();
+    if(which==='scm')renderIdeChips();
+  }
+  for(const [vid] of VIEWS)activityBtns[vid].onclick=()=>setIdeView(vid);
+  function setBottomTab(which:string){
+    for(const [bid] of BOTTOM_TABS)bottomBtns[bid].setAttribute('aria-selected',String(bid===which));
+    bottomPaneChanges.hidden=which!=='changes';bottomPaneActivity.hidden=which!=='activity';
+  }
+  for(const [bid] of BOTTOM_TABS)bottomBtns[bid].onclick=()=>setBottomTab(bid);
+  bottomToggle.onclick=()=>bottom.toggleAttribute('data-collapsed');
+  collapseAll.onclick=()=>{expanded=new Set();renderTree()};
+  // Filter the rendered rows in place. Directories stay visible so the hierarchy
+  // keeps its shape; a file row that does not match is hidden.
+  searchInput.oninput=()=>{
+    const q=searchInput.value.trim().toLowerCase();
+    let files=0,shown=0;
+    for(const row of Array.from(sbTree.querySelectorAll<HTMLElement>('.hc415-tree-node > *'))){
+      const isDir=row.classList.contains('hc415-tree-dir');
+      const label=(row.querySelector('.hc415-tree-label')?.textContent||'').toLowerCase();
+      if(!isDir)files++;
+      const hit=!q||label.includes(q);
+      row.toggleAttribute('data-filtered',!hit&&!isDir);
+      if(hit&&!isDir)shown++;
+    }
+    searchNote.textContent=!q?'':shown?shown+' of '+files+' files':'No file matches “'+searchInput.value.trim()+'”.';
+  };
 
   // HL-CHAT-006 2.1: SELECT WORKSPACE overlay — General Chat + registered projects,
   // with Host (authoritative NUC repo) and Worker (execution workspace) paths labeled separately.
@@ -177,7 +295,11 @@ function setup():boolean{
   const wsBrowse=button('Browse registered projects','hc415-ws-browse');wsBrowse.id='hc415-ws-browse';wsBrowse.title='Open the project workspace drawer';
   const wsExplorer=button('Open File Explorer','hc415-ws-explorer');wsExplorer.id='hc415-ws-explorer';wsExplorer.title='Browse and attach files from the selected project';
   wsActions.append(wsBrowse,wsExplorer);
-  wsSelect.append(wsHead,wsList,wsInfo,wsActions);
+  // The dialog is the WORKSPACE HUB: the registered list and the registration /
+  // creation controls live here now instead of permanently in the rail. That is
+  // what removes ~18 always-visible controls from the sidebar. No id changes —
+  // tests/project-files-ui.test.ts pins hc415-register-list/name/path by name.
+  wsSelect.append(wsHead,wsList,wsInfo,registerPanel,projectList,wsActions);
   // The overlay covers the chat panel (#hc-panel is position:absolute, so it is
   // the containing block for the overlay's inset:0). Without this append the
   // selector button had no reachable General-chat option — the reported bug.
@@ -188,8 +310,32 @@ function setup():boolean{
   const projectHost=document.getElementById('project-focus-host');
   const view=document.createElement('div');view.id='hc415-project-view';
   stage.append(sbPreviewWrap,sbMeter);
-  view.append(sidebar,stage);
+  view.append(activity,sidebar,mainCol,ideStatus);
   (projectHost||panel).append(view);
+
+  /** The in-IDE status bar: workspace · version · files · mode. Derived from the
+   *  same state the panels render, so the bar cannot disagree with what it
+   *  summarises — and so it needs no new fetch. */
+  function renderIdeChips(){
+    // DEFENSIVE ON PURPOSE. This shell is declared ~260 lines ABOVE the state it
+    // summarises, and `void load()` runs at the end of setup() — so a re-entrant
+    // or early call can arrive while those `let` bindings are still in their
+    // temporal dead zone, where reading one THROWS instead of yielding undefined
+    // (measured: `Cannot access 'treeData' before initialization` bubbled up
+    // through load() and killed the whole project list). A summary bar must never
+    // be able to break the workspace it is describing, so every read is guarded.
+    let workspace='General chat',version='no version',files='no tree',mode='A',synced='no workspace selected';
+    try{const p=current();if(p){workspace=p.name;synced=p.remote_path?'work machine synced':'work machine unsynced'}}catch{}
+    try{version=sbVer.textContent||'no version'}catch{}
+    try{files=treeData?treeData.entries.length+' files':'no tree'}catch{}
+    try{mode=attachMode()}catch{}
+    const chips:[string,string][]=[['workspace',workspace],['version',version],['files',files],['mode','mode '+mode]];
+    ideChips.replaceChildren(...chips.map(([k,v])=>{
+      const s=document.createElement('span');s.className='hc415-chip';s.dataset.kind=k;s.textContent=v;return s;
+    }));
+    ideActions.textContent=synced;
+  }
+  setIdeView('explorer');setBottomTab('changes');
   let projectTab=false;
   function showProjectTab(on:boolean){
     projectTab=on;
@@ -219,7 +365,7 @@ function setup():boolean{
   function current(){return projects.find(p=>p.name===choice())}
   function clearReview(){activeReview=null;confirmation.value='';reviewPanel.hidden=true;reviewMeta.textContent='';diff.textContent=''}
   function setStatus(s:string){status.textContent=s}
-  function renderHint(){refreshModeUI();const p=current();info.textContent=p?`${p.name} · ${p.remote_path||'Work-machine workspace not synchronized'}`:'Select a registered project to synchronize or review changes.'}
+  function renderHint(){refreshModeUI();const p=current();info.textContent=p?`${p.name} · ${p.remote_path||'Work-machine workspace not synchronized'}`:'Select a registered project to synchronize or review changes.';renderIdeChips()}
   function setBusy(value:boolean){busy=value;refresh.disabled=value;sync.disabled=value;reviewBtn.disabled=value;applyBtn.disabled=value;regBtn.disabled=value;createBtn.disabled=value}
   function openDrawer(){showProjectTab(true)}
   // The stage's back-to-chat button is gone with the drawer header — the tabs switch.
@@ -241,20 +387,40 @@ function setup():boolean{
   }
   picker.onchange=()=>selectProject(choice());
   // The chat module announces conversation switches; the project choice follows
-  // the conversation. A conversation KNOWN to the map gets its stored project
-  // (General chat when it never had one); a BRAND-NEW conversation carries the
-  // current choice forward — the message just sent defined this thread's
-  // project, so the pill must not flip to General under the user.
+  // the conversation. A conversation KNOWN to the map gets its stored project;
+  // a BRAND-NEW conversation starts at General chat — the user redesign
+  // (2026-11-25) removed the carry-forward: the chat is never pre-attached to a
+  // project, the choice is only ever explicit (Project tab or @slug).
   let lastSeenConversation=conversationIdNow();
   window.addEventListener('hc-conversation-changed',(ev)=>{
     const cid=String((ev as CustomEvent).detail||'');
     if(cid===lastSeenConversation)return;
     const map=projectByConversation();
-    const wanted=Object.prototype.hasOwnProperty.call(map,cid)?(map[cid]||''):choice();
+    const wanted=Object.prototype.hasOwnProperty.call(map,cid)?(map[cid]||''):'';
     lastSeenConversation=cid;
     if(wanted!==choice())selectProject(wanted);
   });
   {const wanted=projectByConversation()[conversationIdNow()]||'';if(wanted&&wanted!==choice())selectProject(wanted);}
+  // Live link to chat (user brief, 2026-11-25): when a chat task finishes, a
+  // file it edited must appear in an OPEN editor the way a CLI edit does — the
+  // editor reloads through the normal open path when the file's mtime moved.
+  // An in-progress edit is never clobbered, and the tree refreshes too so new
+  // files the task created show up without a manual reload.
+  window.addEventListener('hc-task-finished',()=>{
+    const state=openFileState;const name=choice();
+    if(!name)return;
+    void load();
+    if(!state)return;
+    void (async()=>{
+      try{
+        const f=await api<FileData>(`/api/projects/${encodeURIComponent(name)}/file?path=${encodeURIComponent(state.path)}&preview=1`);
+        if(!f.mtime||openFileState?.path!==state.path)return;
+        if(Math.abs(f.mtime-(state.mtime||0))<=0.001)return;
+        if(!sbEditor.hidden)return; // a human is editing — never pull the file from under them
+        void openFile(state.path);
+      }catch{/* the file may have been deleted by the task; the tree refresh above reflects it */}
+    })();
+  });
   // HL-CHAT-006 2.1: workspace selector overlay behaviour.
   function renderSelectorLabel(){
     const p=current();
@@ -279,6 +445,9 @@ function setup():boolean{
   function openWsSelect(){renderSelector();wsSelect.hidden=false;selectorBtn.setAttribute('aria-expanded','true');wsClose.focus()}
   function closeWsSelect(){wsSelect.hidden=true;selectorBtn.setAttribute('aria-expanded','false')}
   selectorBtn.onclick=openWsSelect; // the overlay IS the workspace selector; the Project tab is the files button's job
+  // The activity bar's ⋯ is the contextual door to the same dialog: register a
+  // directory, create a project, or switch workspace — none of it permanent UI.
+  activityMore.onclick=openWsSelect;
   wsClose.onclick=closeWsSelect;
   wsSelect.addEventListener('keydown',(e:KeyboardEvent)=>{
     if(e.key==='Escape'){e.preventDefault();e.stopPropagation();closeWsSelect();return}
@@ -379,8 +548,58 @@ function setup():boolean{
     if(node.isDir&&expanded.has(node.path))for(const c of node.children)wrap.append(treeNode(c,depth+1));
     return wrap;
   }
+  // ── row context menu (delegated — no per-row wiring) ───────────────────────
+  // The brief asked for "context menus, not permanently bordered buttons". Every
+  // action here already exists on the row, but a row is ~60-250px wide; the menu
+  // is where the rest goes. It reads the path from the row's OWN title (set in
+  // treeNode) rather than a parallel map, so a menu can never act on a different
+  // file than the row it was opened from.
+  const rowMenu=document.createElement('div');rowMenu.id='hc415-rowmenu';rowMenu.hidden=true;rowMenu.setAttribute('role','menu');
+  document.body.append(rowMenu); // fixed-position: body, never inside the scrolled tree
+  function closeRowMenu(){rowMenu.hidden=true;rowMenu.replaceChildren()}
+  function openRowMenu(x:number,y:number,path:string,isDir:boolean){
+    const item=(label:string,fn:()=>void):HTMLButtonElement=>{
+      const b=button(label,'');b.className='hc415-menu-item';b.setAttribute('role','menuitem');
+      b.onclick=()=>{closeRowMenu();fn()};return b};
+    const items:HTMLButtonElement[]=[];
+    if(isDir){
+      const open=expanded.has(path);
+      items.push(item(open?'Collapse':'Expand',()=>{open?expanded.delete(path):expanded.add(path);renderTree()}));
+    }else{
+      items.push(item('Open',()=>{void openFile(path)}));
+      items.push(item(attached.has(path)?'Detach':'Attach',()=>{void toggleFile(path)}));
+    }
+    items.push(item('Copy path',()=>{
+      const w=navigator.clipboard?.writeText(path);
+      if(w)void w.then(()=>setStatus('Copied '+path),()=>setStatus('Copy blocked — '+path));
+      else setStatus('Copy unavailable — '+path);
+    }));
+    rowMenu.replaceChildren(...items);
+    rowMenu.hidden=false;
+    // keep the menu inside the viewport (it opens where the pointer is)
+    const w=rowMenu.offsetWidth||180,h=rowMenu.offsetHeight||120;
+    rowMenu.style.left=Math.max(4,Math.min(x,innerWidth-w-8))+'px';
+    rowMenu.style.top=Math.max(4,Math.min(y,innerHeight-h-8))+'px';
+    items[0].focus();
+  }
+  sbTree.addEventListener('contextmenu',(e)=>{
+    const row=(e.target as HTMLElement|null)?.closest('.hc415-tree-row') as HTMLElement|null;
+    if(!row||!row.title)return;
+    e.preventDefault();
+    openRowMenu(e.clientX,e.clientY,row.title,row.classList.contains('hc415-tree-dir'));
+  });
+  document.addEventListener('click',(e)=>{if(!rowMenu.hidden&&!(e.target as HTMLElement|null)?.closest('#hc415-rowmenu'))closeRowMenu()});
+  document.addEventListener('keydown',(e)=>{if(e.key==='Escape'&&!rowMenu.hidden){e.stopPropagation();closeRowMenu()}});
+  sbTree.addEventListener('scroll',()=>{if(!rowMenu.hidden)closeRowMenu()});
   function renderTree(){
-    if(!treeData){sbTree.replaceChildren(treeNote(choice()?'Loading file tree…':'Select a project to browse its files.'));return}
+    if(!treeData){
+      // With no workspace the explorer has nothing to list, so it offers the ONE
+      // action that resolves it (the brief's "Open Folder") instead of a dead
+      // end. This is also where the workspace dialog earns its keep: registering
+      // a directory is now a door here, not a permanent wall of buttons.
+      sbTree.replaceChildren(treeNote(choice()?'Loading file tree…':'No workspace selected.'));
+      if(!choice()){const cta=button('Open Folder…','');cta.id='hc415-open-folder';cta.title='Choose a registered project, register a directory, or create one';cta.onclick=openWsSelect;sbTree.append(cta)}
+      return}
     sbTree.replaceChildren(...buildTree(treeData.entries).map(n=>treeNode(n,0)));
     if(treeData.truncated)sbTree.append(treeNote('Tree truncated at 3000 entries.'));
   }
@@ -428,12 +647,69 @@ function setup():boolean{
        body:JSON.stringify({path,content,...(expected_mtime===undefined?{}:{expected_mtime})})});
   }
   let openFileState:{path:string;mtime?:number}|null=null;
+  // The editor's open-document LIST. `openFileState` stays "the active document"
+  // so every existing reader (preview, save, attach toggle) keeps working
+  // unchanged; the list is what the tab strip renders. One source of truth each:
+  // the list is the model, the strip is its view.
+  let openDocs:string[]=[];
   function previewReadMode(){
     if(!openFileState){sbPreviewWrap.hidden=true;return}
     sbEditor.hidden=true;sbPreview.hidden=false;
     sbEditBtn.hidden=false;sbSaveBtn.hidden=true;sbCancelBtn.hidden=true;
   }
-  function closePreview(){openFileState=null;sbPreviewWrap.hidden=true;stageEmpty.hidden=false}
+  function closePreview(){openFileState=null;openDocs=[];sbPreviewWrap.hidden=true;stageEmpty.hidden=false;renderTabs()}
+  const GLYPHS:Record<string,string>={md:'▤',ts:'⟨⟩',tsx:'⟨⟩',js:'⟨⟩',py:'⌘',css:'♪',json:'{}',sh:'⌗',html:'◇',png:'▣',jpg:'▣',svg:'▣',txt:'≡'};
+  function fileGlyph(p:string):string{return GLYPHS[(p.split('.').pop()||'').toLowerCase()]||'·'}
+  /** Breadcrumb for the ACTIVE document: its path as segments, last one emphasised.
+   *  Every segment carries a title so a truncated path stays readable on hover. */
+  function renderBreadcrumb(){
+    const p=openFileState?.path;
+    breadcrumb.replaceChildren();
+    if(!p){breadcrumb.hidden=true;return}
+    breadcrumb.hidden=false;
+    const parts=p.split('/');
+    parts.forEach((seg,i)=>{
+      if(i){const s=document.createElement('span');s.className='hc415-crumb-sep';s.textContent='›';breadcrumb.append(s)}
+      const c=document.createElement('span');c.className='hc415-crumb';c.textContent=seg;
+      c.title=parts.slice(0,i+1).join('/');c.dataset.last=String(i===parts.length-1);
+      breadcrumb.append(c);
+    });
+  }
+  /** The editor tab strip: one tab per open document (openDocs), in open order.
+   *  Clicking a tab makes it active by re-opening it — which refreshes its mtime
+   *  through the same code path a fresh open takes, so a tab can never show stale
+   *  content. ✕ closes only that tab. Empty list hides the strip entirely. */
+  function renderTabs(){
+    renderBreadcrumb();
+    if(!openDocs.length){tabStrip.replaceChildren();tabStrip.hidden=true;return}
+    tabStrip.hidden=false;
+    const active=openFileState?.path;
+    tabStrip.replaceChildren(...openDocs.map(p=>{
+      const on=p===active;
+      const tab=document.createElement('div');tab.className='hc415-tab';tab.dataset.active=String(on);
+      tab.setAttribute('role','tab');tab.setAttribute('aria-selected',String(on));
+      const name=p.split('/').pop()||p;
+      const icon=document.createElement('span');icon.className='hc415-tab-icon';icon.textContent=fileGlyph(p);
+      const label=document.createElement('span');label.className='hc415-tab-label';label.textContent=name;label.title=p;
+      const close=document.createElement('button');close.type='button';close.className='hc415-tab-close';close.textContent='✕';
+      close.title='Close '+name;close.setAttribute('aria-label','Close '+name);
+      close.onclick=(e)=>{e.stopPropagation();closeDoc(p)};
+      tab.append(icon,label,close);
+      if(!on)tab.onclick=()=>{void openFile(p)};
+      return tab;
+    }));
+  }
+  /** Close one document. Closing the ACTIVE tab hands the editor to the tab that
+   *  slid into its place (the neighbour to the right, else the new last one) —
+   *  which is what makes closing feel like an editor instead of a reset. */
+  function closeDoc(path:string){
+    const i=openDocs.indexOf(path);
+    if(i<0)return;
+    openDocs.splice(i,1);
+    if(openFileState?.path!==path){renderTabs();return}
+    const next=openDocs[Math.min(i,openDocs.length-1)];
+    if(next)void openFile(next);else closePreview();
+  }
   // The preview header's attach toggle mirrors the OPEN file's attachment state.
   function syncPreviewAttach(){
     const p=openFileState?.path;
@@ -447,6 +723,10 @@ function setup():boolean{
   async function openFile(path:string){
     if(!choice())return setStatus('Select a project first — Workspace ▸ lists and registers directories');
     setStatus('Opening '+path+'…');
+    // Register in CLICK order, before the fetch: three opens in a row would
+    // otherwise list their tabs in whatever order the responses happened to land
+    // (measured: opening a, b, c produced tabs b, c, a).
+    if(!openDocs.includes(path))openDocs.push(path);
     try{
       // preview=1: the stage tolerates big files (truncated honestly) and
       // binary files (metadata only) instead of a 409 wall.
@@ -462,9 +742,14 @@ function setup():boolean{
         sbEditor.value=f.content;
         if(f.truncated)sbPreview.textContent+='\n\n[Showing the first 200,000 bytes of '+f.size.toLocaleString()+' — the rest is available to Hermesha through workspace access (mode A), not inline.]';
       }
-      sbPreviewWrap.hidden=false;stageEmpty.hidden=true;previewReadMode();syncPreviewAttach();
+      sbPreviewWrap.hidden=false;stageEmpty.hidden=true;previewReadMode();syncPreviewAttach();renderTabs();
       setStatus('Opened '+f.path+(f.truncated?' (truncated preview)':'')+' — '+verLabel());
-    }catch(e){setStatus(errText(e))}
+    }catch(e){
+      // A failed open must not leave a tab behind for a file that never loaded.
+      const at=openDocs.indexOf(path);
+      if(at>=0&&openFileState?.path!==path)openDocs.splice(at,1);
+      renderTabs();setStatus(errText(e));
+    }
   }
   sbEditBtn.onclick=()=>{if(!openFileState)return;
     sbPreview.hidden=true;sbEditor.hidden=false;sbEditor.value=sbPreview.textContent||'';
@@ -486,6 +771,23 @@ function setup():boolean{
     finally{sbSaveBtn.disabled=false}
   };
   sbPreviewClose.onclick=closePreview;
+  // Soft delete: named confirm, then DELETE /api/projects/{name}/file moves the
+  // file into the project's .trash/. The preview closes and the tree reloads so
+  // the row disappears; the status line says where it went.
+  sbDeleteBtn.onclick=async()=>{
+    const state=openFileState;const name=choice();
+    if(!state||!name)return;
+    if(!window.confirm('Move "'+state.path+'" to the project .trash? You can restore it from the folder later.'))return;
+    sbDeleteBtn.disabled=true;setStatus('Deleting '+state.path+'…');
+    try{
+      const res=await api<{deleted:string;trash:string}>(`/api/projects/${encodeURIComponent(name)}/file?path=${encodeURIComponent(state.path)}`,{method:'DELETE'});
+      setStatus('Moved to '+res.trash);
+      closePreview();
+      attached.delete(state.path);saveAttached();
+      await load();
+    }catch(e){setStatus(errText(e))}
+    finally{sbDeleteBtn.disabled=false}
+  };
   sbAttachToggle.onclick=()=>{const p=openFileState?.path;if(!p)return;void toggleFile(p).then(syncPreviewAttach)};
   // Upload: local text files become files IN the selected project workspace, then
   // attach exactly like anything else in the tree.

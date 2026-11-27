@@ -1,12 +1,21 @@
 <!DOCTYPE html>
 <!-- Project-tab state harness — the project-files counterpart of composer-telemetry.html.
      It mounts the REAL phase412-project-ui.ts module (real markup, real CSS, real
-     handlers) into a scaffold that mirrors #workspace-conversations, with fetch
-     stubbed to fixture data so every state is reachable without the gate or the
-     backend: tabs, rail (projects + registration + tree), stage (open/edit/save),
-     upload button, attachments. Serve via the Vite dev server:
+     handlers) into a scaffold mirroring #workspace-conversations, with fetch stubbed
+     to fixtures so every state is reachable without the gate or the backend.
        http://127.0.0.1:5173/harness/project-tab.html
-     Keep in sync with src/phase412-project-ui.ts when its markup changes. -->
+     Because it mounts the real module, the IDE shell (activity bar, tab strip,
+     breadcrumb, row context menu) is whatever the module builds — there is no
+     markup to keep in sync. Only the FIXTURES live here, and the toolbar switches
+     them with ?mode=… so each state is one click away:
+       small  (default) 5 files — multi-file tabs, breadcrumb, context menu
+       big    66 files across 3 folders — tree scrolling, Collapse all
+       deep   eight-level nesting + a name too long for the rail — breadcrumb depth
+       edge   binary, truncated, forbidden, and #/? in a filename — the error paths
+       empty  no projects registered — the "Open Folder…" empty state
+       error  the tree endpoint 500s — the honest failure state
+     Modes are chosen by URL, not by mutating state in place, so a reload always
+     gives a clean fixture and localStorage can't leak a project between modes. -->
 <html lang="en">
 <head>
 <meta charset="utf-8" />
@@ -15,19 +24,42 @@
 <style>
   body{margin:0;background:#06141d;color:#e7f6f5;font:13px system-ui,sans-serif}
   .scaffold{display:flex;flex-direction:column;height:100vh;max-width:1400px;margin:0 auto}
-  .workspace-heading{padding:10px 1.25rem 6px}
-  .workspace-heading h2{margin:0;font-size:16px}
+  .harness-bar{display:flex;flex-wrap:wrap;gap:6px;align-items:center;padding:7px 1.25rem;
+    background:#0b2430;border-bottom:1px solid #1d4653;font-size:12px}
+  .harness-bar b{color:#9fbfbd;font-weight:600;margin-right:4px}
+  .harness-bar a{padding:3px 9px;border:1px solid #2c5560;border-radius:999px;color:#cfe9e2;text-decoration:none}
+  .harness-bar a[aria-current="true"]{background:#1b4a58;border-color:#69c7aa;color:#eafffa}
+  .harness-bar .mode-note{margin-left:auto;color:#7fa8a4}
+  .workspace-heading{padding:8px 1.25rem 4px}
+  .workspace-heading h2{margin:0;font-size:15px}
   .workspace-heading p{margin:2px 0 0;color:#9fbfbd;font-size:12px}
-  #chat-focus-host,#project-focus-host{border:1px dashed #315d63;border-radius:10px}
+  #chat-focus-host,#project-focus-host{border:1px dashed #315d63;border-radius:10px;min-height:0}
+  #chat-focus-host{display:flex}
+  #project-focus-host{flex:1 1 auto;overflow:hidden}
   #chat-focus-host .placeholder{margin:auto;color:#7f9aa0;padding:40px;text-align:center}
+  #harness-errs{display:none;padding:6px 1.25rem;background:#3a1620;color:#ffc9d4;font:11px ui-monospace,monospace}
+  #harness-errs[data-any="true"]{display:block}
 </style>
 </head>
 <body>
-<script>window.__errs=[];window.addEventListener('error',e=>window.__errs.push(String(e.message||e.error)))</script>
+<script>window.__errs=[];window.addEventListener('error',e=>window.__errs.push(String(e.message||e.error)));
+window.addEventListener('unhandledrejection',e=>window.__errs.push('REJ '+String(e.reason&&e.reason.message||e.reason)));</script>
+
 <div class="scaffold" id="workspace-conversations">
+  <div class="harness-bar" id="harness-bar">
+    <b>State</b>
+    <a href="?mode=small" data-mode="small">small</a>
+    <a href="?mode=big" data-mode="big">big tree</a>
+    <a href="?mode=deep" data-mode="deep">deep nesting</a>
+    <a href="?mode=edge" data-mode="edge">edge cases</a>
+    <a href="?mode=empty" data-mode="empty">no workspace</a>
+    <a href="?mode=error" data-mode="error">tree error</a>
+    <span class="mode-note" id="mode-note"></span>
+  </div>
+  <div id="harness-errs"></div>
   <header class="workspace-heading">
     <h2>Conversations <small>one canonical thread system</small> — HARNESS</h2>
-    <p>Chat tab shows the chat placeholder; the Project tab is the real phase412 surface.</p>
+    <p>Chat tab is a placeholder; the Project tab is the real phase412 surface, IDE shell and all.</p>
   </header>
   <nav id="conv-tabs" class="conv-tabs" role="tablist" aria-label="Conversation surfaces">
     <button id="conv-tab-chat" class="conv-tab active" role="tab" aria-selected="true" type="button">Chat</button>
@@ -46,64 +78,122 @@
 </div>
 
 <script type="module">
-// ---- fetch stub: fixture routes mirroring /api/projects/* -------------------
-const TREE={
-  root:'/home/gayzer/Apps/hl-demo-worker',count:5,truncated:false,
-  entries:[
-    {path:'README.md',size:1203,type:'file'},
-    {path:'src/app.py',size:8421,type:'file'},
-    {path:'src/main.ts',size:1587,type:'file'},
-    {path:'tests/test_app.py',size:2410,type:'file'},
-    {path:'start.sh',size:2413,type:'file'},
-  ],
-  host_version:{commit:'aabbdde',dirty:false},
-};
-const FILES={
+// ---- fixtures, one set per mode ---------------------------------------------
+const VALID=['small','big','deep','edge','empty','error'];
+const MODE=VALID.includes(new URLSearchParams(location.search).get('mode'))?new URLSearchParams(location.search).get('mode'):'small';
+document.querySelectorAll('#harness-bar a').forEach(a=>a.setAttribute('aria-current',String(a.dataset.mode===MODE)));
+document.getElementById('mode-note').textContent=
+  {small:'5 files — open three to get tabs; right-click a row',
+   big:'66 files — scroll the tree, try Collapse all',
+   deep:'breadcrumb depth; the long name must ellipsis, not wrap',
+   edge:'binary · truncated · 403 · # and ? in a name (watch for a phantom tab)',
+   empty:'no project registered — the explorer must offer Open Folder…',
+   error:'the tree endpoint fails — check the message is honest, not blank'}[MODE];
+
+const F=(path,size=200)=>({path,size,type:'file'});
+const TREE_SMALL=[F('README.md',1203),F('src/app.py',8421),F('src/main.ts',1587),F('tests/test_app.py',2410),F('start.sh',2413)];
+const TREE_BIG=[];
+for(let i=0;i<12;i++)TREE_BIG.push(F(`src/pkg${String(i).padStart(2,'0')}/mod${i}.ts`,400+i*7));
+for(let i=0;i<8;i++)TREE_BIG.push(F(`tests/unit/test_${i}.py`,120+i));
+for(let i=0;i<40;i++)TREE_BIG.push(F(`docs/page-${i}.md`,900));
+TREE_BIG.push(F('README.md',1203),F('start.sh',2413));
+const TREE_DEEP=[
+  F('one/two/three/four/five/six/seven/eight/deep-file.md',42),
+  F('a-really-long-name-that-will-not-fit-in-the-sidebar-and-must-ellipsis-instead-of-wrapping.md',88),
+  F('one/two/sibling.md',10),
+];
+const TREE_EDGE=[
+  F('assets/logo.png',20480),F('data/dump.json',2500000),F('secret/forbidden.txt',0),
+  F('odd/name with spaces #1 & ?.md',64),F('README.md',1203),
+];
+const CONTENT={
   'README.md':'# demo worker\n\nA registered project fixture for the Project tab harness.\n',
   'src/app.py':'def main():\n    print("hello from the fixture")\n',
   'src/main.ts':'console.log("fixture");\n',
   'tests/test_app.py':'def test_ok():\n    assert True\n',
   'start.sh':'#!/usr/bin/env bash\nset -eu\n',
+  'one/two/three/four/five/six/seven/eight/deep-file.md':'# deep\n\nbeneath eight folders.\n',
+  'a-really-long-name-that-will-not-fit-in-the-sidebar-and-must-ellipsis-instead-of-wrapping.md':'# long\n',
+  'one/two/sibling.md':'# sibling\n',
+  'odd/name with spaces #1 & ?.md':'# odd name\n',
+  'data/dump.json':'{"rows":["pretend this is 2.5 MB and the preview truncated it honestly"]}\n',
 };
-const PROJECTS=[{name:'hl-demo-worker',host_path:'/home/gayzer/Apps/hl-demo-worker',remote_path:null,commit_hash:'aabbdde'}];
-const ROOTS={
-  allowed_root:'/home/gayzer/Apps',
-  roots:[
-    {name:'hl-demo-worker',path:'/home/gayzer/Apps/hl-demo-worker',registered:true,version:{commit:'aabbdde',dirty:false}},
-    {name:'Vid-Gayzer',path:'/home/gayzer/Apps/Vid-Gayzer',registered:false,version:{commit:'b956141',dirty:true}},
-    {name:'slasher',path:'/home/gayzer/Apps/slasher',registered:false,version:null},
-  ],
-};
+const CFG={
+  small:{entries:TREE_SMALL},
+  big:{entries:TREE_BIG},
+  deep:{entries:TREE_DEEP},
+  edge:{entries:TREE_EDGE},
+  empty:{entries:[]},
+  error:{entries:TREE_SMALL,treeStatus:500},
+}[MODE];
+const BINARY=new Set(['assets/logo.png']);       // the server marks these, we mimic it
+const TRUNCATED=new Set(['data/dump.json']);     // ...and these
+const FORBIDDEN=new Set(['secret/forbidden.txt']);// ...and these 403 on read
+
+const NAME='hl-demo-worker';
+const PROJECTS=CFG.entries.length||MODE==='error'
+  ?[{name:NAME,host_path:'/home/gayzer/Apps/'+NAME,remote_path:null,commit_hash:'aabbdde'}]
+  :[];
+const ROOTS={allowed_root:'/home/gayzer/Apps',roots:[
+  {name:NAME,path:'/home/gayzer/Apps/'+NAME,registered:PROJECTS.length>0,version:{commit:'aabbdde',dirty:false}},
+  {name:'Vid-Gayzer',path:'/home/gayzer/Apps/Vid-Gayzer',registered:false,version:{commit:'b956141',dirty:true}},
+  {name:'slasher',path:'/home/gayzer/Apps/slasher',registered:false,version:null},
+]};
+const MTIME=1700000000;
 const json=(data,status=200)=>new Response(JSON.stringify(data),{status,headers:{'Content-Type':'application/json'}});
 window.fetch=async(input,init)=>{
   const url=typeof input==='string'?input:(input&&input.url)||String(input);
   const method=(init?.method||'GET').toUpperCase();
   const path=url.replace(/^https?:\/\/[^/]+/,'').split('?')[0];
+  const q=new URLSearchParams(url.split('?')[1]||'');
   if(path==='/api/projects'&&method==='GET')return json({projects:PROJECTS});
   if(path==='/api/projects'&&method==='POST'){
     const body=JSON.parse(String(init?.body||'{}'));
     PROJECTS.push({name:body.name,host_path:body.host_path,remote_path:null,commit_hash:null});
-    TREE.entries.push({path:'HARNESS.md',size:88,type:'file'});TREE.count=TREE.entries.length;
-    FILES['HARNESS.md']='newly registered via the harness\n';
     for(const r of ROOTS.roots)if(r.path===body.host_path)r.registered=true;
     return json({name:body.name},201);
   }
   if(path==='/api/projects/roots')return json(ROOTS);
   const m2=path.match(/^\/api\/projects\/([a-z0-9-]+)\/(tree|file|changes)$/);
   if(m2){
-    const name=m2[1],what=m2[2];
-    if(what==='tree')return json({...TREE,root:'/home/gayzer/Apps/'+name});
-    if(what==='changes')return json({workspace:'/home/gayzer/Apps/'+name+' (live host repository)',output:'M src/app.py\n---GIT-STATUS---\n---END-DIFF---'});
-    const m=method==='GET'
-      ?new URLSearchParams(url.split('?')[1]||'').get('path')||''
-      :JSON.parse(String(init?.body||'{}')).path;
-    if(method==='GET')return json({path:m,size:(FILES[m]||'').length,mtime:1700000000,mode:'-rw-r--r--',truncated:false,content:FILES[m]||'',host_version:{commit:'aabbdde',dirty:false}});
-    if(method==='PUT'){const body=JSON.parse(String(init?.body||'{}'));if('expected_mtime' in body&&Math.abs(body.expected_mtime-1700000000)>0.001)return json({detail:'File changed on disk since it was loaded — reload it before saving'},409);FILES[m]=body.content;return json({path:m,size:body.content.length,mtime:1700000001,created:false,host_version:{commit:'aabbdde',dirty:true}})}
+    const what=m2[2];
+    if(what==='tree'){
+      if(CFG.treeStatus)return json({detail:'harness: simulated tree failure (HTTP '+CFG.treeStatus+')'},CFG.treeStatus);
+      return json({root:'/home/gayzer/Apps/'+NAME,count:CFG.entries.length,truncated:false,entries:CFG.entries,host_version:{commit:'aabbdde',dirty:false}});
+    }
+    if(what==='changes')return json({workspace:'/home/gayzer/Apps/'+NAME+' (live host repository)',output:'M src/app.py\n?? HARNESS.md\n---GIT-STATUS---\n---END-DIFF---'});
+    const p=method==='GET'?q.get('path')||'':JSON.parse(String(init?.body||'{}')).path;
+    if(FORBIDDEN.has(p))return json({detail:'harness: permission denied for '+p},403);
+    if(method==='GET')return json({path:p,size:(CONTENT[p]||'').length,mtime:MTIME,mode:'-rw-r--r--',
+      binary:BINARY.has(p),truncated:TRUNCATED.has(p),content:CONTENT[p]||'',host_version:{commit:'aabbdde',dirty:false}});
+    if(method==='PUT'){
+      const body=JSON.parse(String(init?.body||'{}'));
+      // Second save of an unchanged file: the module sent a stale expected_mtime.
+      if('expected_mtime' in body&&Math.abs(body.expected_mtime-MTIME)>0.001)
+        return json({detail:'File changed on disk since it was loaded — reload it before saving'},409);
+      CONTENT[p]=body.content;
+      return json({path:p,size:body.content.length,mtime:MTIME+1,created:false,host_version:{commit:'aabbdde',dirty:true}});
+    }
   }
   console.warn('[harness] unstubbed',method,path);return json({detail:'unstubbed '+path},404);
 };
+// ---- seed the active project so the tree loads without a click ---------------
+// `empty` must CLEAR it: a stale key from another mode would otherwise leave a
+// project selected that this fixture says does not exist.
+if(PROJECTS.length)localStorage.setItem('hermes-life-active-project',NAME);
+else localStorage.removeItem('hermes-life-active-project');
 // ---- boot the REAL module ----------------------------------------------------
 await import('/src/phase412-project-ui.ts');
+// ---- surface anything the page threw (the module swallows most of it) --------
+const paint=()=>{const el=document.getElementById('harness-errs');const e=window.__errs||[];el.dataset.any=String(e.length>0);el.textContent=e.length?('page errors: '+e.join(' | ')):''};
+setInterval(paint,700);paint();
+// Open the Project tab for the reader. NOT a synchronous click: the module defers
+// its setup to DOMContentLoaded, which fires after every module script, so a click
+// on the next line would land before the listener exists and silently do nothing
+// (measured: the tab appeared inert and the tree stayed on its empty state).
+const openProjectTab=()=>{const el=document.getElementById('conv-tab-project');if(el)el.click()};
+if(document.readyState==='complete')setTimeout(openProjectTab,0);
+else addEventListener('DOMContentLoaded',()=>setTimeout(openProjectTab,0));
 </script>
 </body>
 </html>
