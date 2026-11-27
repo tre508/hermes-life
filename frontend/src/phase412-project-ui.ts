@@ -1,11 +1,16 @@
 /** Phase 4.15: compact project picker, isolated workspace drawer, unchanged approval API. */
 import './phase415-workspace.css';
+import {attachProjectEditor,type EditorPrefs} from './project-editor-lib.ts';
+// D9 (review.md): Projects → Chat actions. A file reference becomes a chip
+// above the canonical composer; it never sends anything by itself.
+import {addExternalRef} from './chat-attach.ts';
 type Project = {name:string;host_path:string;remote_path:string|null;commit_hash:string|null};
 type Review = {review_id:string;project:string;base_commit:string;sha256:string;diff:string;confirmation_required:string};
 const key='hermes-life-active-project';
-// General chat is the DEFAULT for a new conversation: the project choice is
-// remembered PER CONVERSATION, not globally — a fresh thread never inherits the
-// last project. The legacy single-value key seeds the first conversation only.
+// The Project workspace has its OWN independent selection — NOT tied to the
+// current conversation. The conversation→project map is only a convenience
+// so @project references in chat know which project the user is working on.
+const PROJECT_GLOBAL_KEY='hermes-life-project-global';
 const CONV_PROJECT_KEY='hermes-life-project-by-conversation';
 const CHAT_CONVERSATION_KEY='hermes-life-chat-conversation';
 function conversationIdNow():string{return localStorage.getItem(CHAT_CONVERSATION_KEY)||''}
@@ -22,9 +27,28 @@ async function api<T>(path:string, init?:RequestInit):Promise<T>{
 }
 function post<T>(path:string,data?:unknown):Promise<T>{return api<T>(path,{method:'POST',headers:{'Content-Type':'application/json'},...(data===undefined?{}:{body:JSON.stringify(data)})})}
 function button(label:string, className=''):HTMLButtonElement{const b=document.createElement('button');b.type='button';b.textContent=label;b.className=className;return b}
+const SVG_PATHS:Record<string,string>={
+  explorer:'<path d="M3.5 4.5A1.5 1.5 0 015 3h4.086a1.5 1.5 0 011.06.44l1.415 1.413a1.5 1.5 0 001.06.44H16.5A1.5 1.5 0 0118 6.793v8.707A1.5 1.5 0 0116.5 17h-12A1.5 1.5 0 013 15.5V4.5z"/>',
+  search:'<circle cx="9" cy="9" r="5.5"/><path d="M13.5 13.5l4 4"/>',
+  scm:'<circle cx="6" cy="5" r="2"/><circle cx="14" cy="13" r="2"/><path d="M6 7v3a4 4 0 004 4h4"/>',
+  more:'<path d="M10 4v12M4 10h12"/>',
+  settings:'<circle cx="10" cy="10" r="3"/><path d="M10 2v2M10 16v2M2 10h2M16 10h2M4.5 4.5l1.5 1.5M14 14l1.5 1.5M4.5 15.5l1.5-1.5M14 6l1.5-1.5"/>',
+};
+function svgIcon(id:string):SVGSVGElement{
+  const ns='http://www.w3.org/2000/svg';
+  const svg=document.createElementNS(ns,'svg') as unknown as SVGSVGElement;
+  svg.setAttribute('width','22');svg.setAttribute('height','22');
+  svg.setAttribute('viewBox','0 0 20 20');
+  svg.setAttribute('fill','none');svg.setAttribute('stroke','currentColor');
+  svg.setAttribute('stroke-width','1.5');
+  svg.setAttribute('stroke-linecap','round');svg.setAttribute('stroke-linejoin','round');
+  const p=SVG_PATHS[id];
+  if(p)svg.innerHTML=p;
+  return svg;
+}
 function setup():boolean{
   const panel=document.getElementById('hc-panel');const form=document.getElementById('hc-form');const input=document.getElementById('hc-input') as HTMLTextAreaElement|null;
-  if(!panel||!form||!input)return false;
+  if(!panel)return false;
   if(document.getElementById('hc-project-workspace'))return true;
   const chatPanel=panel;
   // HL-CHAT-006 2.1: the <select> stays in the DOM as the state holder but is visually hidden;
@@ -93,58 +117,63 @@ function setup():boolean{
   // create a brand-new project from just a name (directory + optional git + README).
   const createRow=document.createElement('div');createRow.className='hc415-register-row';
   const regPath=document.createElement('input');regPath.id='hc415-register-path';regPath.maxLength=1024;regPath.autocomplete='off';regPath.spellcheck=false;regPath.placeholder='…or paste a directory path under an allowed root';
+  const browseBtn=button('Browse…','hc415-register-btn');browseBtn.id='hc415-browse-path';browseBtn.title='Pick a directory from your machine — will pre-fill the project name';
+  browseBtn.onclick=()=>void nativeOpenFolder();
   const createBtn=button('＋ Create','hc415-register-btn');createBtn.title='Create a brand-new project from the name above — makes the directory, seeds a README, and registers it. Git is optional: tick the checkbox to also initialize a repository (needed for sync/review).';
   const createGit=document.createElement('input');createGit.type='checkbox';createGit.id='hc415-create-git';
   const createGitLabel=document.createElement('label');createGitLabel.htmlFor='hc415-create-git';createGitLabel.textContent='git';createGitLabel.title='Also initialize a git repository (needed for sync/review). Leave unticked for a plain folder.';
-  createRow.append(regPath,createGit,createGitLabel,createBtn);
+  createRow.append(regPath,browseBtn,createGit,createGitLabel,createBtn);
   registerPanel.append(regHead,regList,regRow,createRow);
   // Empty state for the content column: honest about what opens here.
   const stageEmpty=document.createElement('div');stageEmpty.id='hc415-stage-empty';
-  stageEmpty.textContent='Select a file from the rail to open it here — attach it with ＋ Attach in the preview header or the row\'s ⊕. Review changes shows what the workspace would apply.';
   stage.append(head,status,reviewPanel,stageEmpty);
+  // Context-aware empty state (spec phase 2 §7): the editor must say something
+  // TRUE about the current workspace instead of showing every user the same
+  // instructions. Two honest states — no workspace selected, and a workspace
+  // loaded with no file open. Never tell the user to select a file that cannot
+  // exist yet, and never advertise attachment controls before a workspace can
+  // receive them.
+  function renderStageEmpty(){
+    const hasWorkspace=!!choice();
+    stageEmpty.replaceChildren();
+    const title=document.createElement('strong');title.className='hc415-empty-title';
+    const hint=document.createElement('p');hint.className='hc415-empty-hint';
+    if(!hasWorkspace){
+      title.textContent='No workspace selected';
+      hint.textContent='Open a folder to browse its files here — registered projects, a new directory and recent workspaces all live in the workspace dialog.';
+      const cta=button('Open Folder…','hc415-empty-cta');
+      cta.id='hc415-empty-open';
+      cta.title='Choose a registered project, register a directory, or create one';
+      cta.onclick=()=>void nativeOpenFolder();
+      stageEmpty.append(title,hint,cta);
+    }else{
+      title.textContent='No file open';
+      hint.textContent=`Workspace "${choice()}" is loaded. Select a file in the Explorer to open it here — ＋ Attach in the preview header or the row's ⊕ attaches it to the conversation.`;
+      stageEmpty.append(title,hint);
+    }
+  }
 
   // HL-CHAT-006: file-context sidebar — DOM shell only; behaviour wired below.
   // HL-CHAT-006 2.3: attachment modes. A = workspace access (paths only, Hermesha inspects
   // with tools — the default for development conversations). B = manifest attachment
   // (path/type/size/mtime references, contents retrievable). C = full contents inlined.
-  const MODE_KEY='hermes-life-chat-attach-mode';
-  type AttachMode='A'|'B'|'C';
-  let modeMap:Record<string,AttachMode>={};
-  try{modeMap=JSON.parse(localStorage.getItem(MODE_KEY)||'{}') as Record<string,AttachMode>}catch{modeMap={}}
-  function attachMode():AttachMode{return modeMap[choice()]||'A'}
-  function setMode(m:AttachMode){const n=choice();if(!n)return;modeMap[n]=m;localStorage.setItem(MODE_KEY,JSON.stringify(modeMap));refreshModeUI();renderAttachments();setStatus('Attachment mode '+(m==='A'?'A — workspace access':m==='B'?'B — manifest attachment':'C — inline contents'))}
   const sidebar=document.createElement('aside');sidebar.id='hc415-file-sidebar';sidebar.setAttribute('aria-label','Project files');
   const sbHead=document.createElement('header');sbHead.className='hc415-side-head';
   const sbTitle=document.createElement('strong');sbTitle.textContent='Project files';
   sbHead.append(sbTitle);
   const sbStatus=document.createElement('div');sbStatus.id='hc415-file-status';sbStatus.setAttribute('role','status');
   const sbTree=document.createElement('nav');sbTree.id='hc415-file-tree';sbTree.setAttribute('aria-label','Project file tree');
-  const sbAttach=document.createElement('section');sbAttach.id='hc415-attachments';
-  const sbAttachHead=document.createElement('h4');
-  const sbAttachCount=document.createElement('span');sbAttachCount.textContent='Attachments (0)';
-  const sbUpload=button('⬆ Upload','hc415-attach-clear');sbUpload.title='Upload local text files into the project workspace — they then behave like any project file';
-  const sbInput=document.createElement('input');sbInput.type='file';sbInput.multiple=true;sbInput.id='hc415-file-input';sbInput.className='hc415-visually-hidden';sbInput.tabIndex=-1;sbInput.setAttribute('aria-hidden','true');
-  const sbClear=button('Clear all','hc415-attach-clear');sbClear.title='Remove all attachments';
-  sbClear.onclick=()=>{if(!attached.size)return;attached.clear();saveAttached();renderTree();setStatus('All attachments removed')};
-  const sbSelectAll=button('Select all','hc415-attach-clear');sbSelectAll.title='Attach every file in the tree';
-  sbSelectAll.onclick=()=>{if(!treeData)return setStatus('Load a project tree first');let n=0;for(const e of treeData.entries)if(!attached.has(e.path)){attached.add(e.path);n++}if(n){saveAttached();renderTree()}setStatus(n?`Attached ${n} more file(s)`:'Every tree file is already attached')};
-  sbAttachHead.append(sbAttachCount,sbUpload,sbSelectAll,sbClear);
-  const sbAttachList=document.createElement('ul');sbAttachList.id='hc415-attach-list';
-  const sbModeRow=document.createElement('div');sbModeRow.id='hc415-attach-mode';sbModeRow.setAttribute('role','group');sbModeRow.setAttribute('aria-label','Attachment mode');
-  const sbModeLabel=document.createElement('span');sbModeLabel.className='hc415-mode-label';sbModeLabel.textContent='Mode:';
-  const modeBtns:Record<AttachMode,HTMLButtonElement>={
-    A:button('A Access','hc415-mode-btn'),B:button('B Manifest','hc415-mode-btn'),C:button('C Inline','hc415-mode-btn')};
-  (['A','B','C'] as AttachMode[]).forEach(m=>{const b=modeBtns[m];
-    b.title=m==='A'?'Mode A — workspace access: list paths only; Hermesha inspects files with its tools (default).'
-      :m==='B'?'Mode B — manifest attachment: paths, type, size and modification time; contents retrievable on request.'
-      :'Mode C — inline: full file contents are included in the next request (context-checked).';
-    b.setAttribute('aria-pressed','false');b.onclick=()=>setMode(m);});
-  sbModeRow.append(sbModeLabel,modeBtns.A,modeBtns.B,modeBtns.C);
-  function refreshModeUI(){const m=attachMode();for(const k of ['A','B','C'] as AttachMode[])modeBtns[k].setAttribute('aria-pressed',String(k===m))}
-  refreshModeUI();
-  sbAttach.append(sbAttachHead,sbAttachList,sbModeRow);
-  const sbVer=document.createElement('span');sbVer.id='hc415-host-ver';sbVer.textContent='';sbVer.title='Git version of the host workspace the attached files were read from';
-  sbAttach.append(sbVer);
+  // Host version label — compact, in the sidebar footer, not in a full attachment card.
+  const sbVer=document.createElement('span');sbVer.id='hc415-host-ver';sbVer.textContent='';sbVer.title='Git version of the host workspace';
+  // Mode buttons still exist for @project injection behavior, but live in the IDE
+  // status bar now instead of a permanent sidebar card. Compact mode indicator.
+  const MODE_KEY='hermes-life-chat-attach-mode';
+  type AttachMode='A'|'B'|'C';
+  let modeMap:Record<string,AttachMode>={};
+  try{modeMap=JSON.parse(localStorage.getItem(MODE_KEY)||'{}') as Record<string,AttachMode>}catch{modeMap={}}
+  function attachMode():AttachMode{return modeMap[choice()]||'A'}
+  function setMode(m:AttachMode){const n=choice();if(!n)return;modeMap[n]=m;localStorage.setItem(MODE_KEY,JSON.stringify(modeMap));renderModeChips();setStatus('Attachment mode '+(m==='A'?'A — workspace access':m==='B'?'B — manifest attachment':'C — inline contents'))}
+  function renderModeChips(){const m=attachMode();const labels:{[k:string]:string}={A:'A:access',B:'B:manifest',C:'C:inline'};status.dataset.mode=m;sbVer.textContent=choice()?verLabel():''}
   const sbPreview=document.createElement('pre');sbPreview.id='hc415-file-preview';sbPreview.tabIndex=0;sbPreview.hidden=true;
   // Open/edit like an editor: the preview gets a header (path + Edit/Save/Cancel/Close)
   // and a textarea; saving writes the project workspace via PUT (uncommitted host change).
@@ -163,10 +192,31 @@ function setup():boolean{
   // (the opened file's header) and MOVES the file to <project>/.trash/ — the
   // confirm names the file so a glance can't destroy the wrong thing.
   const sbDeleteBtn=button('🗑 Delete','hc415-preview-delete');sbDeleteBtn.title='Move this file to the project .trash (recoverable)';
+  // D9: the editor's selection goes to the chat composer as TEXT — reviewed
+  // there, never auto-sent from here.
+  const sbSendSel=button('Send selection','hc415-preview-btn');sbSendSel.hidden=true;sbSendSel.title='Place the editor selection into the chat composer (not sent automatically)';
   const sbPreviewClose=button('×','hc415-preview-close');sbPreviewClose.title='Close the file preview';
-  sbPreviewHead.append(sbPreviewPath,sbAttachToggle,sbEditBtn,sbSaveBtn,sbCancelBtn,sbDeleteBtn,sbPreviewClose);
+  sbPreviewHead.append(sbPreviewPath,sbAttachToggle,sbSendSel,sbEditBtn,sbSaveBtn,sbCancelBtn,sbDeleteBtn,sbPreviewClose);
   const sbEditor=document.createElement('textarea');sbEditor.id='hc415-file-editor';sbEditor.spellcheck=false;sbEditor.hidden=true;sbEditor.setAttribute('aria-label','File editor');
-  sbPreviewWrap.append(sbPreviewHead,sbPreview,sbEditor);
+  // CodeMirror 6 (2026-11-27): editing moves to a real editor lib — syntax
+  // highlighting by extension, wrap/font/theme prefs that apply live. The
+  // textarea stays connected as the pinned bridge (tests pin its id) but is
+  // never the visible surface; the lib host below is. The hidden textareas's
+  // value mirrors the lib so anything still reading it sees the same text.
+  const EDITOR_PREFS_KEY='hermes-life-editor-prefs';
+  function readEditorPrefs():EditorPrefs{
+    let p:Partial<EditorPrefs>={};
+    try{p=JSON.parse(localStorage.getItem(EDITOR_PREFS_KEY)||'{}') as Partial<EditorPrefs>}catch{p={}}
+    const fontSize=typeof p.fontSize==='number'&&p.fontSize>=9&&p.fontSize<=24?p.fontSize:13;
+    return {fontSize,wrap:p.wrap===true,dark:p.dark!==false};
+  }
+  let editorPrefs=readEditorPrefs();
+  function saveEditorPrefs(){localStorage.setItem(EDITOR_PREFS_KEY,JSON.stringify(editorPrefs))}
+  const editorLib=document.createElement('div');editorLib.id='hc415-editor-lib';editorLib.hidden=true;
+  const projectEditor=attachProjectEditor(editorLib,()=>editorPrefs);
+  const cmGet=()=>projectEditor.get();
+  const cmSet=(v:string)=>projectEditor.set(v,openFileState?.path||'');
+  sbPreviewWrap.append(sbPreviewHead,sbPreview,sbEditor,editorLib);
   const sbMeter=document.createElement('div');sbMeter.id='hc415-file-meter';sbMeter.setAttribute('role','status');
   // The rail's thread-list analog: project identity first (registered list +
   // registration), then the file tree as the main list, attachments as its composer.
@@ -182,40 +232,106 @@ function setup():boolean{
   // Workspace dialog; the rail shows ONE view at a time behind an activity bar.
   const activity=document.createElement('nav');activity.id='hc415-activity';
   activity.setAttribute('aria-label','Project views');
-  const VIEWS:[string,string,string][]=[['explorer','🗂','Explorer'],['search','⌕','Search'],['scm','⑂','Source control'],['attachments','📎','Attachments']];
+  // Spec §6.440-448: the activity bar is the workspace's navigation rail, with
+  // monochrome SVG icons (currentColor) — consistent across every platform.
+  const VIEWS:[string,string][]=[['explorer','Explorer'],['search','Search'],['scm','Source control']];
   const activityBtns:Record<string,HTMLButtonElement>={};
-  for(const [vid,icon,label] of VIEWS){
-    const b=button(icon,'hc415-activity-btn');b.dataset.view=vid;b.title=label;b.setAttribute('aria-label',label);
-    b.setAttribute('aria-pressed','false');activityBtns[vid]=b;activity.append(b);
+  for(const [vid,label] of VIEWS){
+    const b=document.createElement('button');b.type='button';b.className='hc415-activity-btn';
+    b.dataset.view=vid;b.title=label;b.setAttribute('aria-label',label);
+    b.setAttribute('aria-pressed','false');b.append(svgIcon(vid));
+    activityBtns[vid]=b;activity.append(b);
   }
   const activitySpacer=document.createElement('span');activitySpacer.className='hc415-activity-spacer';
-  const activityMore=button('⋯','hc415-activity-btn');
+  const activityMore=document.createElement('button');activityMore.type='button';activityMore.className='hc415-activity-btn';
   activityMore.title='Workspace — register a directory, create a project, open another folder';
   activityMore.setAttribute('aria-label','Workspace actions');
-  activity.append(activitySpacer,activityMore);
+  activityMore.append(svgIcon('more'));
+  // Spec §4 diagram: the settings gear sits at the BOTTOM of the rail, separate
+  // from the view icons. It opens the settings view — editor prefs that apply live.
+  const activitySettings=document.createElement('button');activitySettings.type='button';activitySettings.className='hc415-activity-btn';
+  activitySettings.dataset.view='settings';activitySettings.title='Settings';
+  activitySettings.setAttribute('aria-label','Settings');activitySettings.setAttribute('aria-pressed','false');
+  activitySettings.append(svgIcon('settings'));
+  activity.append(activitySpacer,activityMore,activitySettings);
 
   const viewExplorer=document.createElement('section');viewExplorer.id='hc415-view-explorer';viewExplorer.className='hc415-view';
   const viewSearch=document.createElement('section');viewSearch.id='hc415-view-search';viewSearch.className='hc415-view';
   const viewScm=document.createElement('section');viewScm.id='hc415-view-scm';viewScm.className='hc415-view';
-  const viewAttachments=document.createElement('section');viewAttachments.id='hc415-view-attachments';viewAttachments.className='hc415-view';
+  const viewSettings=document.createElement('section');viewSettings.id='hc415-view-settings';viewSettings.className='hc415-view';
+  // Settings rows (spec §4 ⚙): editor prefs that apply to the CodeMirror view
+  // IMMEDIATELY via compartments (no rebuild, no cursor loss) and persist in
+  // localStorage — a settings menu that actually works, not a stub.
+  function settingsRow(name:string,control:HTMLElement,hint?:string):HTMLElement{
+    const row=document.createElement('div');row.className='hc415-set-row';
+    const label=document.createElement('label');label.className='hc415-set-name';label.textContent=name;
+    if(control.id)label.htmlFor=control.id;if(hint)label.title=hint;
+    row.append(label,control);return row;
+  }
+  const setFontSize=document.createElement('input');setFontSize.type='number';setFontSize.id='hc415-set-font';
+  setFontSize.min='9';setFontSize.max='24';setFontSize.step='1';setFontSize.value=String(editorPrefs.fontSize);
+  setFontSize.title='Editor font size (9–24) — applies immediately';
+  setFontSize.onchange=()=>{const v=Number(setFontSize.value);
+    if(Number.isFinite(v)){editorPrefs.fontSize=Math.min(24,Math.max(9,Math.round(v)));setFontSize.value=String(editorPrefs.fontSize);saveEditorPrefs();projectEditor.refresh()}};
+  const setWrap=document.createElement('input');setWrap.type='checkbox';setWrap.id='hc415-set-wrap';setWrap.checked=editorPrefs.wrap;
+  setWrap.onchange=()=>{editorPrefs.wrap=setWrap.checked;saveEditorPrefs();projectEditor.refresh()};
+  const setDark=document.createElement('select');setDark.id='hc415-set-theme';
+  setDark.append(new Option('Dark (One Dark)','dark'),new Option('Light','light'));setDark.value=editorPrefs.dark?'dark':'light';
+  setDark.onchange=()=>{editorPrefs.dark=setDark.value==='dark';saveEditorPrefs();projectEditor.refresh()};
+  viewSettings.append(
+    settingsRow('Font size',setFontSize,'Applies to the file editor immediately; stored in this browser.'),
+    settingsRow('Word wrap',setWrap),
+    settingsRow('Theme',setDark));
   // Search filters the ALREADY-RENDERED tree by path: no second data source, no refetch.
   const searchInput=document.createElement('input');searchInput.id='hc415-search';searchInput.type='search';searchInput.autocomplete='off';
   searchInput.placeholder='Filter files by path…';searchInput.setAttribute('aria-label','Filter project files');
   const searchNote=document.createElement('div');searchNote.id='hc415-search-note';searchNote.className='hc415-tree-note';
-  viewSearch.append(searchInput,searchNote);
+  // D12: content results beneath the label filter — a real Search view. Hits
+  // come from the backend walk (same denylist/caps as the tree) and open the
+  // file on click.
+  const searchResults=document.createElement('div');searchResults.id='hc415-search-results';
+  viewSearch.append(searchInput,searchNote,searchResults);
   const scmBody=document.createElement('div');scmBody.id='hc415-scm-body';viewScm.append(scmBody);
   const views=document.createElement('div');views.id='hc415-views';
   // The tree and the attachment list MOVE into their views. Without these two
   // appends the containers exist and the handlers run against detached nodes:
   // every chip reports "310 files" while the explorer shows nothing at all.
-  viewExplorer.append(sbTree);viewAttachments.append(sbAttach);
-  views.append(viewExplorer,viewSearch,viewScm,viewAttachments);
+  viewExplorer.append(sbTree);
+  views.append(viewExplorer,viewSearch,viewScm,viewSettings);
 
   const viewTools=document.createElement('div');viewTools.className='hc415-view-tools';
   const collapseAll=button('⌄','hc415-icon-btn');collapseAll.id='hc415-collapse-all';collapseAll.title='Collapse all folders';
-  viewTools.append(refresh,collapseAll);
+  // D16 (review.md): the explorer's Upload was lost in the 2026-11-26 redesign —
+  // restored. Local files land IN the selected workspace via the same PUT write
+  // endpoint the editor uses (uncommitted host write; Review changes shows the
+  // diff). Text uploads go through UTF-8 decode; binary uploads are refused
+  // client-side; an existing file is never overwritten without a named confirm.
+  const uploadBtn=button('⬆','hc415-icon-btn');uploadBtn.id='hc415-upload';uploadBtn.title='Upload local files into this workspace';
+  const sbInput=document.createElement('input') as HTMLInputElement;sbInput.type='file';sbInput.multiple=true;sbInput.hidden=true;
+  function looksBinary(buf:ArrayBuffer):boolean{
+    const bytes=new Uint8Array(buf.slice(0,8192));
+    if(bytes.includes(0))return true;
+    try{new TextDecoder('utf-8',{fatal:true}).decode(bytes);return false}catch{return true}
+  }
+  uploadBtn.onclick=()=>{if(!choice())return setStatus('Select a project first — uploads write into its workspace');sbInput.click()};
+  sbInput.onchange=async()=>{
+    const list=sbInput.files;if(!list||!list.length)return;
+    for(const f of Array.from(list)){
+      if(f.size>MAX_UPLOAD_BYTES){setStatus(f.name+' is too large to upload ('+f.size.toLocaleString()+' bytes; limit '+MAX_UPLOAD_BYTES.toLocaleString()+')');continue}
+      const buf=await f.arrayBuffer();
+      if(looksBinary(buf)){setStatus(f.name+' looks binary — refused (edit it in a real editor and sync, or attach it to a message)');continue}
+      if(treeData?.entries.some(e=>e.path===f.name)&&!window.confirm(f.name+' already exists in the workspace — overwrite it?'))continue;
+      try{
+        await putFile(f.name,new TextDecoder().decode(buf));
+        setStatus('Uploaded '+f.name+' into the workspace — uncommitted; Review changes shows the diff');
+      }catch(e){setStatus(errText(e))}
+    }
+    sbInput.value='';
+    await loadTree();
+  };
+  viewTools.append(refresh,collapseAll,uploadBtn,sbInput);
   sbHead.append(viewTools);
-  const sideFoot=document.createElement('div');sideFoot.id='hc415-side-foot';sideFoot.append(sbStatus,sbInput);
+  const sideFoot=document.createElement('div');sideFoot.id='hc415-side-foot';sideFoot.append(sbStatus,sbVer);
   sidebar.append(sbHead,views,sideFoot);
 
   const mainCol=document.createElement('div');mainCol.id='hc415-main';
@@ -226,21 +342,82 @@ function setup():boolean{
   const bottom=document.createElement('div');bottom.id='hc415-bottom';
   const bottomTabs=document.createElement('div');bottomTabs.id='hc415-bottom-tabs';bottomTabs.setAttribute('role','tablist');
   const bottomBody=document.createElement('div');bottomBody.id='hc415-bottom-body';
+  const bottomPaneTerminal=document.createElement('div');bottomPaneTerminal.className='hc415-bottom-pane';bottomPaneTerminal.id='hc415-pane-terminal';
   const bottomPaneChanges=document.createElement('div');bottomPaneChanges.className='hc415-bottom-pane';bottomPaneChanges.id='hc415-pane-changes';
-  const bottomPaneActivity=document.createElement('div');bottomPaneActivity.className='hc415-bottom-pane';bottomPaneActivity.id='hc415-pane-activity';
-  const BOTTOM_TABS:[string,string][]=[['changes','Changes'],['activity','Activity']];
+  const bottomPaneOutput=document.createElement('div');bottomPaneOutput.className='hc415-bottom-pane';bottomPaneOutput.id='hc415-pane-output';
+  // Spec §4 diagram + §6.452-456: Terminal | Changes | Output. Terminal is an
+  // HONEST empty state — the backend exposes files/sync/review but no exec/PTY
+  // endpoint, and the spec scopes terminals to "where supported by the existing
+  // system" (§7: terminals are proposed enhancements, not confirmed
+  // capabilities). Output is a real log stream: every status line plus agent
+  // task events, timestamped, capped.
+  const BOTTOM_TABS:[string,string][]=[['terminal','Terminal'],['changes','Changes'],['output','Output']];
   const bottomBtns:Record<string,HTMLButtonElement>={};
   for(const [bid,label] of BOTTOM_TABS){
     const b=button(label,'hc415-bottom-tab');b.dataset.pane=bid;b.setAttribute('role','tab');bottomBtns[bid]=b;bottomTabs.append(b);
   }
   const bottomToggle=button('⌄','hc415-icon-btn');bottomToggle.id='hc415-bottom-toggle';bottomToggle.title='Collapse or expand this panel';
   bottomTabs.append(bottomToggle);
-  bottomBody.append(bottomPaneChanges,bottomPaneActivity);
+  // Terminal pane: WebSocket-connected shell. One PTY per connection.
+  const termContainer=document.createElement('div');termContainer.id='hc415-terminal-container';
+  const termOutput=document.createElement('pre');termOutput.id='hc415-terminal-output';termOutput.tabIndex=-1;
+  termOutput.setAttribute('aria-label','Terminal output');
+  const termInputRow=document.createElement('div');termInputRow.id='hc415-terminal-input-row';
+  const termPrompt=document.createElement('span');termPrompt.className='hc415-terminal-prompt';termPrompt.textContent='$';
+  const termInput=document.createElement('input');termInput.id='hc415-terminal-input';
+  termInput.type='text';termInput.spellcheck=false;termInput.autocomplete='off';
+  termInput.setAttribute('aria-label','Terminal input');
+  termInputRow.append(termPrompt,termInput);
+  termContainer.append(termOutput,termInputRow);
+  // Terminal WebSocket connection — lazy: connects on first keystroke or tab focus.
+  let termWs:WebSocket|null=null;
+  let termBuf='';
+  function termConnect(){
+    if(termWs)return;
+    const proto=location.protocol==='https:'?'wss:':'ws:';
+    const url=`${proto}//${location.host}/ws/terminal`;
+    try{
+      const ws=new WebSocket(url);
+      ws.onopen=()=>{termWs=ws;termOutput.dataset.connected='true';termBuf='';termInput.disabled=false;termInput.focus()};
+      ws.onmessage=(ev:MessageEvent)=>{
+        const text=String(ev.data);
+        termBuf+=text;
+        if(termBuf.length>50000)termBuf=termBuf.slice(-30000);
+        // Simple ANSI stripping for display — keep it functional
+        const clean=termBuf.replace(/\x1b\[[0-9;]*[a-zA-Z]/g,'')
+          .replace(/\x1b\][0-9;]*(\x1b\\|\x07)/g,'')
+          .replace(/\x1b[[()][0-9]*/g,'')
+          .replace(/\x1b[DEH]/g,'')
+          .replace(/\x1b\[[0-9]+[JK]/g,'\n')
+          .replace(/\r/g,'');
+        termOutput.textContent=clean;
+        termOutput.scrollTop=termOutput.scrollHeight;
+      };
+      ws.onclose=()=>{termWs=null;termInput.disabled=true;termOutput.dataset.connected='';setTimeout(termConnect,3000)};
+      ws.onerror=()=>{termWs=null;termInput.disabled=true};
+    }catch(e){termInput.disabled=true;termOutput.textContent='[Terminal unavailable: '+String(e)+']'}
+  }
+  function termSend(){
+    const val=termInput.value;
+    if(!val||!termWs)return;
+    termWs.send(val+'\n');
+    termInput.value='';
+  }
+  termInput.disabled=true;
+  termInput.onkeydown=(e:KeyboardEvent)=>{if(e.key==='Enter')termSend()};
+  // Connect when the terminal pane becomes visible
+  function maybeConnect(){if(!bottomPaneTerminal.hidden&&!termWs)termConnect()}
+  bottomPaneTerminal.append(termContainer);
+  // are recorded below. Timestamps make "what did the agent just do" answerable.
+  const outLabel=document.createElement('div');outLabel.id='hc415-output-label';outLabel.textContent='Agent activity & output';
+  const log=document.createElement('ol');log.id='hc415-log';log.setAttribute('aria-label','Activity log');
+  bottomPaneOutput.append(outLabel,log);
+  bottomBody.append(bottomPaneTerminal,bottomPaneChanges,bottomPaneOutput);
   bottom.append(bottomTabs,bottomBody);
   // the stage keeps only the editor surface: the summary goes to Source control,
   // the diff to the bottom panel, and sync/review become compact editor tools.
   scmBody.append(info);editorTools.append(actions);
-  bottomPaneChanges.append(reviewPanel);bottomPaneActivity.append(status);
+  bottomPaneChanges.append(reviewPanel);
   // Breadcrumb row: the active document's path as segments, between the tabs and
   // the editor (the editor's own idea of "where am I", not the explorer's).
   const breadcrumb=document.createElement('div');breadcrumb.id='hc415-breadcrumb';breadcrumb.hidden=true;
@@ -253,16 +430,20 @@ function setup():boolean{
 
   function setIdeView(which:string){
     for(const [vid] of VIEWS)activityBtns[vid].setAttribute('aria-pressed',String(vid===which));
+    activitySettings.setAttribute('aria-pressed',String(which==='settings'));
     viewExplorer.hidden=which!=='explorer';viewSearch.hidden=which!=='search';
-    viewScm.hidden=which!=='scm';viewAttachments.hidden=which!=='attachments';
-    sbTitle.textContent=which==='explorer'?'EXPLORER':which==='search'?'SEARCH':which==='scm'?'SOURCE CONTROL':'ATTACHMENTS';
+    viewScm.hidden=which!=='scm';
+    viewSettings.hidden=which!=='settings';
+    sbTitle.textContent=which==='explorer'?'EXPLORER':which==='search'?'SEARCH':which==='scm'?'SOURCE CONTROL':'SETTINGS';
     if(which==='search')searchInput.focus();
     if(which==='scm')renderIdeChips();
   }
   for(const [vid] of VIEWS)activityBtns[vid].onclick=()=>setIdeView(vid);
+  activitySettings.onclick=()=>setIdeView('settings');
   function setBottomTab(which:string){
     for(const [bid] of BOTTOM_TABS)bottomBtns[bid].setAttribute('aria-selected',String(bid===which));
-    bottomPaneChanges.hidden=which!=='changes';bottomPaneActivity.hidden=which!=='activity';
+    bottomPaneTerminal.hidden=which!=='terminal';bottomPaneChanges.hidden=which!=='changes';bottomPaneOutput.hidden=which!=='output';
+    if(which==='terminal')maybeConnect();
   }
   for(const [bid] of BOTTOM_TABS)bottomBtns[bid].onclick=()=>setBottomTab(bid);
   bottomToggle.onclick=()=>bottom.toggleAttribute('data-collapsed');
@@ -281,7 +462,38 @@ function setup():boolean{
       if(hit&&!isDir)shown++;
     }
     searchNote.textContent=!q?'':shown?shown+' of '+files+' files':'No file matches “'+searchInput.value.trim()+'”.';
+    // D12: content search (debounced) — needs a workspace and ≥2 characters.
+    if(contentSearchTimer)clearTimeout(contentSearchTimer);
+    searchResults.replaceChildren();
+    if(!q||q.length<2||!choice())return;
+    contentSearchTimer=window.setTimeout(()=>void contentSearch(q),350);
   };
+  let contentSearchTimer:number|undefined;
+  async function contentSearch(q:string){
+    searchResults.replaceChildren(searchNoteEl('Searching “'+q+'”…'));
+    try{
+      const data=await api<{query:string;hits:{path:string;line:number;text:string}[];scanned:number;truncated:boolean;skipped_oversize:number}>(
+        `/api/projects/${encodeURIComponent(choice())}/search?q=${encodeURIComponent(q)}`);
+      if(searchInput.value.trim()!==q)return; // the user moved on
+      if(!data.hits.length){
+        searchResults.replaceChildren(searchNoteEl(`No content matches “${q}” — ${data.scanned} text file(s) searched`+(data.skipped_oversize?`, ${data.skipped_oversize} too large to search`:'')+'.'));
+        return;
+      }
+      const rows=data.hits.map(h=>{
+        const b=button(h.path+':'+h.line,'hc415-search-hit');
+        b.title=h.text;
+        const snip=document.createElement('span');snip.className='hc415-search-snippet';snip.textContent=h.text;
+        b.append(snip);
+        b.onclick=()=>void openFile(h.path);
+        return b;
+      });
+      const note=searchNoteEl(data.hits.length+' hit(s) in '+data.scanned+' file(s)'+(data.truncated?' (stopped at the result cap)':'')+(data.skipped_oversize?` — ${data.skipped_oversize} file(s) skipped as too large`:''+'.'));
+      searchResults.replaceChildren(note,...rows);
+    }catch(e){
+      searchResults.replaceChildren(searchNoteEl('Search unavailable: '+errText(e)));
+    }
+  }
+  function searchNoteEl(text:string){const d=document.createElement('div');d.className='hc415-tree-note';d.textContent=text;return d}
 
   // HL-CHAT-006 2.1: SELECT WORKSPACE overlay — General Chat + registered projects,
   // with Host (authoritative NUC repo) and Worker (execution workspace) paths labeled separately.
@@ -300,18 +512,54 @@ function setup():boolean{
   // what removes ~18 always-visible controls from the sidebar. No id changes —
   // tests/project-files-ui.test.ts pins hc415-register-list/name/path by name.
   wsSelect.append(wsHead,wsList,wsInfo,registerPanel,projectList,wsActions);
-  // The overlay covers the chat panel (#hc-panel is position:absolute, so it is
-  // the containing block for the overlay's inset:0). Without this append the
-  // selector button had no reachable General-chat option — the reported bug.
-  panel.append(wsSelect);
+  // The overlay covers the PROJECT workspace (#project-focus-host carries
+  // position:relative, the same containing-block role #hc-panel had before
+  // this dialog was moved out of the chat panel). The Project workspace owns
+  // its own workspace selector — it is NOT a child of the chat panel.
+  (projectSlot||panel).append(wsSelect);
 
   // PROJECT TAB mount: the rail and the stage fill #project-focus-host, the
   // chat's own host keeps #hermes-chat-root — one workspace, two tabs.
   const projectHost=document.getElementById('project-focus-host');
   const view=document.createElement('div');view.id='hc415-project-view';
   stage.append(sbPreviewWrap,sbMeter);
-  view.append(activity,sidebar,mainCol,ideStatus);
+  view.append(activity,sidebar,mainCol);
+  // D13-3: resizable explorer sidebar — a drag grip that resizes the view's
+  // grid column, width persisted per browser.
+  const sidebarGrip=document.createElement('div');sidebarGrip.id='hc415-sidebar-grip';
+  sidebarGrip.title='Drag to resize the explorer sidebar';sidebarGrip.setAttribute('role','separator');
+  sidebarGrip.setAttribute('aria-orientation','vertical');
+  sidebar.after(sidebarGrip);
+  const SIDEBAR_W_KEY='hermes-life-ide-sidebar-w';
+  const applySidebarW=(w:number)=>{view.style.gridTemplateColumns=`48px ${Math.min(640,Math.max(180,w))}px minmax(0,1fr)`};
+  try{const w=Number(localStorage.getItem(SIDEBAR_W_KEY));if(Number.isFinite(w)&&w>=180&&w<=640)applySidebarW(w)}catch{}
+  sidebarGrip.addEventListener('pointerdown',(e)=>{
+    e.preventDefault();
+    const startX=e.clientX,startW=sidebar.getBoundingClientRect().width;
+    const move=(ev:PointerEvent)=>applySidebarW(startW+(ev.clientX-startX));
+    const up=(ev:PointerEvent)=>{
+      window.removeEventListener('pointermove',move);window.removeEventListener('pointerup',up);
+      const w=Math.min(640,Math.max(180,startW+(ev.clientX-startX)));
+      try{localStorage.setItem(SIDEBAR_W_KEY,String(w))}catch{/* storage unavailable */}
+    };
+    window.addEventListener('pointermove',move);window.addEventListener('pointerup',up);
+  });
+  // D13-6: read-only split pane — a second document visible beside the editor
+  // while it stays writable. Opened from the context menu; closed from its own ✕.
+  const splitPane=document.createElement('section');splitPane.id='hc415-split';splitPane.hidden=true;
+  const splitHead=document.createElement('header');splitHead.className='hc415-split-head';
+  const splitPath=document.createElement('code');splitPath.className='hc415-split-path';
+  const splitClose=button('×','hc415-split-close');splitClose.title='Close the split pane';splitClose.setAttribute('aria-label','Close split pane');
+  const splitBody=document.createElement('pre');splitBody.id='hc415-split-body';splitBody.tabIndex=0;
+  splitHead.append(splitPath,splitClose);splitPane.append(splitHead,splitBody);
+  splitClose.onclick=()=>{splitPane.hidden=true;splitBody.textContent='';splitPath.textContent=''};
+  mainCol.insertBefore(splitPane,bottom);
   (projectHost||panel).append(view);
+  // Spec phase 2 §9: ONE application-wide status bar. The workspace row is not a
+  // second bar — it is reparented into the app status strip so workspace, repo,
+  // sync and agent state all report from one place. Reparenting the live element
+  // (not rebuilding it) keeps every handler and keeps one source of truth.
+  document.getElementById('status-ide-slot')?.append(ideStatus);
 
   /** The in-IDE status bar: workspace · version · files · mode. Derived from the
    *  same state the panels render, so the bar cannot disagree with what it
@@ -326,7 +574,7 @@ function setup():boolean{
     // be able to break the workspace it is describing, so every read is guarded.
     let workspace='General chat',version='no version',files='no tree',mode='A',synced='no workspace selected';
     try{const p=current();if(p){workspace=p.name;synced=p.remote_path?'work machine synced':'work machine unsynced'}}catch{}
-    try{version=sbVer.textContent||'no version'}catch{}
+    try{version=branchLabel()?('branch '+branchLabel()+(hostVer?.dirty?' (dirty)':'')):(sbVer.textContent||'no version')}catch{}
     try{files=treeData?treeData.entries.length+' files':'no tree'}catch{}
     try{mode=attachMode()}catch{}
     const chips:[string,string][]=[['workspace',workspace],['version',version],['files',files],['mode','mode '+mode]];
@@ -335,40 +583,45 @@ function setup():boolean{
     }));
     ideActions.textContent=synced;
   }
+  bottom.setAttribute('data-collapsed',''); // default collapsed — the user expands it when needed
   setIdeView('explorer');setBottomTab('changes');
   let projectTab=false;
+  // Chat and Projects are two EQUAL top-level workspaces now (user brief
+  // hermashauigoalexplained.md §2/§3) — Projects is NOT a pane inside the chat.
+  // Each has its own workspace section, so switching is NAVIGATION owned by the
+  // nav rail and the header; this no longer shows or hides sibling hosts.
   function showProjectTab(on:boolean){
     projectTab=on;
-    const chatHost=document.getElementById('chat-focus-host');
-    const tabChat=document.getElementById('conv-tab-chat') as HTMLButtonElement|null;
-    const tabProject=document.getElementById('conv-tab-project') as HTMLButtonElement|null;
-    if(!chatHost||!projectHost||!tabChat||!tabProject)return;
-    chatHost.hidden=on;projectHost.hidden=!on;
-    tabChat.classList.toggle('active',!on);tabChat.setAttribute('aria-selected',String(!on));
-    tabProject.classList.toggle('active',on);tabProject.setAttribute('aria-selected',String(on));
-    if(on){if(!choice())void load();void refreshFileContext();}
+    if(!on)return;
+    window.dispatchEvent(new CustomEvent('hermes:open-projects'));
+    if(!choice())void load();
+    void refreshFileContext();
   }
-  document.getElementById('conv-tab-chat')?.addEventListener('click',()=>showProjectTab(false));
-  document.getElementById('conv-tab-project')?.addEventListener('click',()=>showProjectTab(true));
+  // Tab button event listeners removed — the DOM tab buttons no longer exist.
 
-  // Chat audit §8: the floating assistant is retired, so there is no float/wide/
-  // fullscreen mode machine and no Expand control. The single presentation is
-  // the Conversations workspace; the file-context sidebar (HL-CHAT-006) is just
-  // a column that opens and closes inside it.
-  // Entry points all land on the Project tab now: there is no sidebar toggle to
-  // persist and no overlay for Escape to close — the tab bar and the composer
-  // buttons switch surfaces directly.
+  // File-context sidebar toggles show the project view; the one presentation
+  // is the IDE workspace (phase 1 un-nests the IDE from the chat/project tabs).
   function showSidebar(open:boolean){if(open)showProjectTab(true)}
 
-  let projects:Project[]=[];let selected=(projectByConversation()[conversationIdNow()]||localStorage.getItem(key)||'');let activeReview:Review|null=null;let busy=false;
+  let projects:Project[]=[];let selected=(localStorage.getItem(PROJECT_GLOBAL_KEY)||projectByConversation()[conversationIdNow()]||localStorage.getItem(key)||'');let activeReview:Review|null=null;let busy=false;
   function choice(){return picker.value}
   function current(){return projects.find(p=>p.name===choice())}
   function clearReview(){activeReview=null;confirmation.value='';reviewPanel.hidden=true;reviewMeta.textContent='';diff.textContent=''}
-  function setStatus(s:string){status.textContent=s}
-  function renderHint(){refreshModeUI();const p=current();info.textContent=p?`${p.name} · ${p.remote_path||'Work-machine workspace not synchronized'}`:'Select a registered project to synchronize or review changes.';renderIdeChips()}
+  /** One timestamped line in the Output pane's log; capped so a long session
+   *  can't grow the DOM without bound. */
+  function logLine(s:string){
+    const li=document.createElement('li');const t=document.createElement('time');
+    t.textContent=new Date().toTimeString().slice(0,8);
+    li.append(t,document.createTextNode(s));
+    log.append(li);
+    while(log.childElementCount>200)log.firstElementChild?.remove();
+    log.scrollTop=log.scrollHeight;
+  }
+  function setStatus(s:string){status.textContent=s;try{logLine(s)}catch{}}
+  function renderHint(){renderModeChips();const p=current();info.textContent=p?`${p.name} · ${p.remote_path||'Work-machine workspace not synchronized'}`:'Select a registered project to synchronize or review changes.';renderIdeChips()}
   function setBusy(value:boolean){busy=value;refresh.disabled=value;sync.disabled=value;reviewBtn.disabled=value;applyBtn.disabled=value;regBtn.disabled=value;createBtn.disabled=value}
   function openDrawer(){showProjectTab(true)}
-  // The stage's back-to-chat button is gone with the drawer header — the tabs switch.
+  // Phase 1: no drawer header or tab bar — openDrawer activates the project view directly.
   async function load(){try{
     const data=await api<{projects:Project[]}>('/api/projects');projects=data.projects;
     picker.replaceChildren(new Option('General chat',''));for(const p of projects)picker.append(new Option(p.name,p.name));
@@ -376,37 +629,37 @@ function setup():boolean{
     if(!projects.length)setStatus('No projects registered — pick one below under "Register a project directory".');
   }catch(e){setStatus('Project list unavailable: '+errText(e));info.textContent='Connection error'}
   void loadRoots();}
-  // HL-CHAT-006 2.1: one shared selection path used by both the hidden <select> and the overlay.
+  // The Project workspace owns its own selection (PROJECT_GLOBAL_KEY). The
+  // conversation→project map is also written so @project references in chat
+  // know which project the user is working on — but the conversation map is
+  // never the authority for what the Projects tab shows.
   function selectProject(name:string){
     picker.value=name;selected=choice();
+    localStorage.setItem(PROJECT_GLOBAL_KEY,name);
     rememberProjectForConversation(name);
-    localStorage.setItem(key,name); // kept for the first-conversation seed only
     clearReview();renderHint();
-    setStatus(selected?'Selected '+selected:'General chat');void refreshFileContext();
+    setStatus(selected?'Selected '+selected:'General chat');void refreshFileContext().then(restoreOpenDocs);
+    renderStageEmpty();
     renderSelector();
   }
   picker.onchange=()=>selectProject(choice());
-  // The chat module announces conversation switches; the project choice follows
-  // the conversation. A conversation KNOWN to the map gets its stored project;
-  // a BRAND-NEW conversation starts at General chat — the user redesign
-  // (2026-11-25) removed the carry-forward: the chat is never pre-attached to a
-  // project, the choice is only ever explicit (Project tab or @slug).
-  let lastSeenConversation=conversationIdNow();
-  window.addEventListener('hc-conversation-changed',(ev)=>{
-    const cid=String((ev as CustomEvent).detail||'');
-    if(cid===lastSeenConversation)return;
-    const map=projectByConversation();
-    const wanted=Object.prototype.hasOwnProperty.call(map,cid)?(map[cid]||''):'';
-    lastSeenConversation=cid;
-    if(wanted!==choice())selectProject(wanted);
+  // The Project workspace owns its own selection — independent of which
+  // conversation is active. The conversation→project map is written by
+  // selectProject() so @project references in chat work, but switching
+  // conversations never changes what the Projects tab shows. The user's
+  // project choice in the IDE stays until they explicitly change it.
+  window.addEventListener('hc-conversation-changed',()=>{
+    // no-op: the Projects tab keeps its independent selection
   });
-  {const wanted=projectByConversation()[conversationIdNow()]||'';if(wanted&&wanted!==choice())selectProject(wanted);}
+  {const wanted=localStorage.getItem(PROJECT_GLOBAL_KEY)||'';if(wanted&&wanted!==choice())selectProject(wanted);}
+  renderStageEmpty();
   // Live link to chat (user brief, 2026-11-25): when a chat task finishes, a
   // file it edited must appear in an OPEN editor the way a CLI edit does — the
   // editor reloads through the normal open path when the file's mtime moved.
   // An in-progress edit is never clobbered, and the tree refreshes too so new
   // files the task created show up without a manual reload.
   window.addEventListener('hc-task-finished',()=>{
+    logLine('Agent task finished — refreshing workspace state');
     const state=openFileState;const name=choice();
     if(!name)return;
     void load();
@@ -416,11 +669,127 @@ function setup():boolean{
         const f=await api<FileData>(`/api/projects/${encodeURIComponent(name)}/file?path=${encodeURIComponent(state.path)}&preview=1`);
         if(!f.mtime||openFileState?.path!==state.path)return;
         if(Math.abs(f.mtime-(state.mtime||0))<=0.001)return;
-        if(!sbEditor.hidden)return; // a human is editing — never pull the file from under them
+        if(!editorLib.hidden)return; // a human is editing in the editor lib — never pull the file from under them
         void openFile(state.path);
       }catch{/* the file may have been deleted by the task; the tree refresh above reflects it */}
     })();
   });
+  // ── D1: live file-change events (spec §4.4 "shared file change events") ────
+  // Subscribes to the EXISTING `hermes:event` fan-out (main.v2 dispatches one
+  // DOM event per stream record). Replayed history is tagged `historical` and
+  // IGNORED: a page-load replay must never trigger refresh loops — the tree
+  // already loads fresh on mount. The handler never invents state: it re-reads
+  // the tree / file through the normal fetch paths.
+  let treeRefreshTimer:number|undefined;
+  window.addEventListener('hermes:event',((ev:Event)=>{
+    const evt=(ev as CustomEvent<{type?:string;payload?:{project?:string;path?:string;change?:string};historical?:boolean}>).detail;
+    if(!evt||evt.type!=='file.changed'||evt.historical)return;
+    const p=evt.payload||{};
+    const name=choice();
+    // Project-scoped events: refresh the tree (debounced — a write burst is one
+    // repaint). Uploads carry project:'' and only matter if the path matches an
+    // open doc (it cannot — uploads live outside projects).
+    if(p.project===name&&name){
+      if(treeRefreshTimer)clearTimeout(treeRefreshTimer);
+      treeRefreshTimer=window.setTimeout(()=>{void loadTree()},300);
+    }
+    const st=openFileState;
+    if(!st||!p.path||p.path!==st.path)return;
+    if(p.change==='deleted'){
+      logLine(p.path+' was deleted on the host — closing its tab');
+      const i=openDocs.indexOf(st.path);
+      if(i>=0)openDocs.splice(i,1);
+      dirtyDocs.delete(st.path);conflictDocs.delete(st.path);
+      persistOpenDocs();
+      if(openFileState?.path===st.path)closePreview();else renderTabs();
+      return;
+    }
+    if(dirtyDocs.has(st.path)){
+      // D4: NEVER pull a file out from under unsaved edits — mark the conflict.
+      if(!conflictDocs.has(st.path)){conflictDocs.add(st.path);renderTabs()}
+      logLine('Conflict: '+st.path+' changed on the host while you have unsaved edits — save will refuse until you reload');
+      setStatus('Conflict: '+st.path+' changed on the host while you have unsaved edits. Reload or save carefully — Review changes shows the host diff.');
+      return;
+    }
+    if(editorLib.hidden||!projectEditor.hasFocus())void openFile(st.path);
+  }) as EventListener);
+  // ── D3: chat file links open the right resource in Projects ────────────────
+  // A chat-side file reference (absolute host path, or a workspace-relative
+  // path from the attachment header) resolves to a registered project by
+  // host_path prefix; the workspace switches and the file opens through the
+  // normal open path. An unresolvable path opens Projects and SAYS SO — never
+  // a fabricated selection.
+  window.addEventListener('hermes:projects:open-file',((ev:Event)=>{
+    const raw=(ev as CustomEvent<{path?:string}>).detail?.path;
+    const path=typeof raw==='string'?raw.trim():'';
+    if(!path)return;
+    const absolute=path.startsWith('/');
+    let target:string|null=null;
+    if(absolute){
+      for(const pr of projects){
+        const root=pr.host_path.replace(/\/+$/,'');
+        if(path===root||path.startsWith(root+'/')){target=pr.name;break}
+      }
+    }
+    window.dispatchEvent(new CustomEvent('hermes:open-projects'));
+    if(!absolute){
+      // Workspace-relative (the attachment header's form): the CURRENT workspace.
+      if(!choice())return setStatus('Cannot open '+path+' — no workspace is selected in Projects');
+      pendingOpen=path;
+      void refreshFileContext();
+      return;
+    }
+    if(!target)return setStatus(path+' is not inside a registered workspace — register its directory to open it here');
+    if(choice()!==target)selectProject(target);
+    const root=projects.find(pr=>pr.name===target)!.host_path.replace(/\/+$/,'');
+    pendingOpen=path.slice(root.length+1);
+    void refreshFileContext();
+  }) as EventListener);
+  // Native "Open Folder" via the File System Access API. Picks a directory from
+  // the user's machine, converts its name to a valid project slug, and pre-fills
+  // the registration form so the user only needs to provide the server path.
+  async function nativeOpenFolder(){
+    try{
+      let dirName='';
+      // Use showDirectoryPicker() if available (modern browsers)
+      if('showDirectoryPicker' in window){
+        const handle=await (window as any).showDirectoryPicker();
+        dirName=handle.name;
+      }else{
+        // Fallback: webkitdirectory input
+        const input=document.createElement('input');
+        input.type='file';input.webkitdirectory=true;input.style.display='none';
+        document.body.append(input);
+        const files=await new Promise<FileList>((res,rej)=>{
+          input.onchange=()=>{if(input.files?.length)res(input.files);else rej(new Error('No folder selected'));};
+          input.click();
+        });
+        document.body.removeChild(input);
+        // Extract directory name from the first file's webkitRelativePath
+        const first=files[0];
+        dirName=first.webkitRelativePath.split('/')[0];
+      }
+      // Convert to a valid project slug
+      const slug=slugify(dirName)||'my-project';
+      // Pre-fill the registration form and open the workspace dialog
+      regName.value=slug;
+      regPath.value='';
+      chosenRoot='';
+      // Highlight the matching root candidate if one exists
+      for(const o of Array.from(regList.children) as HTMLElement[]){
+        o.classList.toggle('hc415-chosen',false);
+      }
+      openWsSelect();
+      regName.focus();
+      setStatus('Pick a server path for "'+slug+'" — or choose from the list, then click Register');
+    }catch(e){
+      if(String(e).includes('abort')||String(e).includes('AbortError')||String(e).includes('cancel'))return;
+      setStatus('Folder picker: '+errText(e));
+      // Fallback: open the workspace dialog directly
+      openWsSelect();
+    }
+  }
+
   // HL-CHAT-006 2.1: workspace selector overlay behaviour.
   function renderSelectorLabel(){
     const p=current();
@@ -462,28 +831,23 @@ function setup():boolean{
   wsExplorer.onclick=()=>{if(!choice())return;closeWsSelect();filesBtn.click()};
   // HL-CHAT-006: file-context manager behaviour.
   type TreeEntry={path:string;size:number;type:'file'};
-  type TreeData={root:string;count:number;truncated:boolean;entries:TreeEntry[];host_version?:{commit:string;dirty:boolean}|null};
-  type FileData={path:string;size:number;mtime?:number;mode:string;truncated:boolean;binary?:boolean;content:string;host_version?:{commit:string;dirty:boolean}|null};
+  type TreeData={root:string;count:number;truncated:boolean;entries:TreeEntry[];host_version?:{commit:string;dirty:boolean}|null;scm?:Record<string,string>};
+  type FileData={path:string;size:number;mtime?:number;mode:string;truncated:boolean;binary?:boolean;image?:boolean;content_base64?:string;content:string;host_version?:{commit:string;dirty:boolean}|null};
   const ATT_KEY='hermes-life-chat-attachments';
   let treeData:TreeData|null=null;let attached=new Set<string>();let expanded=new Set<string>();
-  let hostVer:{commit:string;dirty:boolean}|null=null;
+  renderTree(); // show empty-state guidance ("No workspace selected" + Open Folder) in the file tree
+  let hostVer:{commit:string;dirty:boolean;branch?:string}|null=null;
   function verLabel(){return hostVer?`host @ ${hostVer.commit} (${hostVer.dirty?'dirty':'clean'})`:'host version unknown'}
+  // D13: the status/version chips show branch@commit when git reports one.
+  function branchLabel(){return hostVer?.branch?`${hostVer.branch}@${hostVer.commit}`:hostVer?hostVer.commit:''}
   let attachMap:Record<string,string[]>={};
   try{attachMap=JSON.parse(localStorage.getItem(ATT_KEY)||'{}') as Record<string,string[]>}catch{attachMap={}}
   function loadAttached(){attached=new Set(attachMap[choice()]||[]);renderAttachments()}
   function saveAttached(){const name=choice();if(name){attachMap[name]=[...attached];localStorage.setItem(ATT_KEY,JSON.stringify(attachMap))}renderAttachments()}
   function renderAttachments(){
-    refreshModeUI();
-    sbAttachCount.textContent=`Attachments (${attached.size})`;
-    sbAttachList.replaceChildren(...[...attached].sort().map(p=>{
-      const li=document.createElement('li');
-      const span=document.createElement('span');span.textContent=p;span.title=p;
-      const rm=button('×','hc415-attach-remove');rm.title='Remove '+p;rm.setAttribute('aria-label','Remove '+p);
-      rm.onclick=()=>{attached.delete(p);saveAttached();renderTree()};
-      li.append(span,rm);return li}));
+    renderModeChips();
     let chars=0;for(const p of attached){const e=treeData?.entries.find(t=>t.path===p);chars+=e&&e.size?e.size:0}
     const m=attachMode();
-    sbVer.textContent=choice()?verLabel():'';
     sbMeter.textContent=!attached.size?'No files attached'
       :m==='A'?`${attached.size} file(s) available via workspace access (no contents in request)`
       :m==='B'?`${attached.size} file(s) in manifest — ≈ ${Math.ceil((chars+attached.size*80)/4).toLocaleString()} manifest tokens`
@@ -515,10 +879,19 @@ function setup():boolean{
     row.tabIndex=0;row.setAttribute('role','button');
     row.addEventListener('keydown',(e:KeyboardEvent)=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();row.click()}});
     row.style.paddingLeft=`${8+depth*14}px`;row.title=node.path;
+    // D13-2: per-file source-control decoration (M = modified, U = untracked)
+    // from the tree payload's git-status map — presentation only.
+    const scm=treeData?.scm?.[node.path];
+    if(scm)row.dataset.scm=scm;
+    // D13-5: every row is a drag source; directory rows are drop targets that
+    // move the dragged entry there through the D2 move endpoint.
+    row.draggable=true;
+    row.addEventListener('dragstart',(e:DragEvent)=>{e.dataTransfer?.setData('text/hermes-path',node.path);e.dataTransfer&&(e.dataTransfer.effectAllowed='move')});
     const icon=document.createElement('span');icon.className='hc415-tree-icon';
     icon.textContent=node.isDir?(expanded.has(node.path)?'▾':'▸'):(attached.has(node.path)?'✓':'·');
     const label=document.createElement('span');label.className='hc415-tree-label';label.textContent=node.name;
     row.append(icon,label);
+    if(scm){const mark=document.createElement('span');mark.className='hc415-scm-mark';mark.textContent=scm;mark.title=scm==='M'?'Modified (uncommitted)':'Untracked';row.append(mark)}
     if(node.isDir){
       row.setAttribute('aria-expanded',String(expanded.has(node.path)));
       const st=dirState(node);
@@ -531,6 +904,15 @@ function setup():boolean{
       attach.onclick=(ev)=>{ev.stopPropagation();void toggleFolder(node)};
       row.append(attach);
       row.onclick=()=>{if(expanded.has(node.path))expanded.delete(node.path);else expanded.add(node.path);renderTree()};
+      // D13-5: dropping onto a directory moves the dragged entry into it.
+      row.addEventListener('dragover',(e:DragEvent)=>{e.preventDefault();e.dataTransfer&&(e.dataTransfer.dropEffect='move');row.classList.add('hc415-drop-target')});
+      row.addEventListener('dragleave',()=>row.classList.remove('hc415-drop-target'));
+      row.addEventListener('drop',(e:DragEvent)=>{
+        e.preventDefault();e.stopPropagation();row.classList.remove('hc415-drop-target');
+        const src=e.dataTransfer?.getData('text/hermes-path');
+        if(!src||src===node.path||src.startsWith(node.path+'/'))return;
+        void moveToDir(src,node.path);
+      });
     }else{
       row.classList.toggle('hc415-attached',attached.has(node.path));
       row.setAttribute('aria-pressed',String(attached.has(node.path)));
@@ -565,9 +947,22 @@ function setup():boolean{
     if(isDir){
       const open=expanded.has(path);
       items.push(item(open?'Collapse':'Expand',()=>{open?expanded.delete(path):expanded.add(path);renderTree()}));
+      // D2: the dir menu is also the create door — siblings land inside it.
+      items.push(item('New file here…',()=>void newEntry(path,'file')));
+      items.push(item('New folder here…',()=>void newEntry(path,'folder')));
+      items.push(item('Rename / Move…',()=>void renameEntry(path)));
     }else{
       items.push(item('Open',()=>{void openFile(path)}));
       items.push(item(attached.has(path)?'Detach':'Attach',()=>{void toggleFile(path)}));
+      // D2: create as a sibling of this file; rename/move covers the same-dir case.
+      items.push(item('New file…',()=>void newEntry(parentOf(path),'file')));
+      items.push(item('New folder…',()=>void newEntry(parentOf(path),'folder')));
+      items.push(item('Rename / Move…',()=>void renameEntry(path)));
+      // D13-6: a read-only second pane beside the writable editor.
+      items.push(item('Open in split view',()=>void openSplit(path)));
+      // D9: the file reference lands in the chat composer as a chip — the
+      // composer decides when to send, never this menu.
+      items.push(item('Send file reference to chat',()=>{addExternalRef(path);setStatus(path+' attached to the chat composer — review and send there')}));
     }
     items.push(item('Copy path',()=>{
       const w=navigator.clipboard?.writeText(path);
@@ -591,6 +986,86 @@ function setup():boolean{
   document.addEventListener('click',(e)=>{if(!rowMenu.hidden&&!(e.target as HTMLElement|null)?.closest('#hc415-rowmenu'))closeRowMenu()});
   document.addEventListener('keydown',(e)=>{if(e.key==='Escape'&&!rowMenu.hidden){e.stopPropagation();closeRowMenu()}});
   sbTree.addEventListener('scroll',()=>{if(!rowMenu.hidden)closeRowMenu()});
+  // ── D2: create / rename / move (context menu + prompt dialog) ──────────────
+  // The explorer could only delete; the spec's §4.3 "creation, rename/move/
+  // delete" needs the other half. The server routes (POST /{name}/dir, POST
+  // /{name}/move) enforce the same containment + denylist as every write; the
+  // target is never silently overwritten.
+  function promptDialog(title:string,value:string):Promise<string|null>{
+    return new Promise(resolve=>{
+      const dlg=document.createElement('dialog');dlg.className='hc415-prompt';
+      dlg.innerHTML='<form method="dialog"><h3></h3><input type="text" spellcheck="false" autocomplete="off"><p class="hc415-prompt-err" role="alert"></p><div class="hc415-prompt-row"><button type="button" class="hc415-prompt-cancel">Cancel</button><button type="submit" class="hc415-prompt-ok">OK</button></div></form>';
+      (dlg.querySelector('h3') as HTMLElement).textContent=title;
+      const input=dlg.querySelector('input') as HTMLInputElement;input.value=value;input.title='Workspace-relative path';
+      (dlg.querySelector('.hc415-prompt-cancel') as HTMLButtonElement).onclick=()=>dlg.close();
+      dlg.addEventListener('close',()=>{dlg.remove();resolve(null)});
+      (dlg.querySelector('form') as HTMLFormElement).addEventListener('submit',(ev)=>{
+        ev.preventDefault();
+        const v=input.value.trim();
+        if(!v)return;
+        dlg.close();dlg.remove();resolve(v);
+      });
+      document.body.append(dlg);dlg.showModal();input.select();
+    });
+  }
+  const parentOf=(p:string)=>p.includes('/')?p.slice(0,p.lastIndexOf('/')):'';
+  const joinPath=(dir:string,name:string)=>dir?dir+'/'+name:name;
+  /** After a rename/move/delete, no client state may keep pointing at the old
+   *  path: open tabs under it close, dirty marks drop, attachments prune. */
+  function pruneUnder(prefix:string){
+    const hit=(p:string)=>p===prefix||p.startsWith(prefix+'/');
+    for(const d of [...openDocs])if(hit(d)){dirtyDocs.delete(d);openDocs.splice(openDocs.indexOf(d),1)}
+    for(const a of [...attached])if(hit(a))attached.delete(a);
+    saveAttached();persistOpenDocs();
+    if(openFileState&&hit(openFileState.path))closePreview();
+    else renderTabs();
+  }
+  async function newEntry(dir:string,kind:'file'|'folder'){
+    const name=await promptDialog((kind==='file'?'New file':'New folder')+(dir?' in '+dir:' in the workspace root'),'');
+    if(!name)return;
+    const p=joinPath(dir,name);
+    try{
+      if(kind==='file')await putFile(p,'');
+      else await post(`/api/projects/${encodeURIComponent(choice())}/dir`,{path:p});
+      await loadTree();
+      if(kind==='file')void openFile(p); // a new file opens ready to edit
+      setStatus('Created '+p);
+    }catch(e){setStatus(errText(e))}
+  }
+  async function renameEntry(path:string){
+    const to=await promptDialog('Rename or move '+path+' to:',path);
+    if(!to||to===path)return;
+    try{
+      await post(`/api/projects/${encodeURIComponent(choice())}/move`,{source:path,target:to});
+      pruneUnder(path);
+      await loadTree();
+      setStatus('Moved '+path+' → '+to);
+    }catch(e){setStatus(errText(e))}
+  }
+  /** D13-5: drag-and-drop move — drop on a directory row moves the entry there
+   *  through the SAME endpoint and pruning rules as Rename/Move. */
+  async function moveToDir(path:string,dir:string){
+    const name=path.split('/').pop()||path;
+    const to=joinPath(dir,name);
+    if(to===path)return;
+    try{
+      await post(`/api/projects/${encodeURIComponent(choice())}/move`,{source:path,target:to});
+      pruneUnder(path);
+      await loadTree();
+      setStatus('Moved '+path+' → '+to);
+    }catch(e){setStatus(errText(e))}
+  }
+  /** D13-6: open a document in the read-only split pane. */
+  async function openSplit(path:string){
+    if(!choice())return setStatus('Select a project first');
+    try{
+      const f=await api<FileData>(`/api/projects/${encodeURIComponent(choice())}/file?path=${encodeURIComponent(path)}&preview=1`);
+      splitBody.textContent=f.binary?'Binary file — not shown in the split pane':f.content+(f.truncated?'\n\n[Truncated preview — the full file opens writable via Open.]':'');
+      splitPath.textContent=path;
+      splitPane.hidden=false;
+      setStatus('Split view: '+path+' (read-only)');
+    }catch(e){setStatus(errText(e))}
+  }
   function renderTree(){
     if(!treeData){
       // With no workspace the explorer has nothing to list, so it offers the ONE
@@ -598,7 +1073,7 @@ function setup():boolean{
       // end. This is also where the workspace dialog earns its keep: registering
       // a directory is now a door here, not a permanent wall of buttons.
       sbTree.replaceChildren(treeNote(choice()?'Loading file tree…':'No workspace selected.'));
-      if(!choice()){const cta=button('Open Folder…','');cta.id='hc415-open-folder';cta.title='Choose a registered project, register a directory, or create one';cta.onclick=openWsSelect;sbTree.append(cta)}
+      if(!choice()){const cta=button('Open Folder…','');cta.id='hc415-open-folder';cta.title='Choose a registered project, register a directory, or create one';cta.onclick=nativeOpenFolder;sbTree.append(cta)}
       return}
     sbTree.replaceChildren(...buildTree(treeData.entries).map(n=>treeNode(n,0)));
     if(treeData.truncated)sbTree.append(treeNote('Tree truncated at 3000 entries.'));
@@ -641,23 +1116,65 @@ function setup():boolean{
   // --- write path: in-place edit and upload (PUT /api/projects/{name}/file) ---
   const MAX_UPLOAD_BYTES=1_000_000; // mirrors the server's MAX_WRITE_BYTES
   async function putFile(path:string,content:string,expected_mtime?:number){
-    return await api<{path:string;size:number;mtime:number;created:boolean;host_version:{commit:string;dirty:boolean}|null}>(
+    return await api<{path:string;size:number;mtime:number;created:boolean;host_version:{commit:string;dirty:boolean;branch?:string}|null}>(
       `/api/projects/${encodeURIComponent(choice())}/file`,
       {method:'PUT',headers:{'Content-Type':'application/json'},
        body:JSON.stringify({path,content,...(expected_mtime===undefined?{}:{expected_mtime})})});
   }
-  let openFileState:{path:string;mtime?:number}|null=null;
+  let openFileState:{path:string;mtime?:number;image?:boolean}|null=null;
   // The editor's open-document LIST. `openFileState` stays "the active document"
   // so every existing reader (preview, save, attach toggle) keeps working
   // unchanged; the list is what the tab strip renders. One source of truth each:
   // the list is the model, the strip is its view.
   let openDocs:string[]=[];
+  // D4: unsaved-edit tracking. A doc enters the set on the first USER keystroke
+  // (projectEditor.onChange — programmatic set() never marks dirty) and leaves
+  // it on Save (the edit became a host write) or Cancel (the edit is discarded).
+  // The tab strip shows the dot; external-change reloads refuse dirty docs.
+  const dirtyDocs=new Set<string>();
+  // D1: docs an external change collided with (changed on host while dirty) —
+  // cleared when the user saves or reloads the doc.
+  const conflictDocs=new Set<string>();
+  // D3: an explicit open-file request (from chat) outranks tab restore.
+  let pendingOpen:string|null=null;
+  projectEditor.onChange(()=>{
+    const p=openFileState?.path;
+    if(!p)return;
+    if(!dirtyDocs.has(p)){dirtyDocs.add(p);renderTabs()}
+  });
+  // D5: open tabs + active doc survive a reload. The dirty set deliberately does
+  // NOT persist — unsaved CONTENT lives only in the live editor, so claiming a
+  // restored tab was dirty would be a lie; §6 preservation across VIEW switches
+  // is already covered by the module state surviving the (hidden) DOM.
+  const OPEN_DOCS_KEY='hermes-life-project-open-docs';
+  // D5: per-doc scroll positions across tab switches (in-memory: the DOM — and
+  // with it the scroll surfaces — survives workspace switches; this map only
+  // covers the re-fetch a tab switch performs).
+  const scrollPos:Record<string,number>={};
+  function scrollSurface():HTMLElement|null{
+    return editorLib.hidden?sbPreview:(editorLib.querySelector('.cm-scroller') as HTMLElement|null);
+  }
+  function captureScroll(){const p=openFileState?.path;if(!p)return;const s=scrollSurface();if(s)scrollPos[p]=s.scrollTop}
+  function persistOpenDocs(){
+    try{localStorage.setItem(OPEN_DOCS_KEY,JSON.stringify({project:choice(),docs:openDocs,active:openFileState?.path||''}))}catch{/* storage unavailable */}
+  }
+  function restoreOpenDocs(){
+    type SavedDocs={project?:string;docs?:string[];active?:string};
+    let saved:SavedDocs|null=null;
+    try{saved=JSON.parse(localStorage.getItem(OPEN_DOCS_KEY)||'null') as SavedDocs|null}catch{saved=null}
+    if(!saved||!Array.isArray(saved.docs)||saved.project!==choice()||!saved.docs.length)return;
+    // D3: an explicit open-file request (from chat) outranks the saved tabs.
+    if(pendingOpen){const t=pendingOpen;pendingOpen=null;void openFile(t);return}
+    openDocs=[...saved.docs];
+    const active=typeof saved.active==='string'&&openDocs.includes(saved.active)?saved.active:openDocs[0];
+    void openFile(active);
+  }
   function previewReadMode(){
     if(!openFileState){sbPreviewWrap.hidden=true;return}
-    sbEditor.hidden=true;sbPreview.hidden=false;
-    sbEditBtn.hidden=false;sbSaveBtn.hidden=true;sbCancelBtn.hidden=true;
+    sbEditor.hidden=true;editorLib.hidden=true;sbPreview.hidden=false;
+    sbEditBtn.hidden=!!openFileState?.image;sbSaveBtn.hidden=true;sbCancelBtn.hidden=true;sbSendSel.hidden=true;
   }
-  function closePreview(){openFileState=null;openDocs=[];sbPreviewWrap.hidden=true;stageEmpty.hidden=false;renderTabs()}
+  function closePreview(){openFileState=null;openDocs=[];dirtyDocs.clear();sbPreviewWrap.hidden=true;stageEmpty.hidden=false;renderStageEmpty();renderTabs();persistOpenDocs()}
   const GLYPHS:Record<string,string>={md:'▤',ts:'⟨⟩',tsx:'⟨⟩',js:'⟨⟩',py:'⌘',css:'♪',json:'{}',sh:'⌗',html:'◇',png:'▣',jpg:'▣',svg:'▣',txt:'≡'};
   function fileGlyph(p:string):string{return GLYPHS[(p.split('.').pop()||'').toLowerCase()]||'·'}
   /** Breadcrumb for the ACTIVE document: its path as segments, last one emphasised.
@@ -686,11 +1203,19 @@ function setup():boolean{
     const active=openFileState?.path;
     tabStrip.replaceChildren(...openDocs.map(p=>{
       const on=p===active;
+      const dirty=dirtyDocs.has(p);
+      const conflict=conflictDocs.has(p);
       const tab=document.createElement('div');tab.className='hc415-tab';tab.dataset.active=String(on);
+      if(dirty)tab.dataset.dirty='true';
+      if(conflict)tab.dataset.conflict='true';
       tab.setAttribute('role','tab');tab.setAttribute('aria-selected',String(on));
       const name=p.split('/').pop()||p;
       const icon=document.createElement('span');icon.className='hc415-tab-icon';icon.textContent=fileGlyph(p);
-      const label=document.createElement('span');label.className='hc415-tab-label';label.textContent=name;label.title=p;
+      const label=document.createElement('span');label.className='hc415-tab-label';
+      const mark=conflict?'⚠ ':dirty?'● ':'';
+      label.textContent=mark+name;
+      label.title=p+(conflict?' — changed on the host while you have unsaved edits':dirty?' — unsaved changes':'');
+      tab.title=label.title;
       const close=document.createElement('button');close.type='button';close.className='hc415-tab-close';close.textContent='✕';
       close.title='Close '+name;close.setAttribute('aria-label','Close '+name);
       close.onclick=(e)=>{e.stopPropagation();closeDoc(p)};
@@ -701,11 +1226,14 @@ function setup():boolean{
   }
   /** Close one document. Closing the ACTIVE tab hands the editor to the tab that
    *  slid into its place (the neighbour to the right, else the new last one) —
-   *  which is what makes closing feel like an editor instead of a reset. */
+   *  which is what makes closing feel like an editor instead of a reset.
+   *  D4: a dirty tab asks before its unsaved edits are discarded. */
   function closeDoc(path:string){
     const i=openDocs.indexOf(path);
     if(i<0)return;
-    openDocs.splice(i,1);
+    if(dirtyDocs.has(path)&&!window.confirm(path+' has unsaved changes — discard them?'))return;
+    dirtyDocs.delete(path);
+    openDocs.splice(i,1);persistOpenDocs();
     if(openFileState?.path!==path){renderTabs();return}
     const next=openDocs[Math.min(i,openDocs.length-1)];
     if(next)void openFile(next);else closePreview();
@@ -723,18 +1251,30 @@ function setup():boolean{
   async function openFile(path:string){
     if(!choice())return setStatus('Select a project first — Workspace ▸ lists and registers directories');
     setStatus('Opening '+path+'…');
+    captureScroll(); // D5: remember where the outgoing doc was scrolled
     // Register in CLICK order, before the fetch: three opens in a row would
     // otherwise list their tabs in whatever order the responses happened to land
     // (measured: opening a, b, c produced tabs b, c, a).
     if(!openDocs.includes(path))openDocs.push(path);
+    persistOpenDocs();
     try{
       // preview=1: the stage tolerates big files (truncated honestly) and
       // binary files (metadata only) instead of a 409 wall.
-      const f=await api<FileData>(`/api/projects/${encodeURIComponent(choice())}/file?path=${encodeURIComponent(path)}&preview=1`);
+      const f=await api<FileData>(`/api/projects/${encodeURIComponent(choice())}/file?path=${encodeURIComponent(path)}&preview=1&raw=1`);
       if(f.host_version)hostVer=f.host_version;
-      openFileState={path:f.path,mtime:f.mtime};
+      openFileState={path:f.path,mtime:f.mtime,image:!!(f.binary&&f.image&&f.content_base64)};
       sbPreviewPath.textContent=f.path+(f.size?' · '+f.size.toLocaleString()+' bytes':'');
-      if(f.binary){
+      if(f.binary&&f.image&&f.content_base64){
+        // D13-4: a real image preview instead of the binary dead end. Same
+        // containment-checked read, bytes as a data URL; no fallback text needed.
+        const mime=(()=>{const e=(f.path.split('.').pop()||'').toLowerCase();
+          return e==='svg'?'image/svg+xml':e==='jpg'?'image/jpeg':e==='ico'?'image/x-icon':'image/'+e})();
+        const img=document.createElement('img');img.className='hc415-image-preview';
+        img.src=`data:${mime};base64,${f.content_base64}`;img.alt=f.path;
+        sbPreview.replaceChildren(img);
+        sbEditor.value='';
+        sbEditBtn.hidden=true; // an image has nothing to edit as text
+      }else if(f.binary){
         sbPreview.textContent='Binary file — not rendered as text. Size '+f.size.toLocaleString()+' bytes. Attach it (mode A workspace access) and Hermesha can inspect it with its own tools.';
         sbEditor.value='';
       }else{
@@ -743,6 +1283,8 @@ function setup():boolean{
         if(f.truncated)sbPreview.textContent+='\n\n[Showing the first 200,000 bytes of '+f.size.toLocaleString()+' — the rest is available to Hermesha through workspace access (mode A), not inline.]';
       }
       sbPreviewWrap.hidden=false;stageEmpty.hidden=true;previewReadMode();syncPreviewAttach();renderTabs();
+      const want=scrollPos[path]; // D5: a tab switch restores the doc's last scroll
+      if(want!==undefined){const s=scrollSurface();if(s)s.scrollTop=want}
       setStatus('Opened '+f.path+(f.truncated?' (truncated preview)':'')+' — '+verLabel());
     }catch(e){
       // A failed open must not leave a tab behind for a file that never loaded.
@@ -752,19 +1294,37 @@ function setup():boolean{
     }
   }
   sbEditBtn.onclick=()=>{if(!openFileState)return;
-    sbPreview.hidden=true;sbEditor.hidden=false;sbEditor.value=sbPreview.textContent||'';
-    sbEditBtn.hidden=true;sbSaveBtn.hidden=false;sbCancelBtn.hidden=false;sbEditor.focus()};
-  sbCancelBtn.onclick=previewReadMode;
+    sbPreview.hidden=true;sbEditor.hidden=true;editorLib.hidden=false;
+    cmSet(sbPreview.textContent||'');
+    sbEditBtn.hidden=true;sbSaveBtn.hidden=false;sbCancelBtn.hidden=false;sbSendSel.hidden=false;projectEditor.focus()};
+  // D9: selection → composer. Appends after any existing draft text and fires
+  // `input` so the chat's own autogrow runs; the message is NOT sent.
+  sbSendSel.onclick=()=>{
+    const sel=projectEditor.selection();
+    if(!sel.trim())return setStatus('Nothing selected — select text in the editor first');
+    const input=document.getElementById('hc-input') as HTMLTextAreaElement|null;
+    if(!input)return setStatus('The chat composer is not available');
+    input.value=input.value?(input.value.endsWith('\n')?'':input.value+'\n')+sel:sel;
+    input.dispatchEvent(new Event('input',{bubbles:true}));
+    input.focus();
+    setStatus('Selection placed in the chat composer — review and send it there');
+  };
+  sbCancelBtn.onclick=()=>{ // D4: cancel discards the edits, so the doc is clean
+    const p=openFileState?.path;
+    if(p&&dirtyDocs.delete(p))renderTabs();
+    previewReadMode();
+  };
   sbSaveBtn.onclick=async()=>{
     const state=openFileState;if(!state||!choice())return;
     sbSaveBtn.disabled=true;setStatus('Saving '+state.path+'…');
     try{
-      const res=await putFile(state.path,sbEditor.value,state.mtime);
+      const res=await putFile(state.path,cmGet(),state.mtime);
       if(res.host_version)hostVer=res.host_version;
       openFileState={path:state.path,mtime:res.mtime};
-      sbPreview.textContent=sbEditor.value;
+      sbPreview.textContent=cmGet();sbEditor.value=cmGet();
       sbPreviewPath.textContent=state.path+' · '+res.size.toLocaleString()+' bytes';
-      previewReadMode();
+      dirtyDocs.delete(state.path);conflictDocs.delete(state.path);renderTabs(); // D4: saved = clean
+      previewReadMode();persistOpenDocs();
       setStatus('Saved '+state.path+' — uncommitted; Workspace ▸ Review changes shows the diff');
       renderAttachments();
     }catch(e){setStatus(errText(e))}
@@ -789,32 +1349,6 @@ function setup():boolean{
     finally{sbDeleteBtn.disabled=false}
   };
   sbAttachToggle.onclick=()=>{const p=openFileState?.path;if(!p)return;void toggleFile(p).then(syncPreviewAttach)};
-  // Upload: local text files become files IN the selected project workspace, then
-  // attach exactly like anything else in the tree.
-  sbUpload.onclick=()=>{if(!choice())return setStatus('Select a project first — Workspace ▸ lists and registers directories');sbInput.click()};
-  sbInput.onchange=async()=>{
-    const list=sbInput.files;const files:File[]=[];
-    for(let i=0;list&&i<list.length;i++)files.push(list[i]);
-    sbInput.value='';
-    if(!files.length)return;
-    if(!choice())return setStatus('Select a project first');
-    setStatus('Uploading '+files.length+' file(s) into '+choice()+'…');
-    const existing=new Set((treeData?.entries||[]).map(e=>e.path));
-    const errors:string[]=[];let saved=0;
-    for(const f of files){
-      try{
-        if(f.size>MAX_UPLOAD_BYTES)throw new Error(f.name+' exceeds the 1 MB upload limit');
-        const buf=new Uint8Array(await f.arrayBuffer());
-        if(buf.subarray(0,4096).includes(0))throw new Error(f.name+' looks binary — text files only');
-        if(existing.has(f.name)&&!window.confirm(f.name+' already exists in the project. Overwrite it?')){errors.push(f.name+' skipped');continue}
-        await putFile(f.name,new TextDecoder().decode(buf));
-        existing.add(f.name);attached.add(f.name);saved++;
-      }catch(e){errors.push(errText(e))}
-    }
-    if(saved){saveAttached()}
-    await loadTree();renderAttachments();
-    setStatus((saved?`Uploaded ${saved} file(s) into ${choice()}`:'Nothing uploaded')+(errors.length?' — '+errors.join('; '):''));
-  };
   // --- registration: choose a Git repository under the allowed root, name it, register ---
   const slugify=(s:string)=>s.toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-+|-+$/g,'');
   let chosenRoot='';
@@ -866,6 +1400,14 @@ function setup():boolean{
     finally{createBtn.disabled=false}
   };
   filesBtn.onclick=()=>showProjectTab(true);
+  // The workspace status row reports only while Projects is the workspace on
+  // screen (user brief §6: a compact workspace status bar). One signal, sent by
+  // the module that owns navigation — not re-derived from the DOM here.
+  window.addEventListener('hermes:workspace-shown',((ev:Event)=>{
+    const ws=String((ev as CustomEvent<{workspace?:string}>).detail?.workspace||'');
+    ideStatus.hidden=ws!=='projects';
+  }) as EventListener);
+  ideStatus.hidden=true;
   refresh.onclick=()=>{if(!busy){void load();renderProjectList();void loadRoots()}};
   sync.onclick=async()=>{const name=choice();if(!name)return setStatus('Select a project first');setBusy(true);clearReview();setStatus('Synchronizing committed Git contents…');try{
     await post(`/api/projects/${encodeURIComponent(name)}/sync`);setStatus('Synchronized work-machine workspace: '+name);await load();
@@ -885,7 +1427,10 @@ function setup():boolean{
     }catch(e){clearReview();setStatus(errText(e))}finally{setBusy(false)}
   };
   // Capture runs before the original Hermes chat submit handler. An explicit @project wins.
-  form.addEventListener('submit',(ev)=>{
+  // Guard: the chat module (hermes-chat.ts) may not have loaded — the Project tab
+  // works independently of the chat composer (§6.370). If form/input aren't available,
+  // the @project injection feature is simply skipped.
+  if(form&&input)form.addEventListener('submit',(ev)=>{
     if(input.dataset.hc415Injected==='1'){delete input.dataset.hc415Injected;return}
     const name=choice();if(!name)return;const value=input.value.trim();if(!value||/^@project\s+\S+/i.test(value))return;
     // SSHFS architecture: /file reads the host path directly; attachment modes do not
@@ -1030,7 +1575,16 @@ function setup():boolean{
       const foot=document.createElement('div');foot.className='hc415-consulted';
       const head=document.createElement('strong');head.textContent='Files consulted';
       const ul=document.createElement('ul');
-      for(const h of [...new Set(hits)].sort((a,b)=>a.localeCompare(b))){const li=document.createElement('li');li.textContent=h;ul.append(li)}
+      for(const h of [...new Set(hits)].sort((a,b)=>a.localeCompare(b))){
+        // D3: a consulted file is a real host path — clicking it opens the
+        // corresponding resource in Projects (workspace-relative → the current
+        // workspace; the Projects side owns the resolution).
+        const li=document.createElement('li');
+        const open=button(h,'hc415-consulted-link');
+        open.title='Open '+h+' in Projects';
+        open.onclick=()=>window.dispatchEvent(new CustomEvent('hermes:projects:open-file',{detail:{path:h}}));
+        li.append(open);ul.append(li);
+      }
       foot.append(head,ul);bubble.append(foot);
     }
   }
@@ -1049,7 +1603,7 @@ function setup():boolean{
     w.observe(document.documentElement,{childList:true,subtree:true});
   }
   void load();loadAttached();
-  if(choice())void refreshFileContext();
+  if(choice())void refreshFileContext().then(restoreOpenDocs);
   return true;
 }
 try{

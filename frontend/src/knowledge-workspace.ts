@@ -306,6 +306,196 @@ async function showNoteGraph(noteId: string): Promise<void> {
   }
 }
 
+// =============================================================================
+// Episodic memory views (hermeshaobsidianexpansion.md §6A.2/§6A.10)
+// =============================================================================
+
+type EpisodicMemory = {
+  id: string; kind: string; title: string; summary: string;
+  context: string | null; significance: string | null;
+  retrieval_triggers: string; emotional_context: string | null;
+  created_at: string; status: string;
+};
+
+async function loadEpisodicMemories(): Promise<void> {
+  const host = el('episodic-list'); if (!host) return;
+  const health = el('episodic-health');
+  const kindFilter = el<HTMLSelectElement>('episodic-kind-filter')?.value || '';
+  if (health) health.textContent = 'Loading episodic memories…';
+  host.replaceChildren();
+  try {
+    const params = new URLSearchParams({ limit: '50', status: 'active' });
+    if (kindFilter) params.set('kind', kindFilter);
+    const body = await readJSON(`/api/memory/episodic?${params}`) as { memories?: EpisodicMemory[] };
+    const list = Array.isArray(body?.memories) ? body.memories : [];
+    if (health) health.textContent = `${list.length} active episodic memories`;
+    if (!list.length) { host.append(make('p', 'No episodic memories recorded yet.', 'knowledge-empty')); return; }
+    for (const mem of list) {
+      const card = document.createElement('article');
+      card.className = 'knowledge-match';
+      card.append(make('strong', `[${mem.kind.replace(/_/g, ' ')}] ${mem.title}`));
+      card.append(make('small', `created ${when(mem.created_at)} · ${mem.status}${mem.context ? ` · ${mem.context.slice(0, 120)}` : ''}`));
+      card.append(make('span', mem.summary, 'knowledge-excerpt'));
+      if (mem.significance) {
+        card.append(make('small', `Why it matters: ${mem.significance.slice(0, 200)}`, 'knowledge-note'));
+      }
+      card.addEventListener('click', () => toggleCardDetail(card, mem));
+      host.append(card);
+    }
+  } catch (err) {
+    if (health) health.textContent = 'Episodic memory unavailable';
+    host.append(make('p', `Could not load episodic memories: ${str(err)}`, 'knowledge-empty'));
+  }
+}
+
+// =============================================================================
+// Relational memory views (hermeshaobsidianexpansion.md §6A.2/§6A.10)
+// =============================================================================
+
+type RelationalMemory = {
+  id: string; category: string; title: string; context: string | null;
+  significance: string | null; retrieval_triggers: string;
+  reinforced_count: number; created_at: string; last_reinforced_at: string;
+  status: string;
+};
+
+async function loadRelationalMemories(): Promise<void> {
+  const host = el('relational-list'); if (!host) return;
+  const health = el('relational-health');
+  const catFilter = el<HTMLSelectElement>('relational-category-filter')?.value || '';
+  if (health) health.textContent = 'Loading relational memories…';
+  host.replaceChildren();
+  try {
+    const params = new URLSearchParams({ limit: '50', status: 'active' });
+    if (catFilter) params.set('category', catFilter);
+    const body = await readJSON(`/api/memory/relational?${params}`) as { memories?: RelationalMemory[] };
+    const list = Array.isArray(body?.memories) ? body.memories : [];
+    if (health) health.textContent = `${list.length} active relational memories`;
+    if (!list.length) { host.append(make('p', 'No relational memories recorded yet.', 'knowledge-empty')); return; }
+    for (const mem of list) {
+      const card = document.createElement('article');
+      card.className = 'knowledge-match';
+      const count = mem.reinforced_count || 1;
+      card.append(make('strong', `[${mem.category.replace(/_/g, ' ')}] ${mem.title}`));
+      card.append(make('small',
+        `reinforced ${count}× · last ${when(mem.last_reinforced_at)}${mem.context ? ` · ${mem.context.slice(0, 100)}` : ''}`));
+      // Show top retrieval triggers as chips
+      const triggers = safeJSON(mem.retrieval_triggers) as string[];
+      if (triggers.length) {
+        const tagRow = document.createElement('div');
+        tagRow.style.cssText = 'display:flex;flex-wrap:wrap;gap:4px;margin-top:6px';
+        for (const t of triggers.slice(0, 6)) {
+          const chip = document.createElement('span');
+          chip.textContent = t;
+          chip.style.cssText = 'background:#12303c;color:#9de4e1;padding:2px 7px;border-radius:4px;font-size:11px';
+          tagRow.append(chip);
+        }
+        if (triggers.length > 6) tagRow.append(make('small', `+${triggers.length - 6} more`, 'knowledge-note'));
+        card.append(tagRow);
+      }
+      card.addEventListener('click', () => toggleCardDetail(card, mem));
+      host.append(card);
+    }
+  } catch (err) {
+    if (health) health.textContent = 'Relational memory unavailable';
+    host.append(make('p', `Could not load relational memories: ${str(err)}`, 'knowledge-empty'));
+  }
+}
+
+// =============================================================================
+// Consolidation status (hermeshaobsidianexpansion.md §6A.6)
+// =============================================================================
+
+async function loadConsolidationStatus(): Promise<void> {
+  const host = el('consolidation-detail'); if (!host) return;
+  const health = el('consolidation-health');
+  if (health) health.textContent = 'Checking…';
+  host.replaceChildren();
+  try {
+    const status = await readJSON('/api/consolidation/status') as Record<string, unknown>;
+    const enabled = !!status.enabled;
+    const interval = Number(status.interval_seconds) || 21600;
+    const lastRun = str(status.last_run);
+    const nextRun = str(status.next_run);
+    const total = Number(status.total_consolidated) || 0;
+    const lastError = str(status.last_error);
+    if (health) {
+      health.textContent = enabled
+        ? `Enabled · every ${Math.round(interval / 3600)}h · ${total} items consolidated`
+        : 'Disabled (manual only)';
+    }
+    host.append(make('p',
+      `Status: ${enabled ? 'Automatic' : 'Manual only (use "Run now")'} · Interval: ${Math.round(interval / 3600)}h`,
+      'knowledge-note'));
+    if (lastRun) host.append(make('p', `Last run: ${when(lastRun)}`, 'knowledge-note'));
+    if (nextRun) host.append(make('p', `Next run: ${when(nextRun)}`, 'knowledge-note'));
+    host.append(make('p', `Total items consolidated: ${total}`, 'knowledge-note'));
+    if (lastError) host.append(make('p', `Last error: ${lastError}`, 'knowledge-note'));
+  } catch (err) {
+    if (health) health.textContent = 'Consolidation service unavailable';
+    host.append(make('p', `Could not load consolidation status: ${str(err)}`, 'knowledge-empty'));
+  }
+}
+
+async function triggerConsolidation(): Promise<void> {
+  const host = el('consolidation-detail'); if (!host) return;
+  host.replaceChildren(make('p', 'Running consolidation…', 'knowledge-empty'));
+  try {
+    const result = await readJSON('/api/consolidation/run') as Record<string, unknown>;
+    const action = str(result.action);
+    const ep = (result.episodic as Record<string, unknown>) || {};
+    const rel = (result.relational as Record<string, unknown>) || {};
+    const themes = (result.themes as Record<string, unknown>) || {};
+    const epActioned = Number(ep.actioned) || 0;
+    const relActioned = Number(rel.actioned) || 0;
+    const themesFound = Number(themes.themes_found) || 0;
+    host.replaceChildren();
+    host.append(make('p', `Consolidation ${action}`, 'knowledge-note'));
+    host.append(make('p', `Episodic: ${epActioned} deduplicated · Relational: ${relActioned} deduplicated · Themes: ${themesFound} identified`, 'knowledge-note'));
+    // Show theme observations if any
+    const obs = Array.isArray(themes.observations) ? themes.observations as { theme_keyword: string; kind: string; count: number }[] : [];
+    if (obs.length) {
+      const themeBlock = document.createElement('div');
+      themeBlock.append(make('strong', 'Recurring themes:'));
+      for (const o of obs.slice(0, 10)) {
+        themeBlock.append(make('p', `"${o.theme_keyword}" appears in ${o.count} ${o.kind.replace(/_/g, ' ')} memories`, 'knowledge-note'));
+      }
+      host.append(themeBlock);
+    }
+    void loadConsolidationStatus();
+  } catch (err) {
+    host.replaceChildren(make('p', `Consolidation failed: ${str(err)}`, 'knowledge-empty'));
+  }
+}
+
+// =============================================================================
+// Shared helpers
+// =============================================================================
+
+function when(value: unknown): string {
+  if (!value) return '—';
+  const date = new Date(str(value));
+  return Number.isFinite(date.valueOf()) ? date.toLocaleString() : str(value);
+}
+
+function safeJSON(value: unknown): unknown {
+  if (typeof value === 'string') {
+    try { return JSON.parse(value); } catch { return []; }
+  }
+  return Array.isArray(value) ? value : [];
+}
+
+/** Toggle expanded detail for a memory card — shows JSON below the summary. */
+function toggleCardDetail(card: HTMLElement, mem: Record<string, unknown>): void {
+  const existing = card.querySelector('.memory-detail-expanded');
+  if (existing) { existing.remove(); return; }
+  const detail = document.createElement('pre');
+  detail.className = 'memory-detail-expanded';
+  detail.style.cssText = 'font-size:11px;color:#9cb4c4;margin:8px 0 0;padding:8px;background:#0d1a24;border-radius:4px;overflow-x:auto;white-space:pre-wrap;max-height:200px;overflow-y:auto';
+  detail.textContent = JSON.stringify(mem, null, 2);
+  card.append(detail);
+}
+
 function boot() {
   const panel = el('workspace-knowledge'); if (!panel) return;
   const form = el<HTMLFormElement>('knowledge-search-form');
@@ -316,6 +506,15 @@ function boot() {
     void performSearch();
   });
   el('vault-search-form')?.addEventListener('submit', event => { event.preventDefault(); void performVaultSearch(); });
+  // Episodic memory controls
+  el('episodic-refresh')?.addEventListener('click', () => void loadEpisodicMemories());
+  el('episodic-kind-filter')?.addEventListener('change', () => void loadEpisodicMemories());
+  // Relational memory controls
+  el('relational-refresh')?.addEventListener('click', () => void loadRelationalMemories());
+  el('relational-category-filter')?.addEventListener('change', () => void loadRelationalMemories());
+  // Consolidation controls
+  el('consolidation-refresh')?.addEventListener('click', () => void loadConsolidationStatus());
+  el('consolidation-run')?.addEventListener('click', () => void triggerConsolidation());
   // Cross-surface handoff (spec §7): Research hands over a note id and the
   // same Knowledge context opens the exact original vault note.
   window.addEventListener('hermes:open-note', (ev: Event) => {
@@ -328,6 +527,9 @@ function boot() {
     if (nav.workspace !== 'knowledge') return;
     void loadVaultHealth();
     if (!initialLoad) void loadSources();
+    void loadEpisodicMemories();
+    void loadRelationalMemories();
+    void loadConsolidationStatus();
   });
   // Navigation can be restored before this module subscribes (initial URL deep link).
   const qs = new URLSearchParams(location.search);

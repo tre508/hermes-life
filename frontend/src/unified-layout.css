@@ -1411,7 +1411,7 @@
 #registered-form label { display: flex; flex-direction: column; gap: .15rem; font-size: .85rem; }
 #registered-error { color: #f66; margin: 0; font-size: .85rem; }
 
-/* ===== P1 Conversations: the ONE chat presentation ===== */
+/* ===== P1 IDE workspace: the primary application layout ===== */
 /* Chat audit §8: the floating assistant is RETIRED. #hermes-chat-root mounts
    into #chat-focus-host at module load and never moves, so these rules describe
    the only presentation there is. No launcher, no Close, no Expand, no
@@ -1427,16 +1427,40 @@
     height: 100%;
     max-height: 100%;
     overflow: hidden;
+    padding: 0;
 }
-#workspace-conversations .chat-focus-host {
+/* Chat and Projects are two EQUAL top-level workspaces (user brief
+   hermashauigoalexplained.md §2/§3): separate workspace sections, neither nested
+   inside the other. Chat fills its own workspace entirely. */
+#workspace-conversations > #chat-focus-host {
     position: relative;
     flex: 1 1 auto;
+    min-width: 0;
     min-height: 0;
     display: flex;
     align-items: stretch;
     justify-content: center;
-    padding: 0 1.25rem 1.25rem;
 }
+/* [hidden] loses to ANY author display rule, so a toggled region needs its own
+   guard — the chat host carries display:flex above. */
+#workspace-conversations > #chat-focus-host[hidden] { display: none !important; }
+/* Projects: the IDE fills the whole main stage beneath the shared navigation —
+   no enclosing Conversations container, no heading, no outer padding (§4/§6/§10). */
+#app #workspace-projects {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    max-height: 100%;
+    overflow: hidden;
+    padding: 0;
+}
+#workspace-projects > #project-focus-host {
+    flex: 1 1 auto;
+    min-width: 0;
+    min-height: 0;
+    display: flex;
+}
+#workspace-projects > #project-focus-host[hidden] { display: none !important; }
 /* The root is an ordinary flow child of the flex host now, not a fixed-position
    widget: `flex: 1 1 auto` + `min-height: 0` gives the panel a definite height
    in both engines. The old percentage-height-against-a-stretched-flex-item bug
@@ -1503,9 +1527,6 @@
     flex-direction: column;
 }
 /* ===== Chat audit §6: conversation history as a real column ===== */
-/* V2 audit #8: the tabs already name this surface — the heading paragraph is
-   scaffolding text and only eats conversation height. */
-#app #workspace-conversations .workspace-heading p { display: none; }
 #hc-thread-sidebar {
     flex: 0 0 280px; /* V2 audit #10: a real 280px rail, fixed */
     min-width: 0;
@@ -1649,6 +1670,8 @@
     border-left: 1px solid #1c3a47;
 }
 #app #status-strip #status-world:empty { display: none; }
+/* The IDE workspace row is reparented into this single strip (spec phase 2 §9). */
+#app #status-strip #status-ide-slot { display: flex; align-items: center; min-width: 0; flex: 0 0 auto; }
 #app #status-running-count[data-state="none"] { color: #aebed0; }
 #app #status-running-count[data-state="running"] {
     color: #93c6f2;

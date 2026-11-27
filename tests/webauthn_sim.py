@@ -50,8 +50,19 @@ class SoftAuthenticator:
                            'crossOrigin': False}).encode()
 
     def _options_dict(self, creation_options) -> dict:
+        """Require the real contract: an OBJECT.
+
+        This used to unwrap a str/bytes with json.loads, which made the double
+        more permissive than a browser and hid a real bug: the options endpoints
+        returned a JSON-encoded STRING, so navigator.credentials.create() threw
+        in every browser and enrolment never worked, while these tests passed.
+        A double must not be more forgiving than the client it stands in for.
+        """
         if isinstance(creation_options, (str, bytes)):
-            return json.loads(creation_options)
+            raise AssertionError(
+                'WebAuthn options arrived as a JSON-encoded string, not an '
+                'object. A browser cannot use that — see '
+                'test_webauthn_options_are_json_objects_not_encoded_strings.')
         return creation_options
 
     def registration_response(self, creation_options: dict) -> dict:

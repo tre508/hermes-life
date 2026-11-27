@@ -63,3 +63,23 @@ image copy 2.png
 image copy 6.png
 .gitignore
 image copy 2.png
+
+# Project documentation, specs, build specs and screenshot evidence (2026-11-27)
+/hermesha-unified-ui-spec.md
+/hermesha-ui-ux-obsidian-spec.md
+/hermesha-life-master-dev-spec.md
+/hermes-personality.md
+/devconfdet.md
+/autonomy.md
+/d7-d13-build-spec.md
+/d6-build-spec.md
+/d1-d5-build-spec.md
+/chatscreenshot.png
+/genericdevconfig.md
+/liveagent.md
+/projectscreenshot.png
+/word-home screenshot.png
+/UI-VIS-002_Hermes_Town_Multi_Avatar_Visualization.md
+/screenshots
+/phase6-reports
+/docs

@@ -101,6 +101,23 @@ const DEFAULT_CONFIG: BubbleConfig = {
 
 const RUNTIME_EVENTS = /^hermes\.(text|system|tool_use|tool_result|result)$/;
 
+/** D11 (review.md): redact sensitive FIELD VALUES from tool payloads before
+ *  anything reaches a bubble. Matches key=value / key: value / "key":"value"
+ *  shapes with a sensitive key and replaces the value with ••••. Applied only
+ *  to payload-derived strings (targets, args, result summaries) — never to
+ *  Hermes's own streamed text, which is the answer, not a payload field. */
+const SENSITIVE_KEY =
+  /((?:pass(?:word)?|secret|token|api[-_ ]?key|authorization|credential|bearer)["']?\s*[:=]\s*)("[^"]*"|'[^']*'|[^\s,;&"']+)/gi;
+const BEARER_VALUE = /\b(bearer)\s+([A-Za-z0-9._~+/=-]{8,})/gi;
+export function redactSensitive(text: string): string {
+  if (!text) return text;
+  return text
+    // "Bearer <token>" FIRST — otherwise the key=value pass consumes the
+    // scheme word as the value and the real token survives.
+    .replace(BEARER_VALUE, (_m, scheme: string) => `${scheme} ••••`)
+    .replace(SENSITIVE_KEY, (_m, key: string) => `${key}••••`);
+}
+
 /** Live payloads observed on the wire use `payload.name`; older records and
  *  tests sometimes use `payload.tool_name`. Read either, with the live field
  *  first because that's the dominant shape in production. */
@@ -269,10 +286,10 @@ export function categorizeEvent(event: {
       category: 'tool',
       content: {
         id,
-        headline: toolHeadlineFrom(toolName, payload),
-        details: toolTarget || undefined,
+        headline: redactSensitive(toolHeadlineFrom(toolName, payload)),
+        details: toolTarget ? redactSensitive(toolTarget) : undefined,
         toolName,
-        toolTarget,
+        toolTarget: redactSensitive(toolTarget),
         functionalCategory,
         status: 'running',
         startTime: now,
@@ -307,9 +324,9 @@ export function categorizeEvent(event: {
       content: {
         id,
         headline,
-        details: resultSummary,
+        details: resultSummary ? redactSensitive(resultSummary) : undefined,
         toolName,
-        toolTarget,
+        toolTarget: redactSensitive(toolTarget),
         functionalCategory,
         status: isError ? 'failed' : 'completed',
         startTime: now,
@@ -698,6 +715,11 @@ export class BubbleController {
    *  same bubble is updated so a quick stream of events doesn't dismiss
    *  the bubble early (UI-VIS-007 §10, "completed" replaces "running"). */
   private timers = new Map<string, number>();
+  // D10 (review.md): bubbles beyond maxPerResident are QUEUED + SUMMARIZED,
+  // never silently discarded. Per-resident overflow counter + recent samples;
+  // shown on the primary bubble as "+N more" and listed in the expanded view.
+  // Cleared when the resident's bubbles drain to zero.
+  private overflow = new Map<Role, { count: number; samples: string[] }>();
   /** Set on first event; used to ignore re-delivered events when the
    *  websocket reconnects and replays historical records. Resets when an
    *  explicit task boundary is observed. */
@@ -847,11 +869,18 @@ export class BubbleController {
       roleBubbles.unshift(bubble);
 
       // Enforce max per resident. The slot we just took is at index 0; older
-      // entries get dismissed (and their timers cleared) so the user isn't
-      // staring at stale bubbles.
+      // entries are NOT discarded silently (review.md D10): they're queued
+      // per-resident and summarized on the primary bubble ("+N more"), with
+      // the sample headlines listed in the expanded view.
       while (roleBubbles.length > this.config.maxPerResident) {
         const removed = roleBubbles.pop();
         if (removed) {
+          const rec = this.overflow.get(role) || { count: 0, samples: [] };
+          rec.count += 1;
+          const sample = removed.content.headline || removed.category;
+          rec.samples.unshift((removed.category === 'error' ? '✗ ' : '') + sample);
+          if (rec.samples.length > 5) rec.samples.length = 5;
+          this.overflow.set(role, rec);
           this.timers.delete(removed.id);
           const el = this.bubbleElements.get(removed.id);
           if (el) {
@@ -951,6 +980,9 @@ export class BubbleController {
       parts.push('<span class="town-bubble__target"></span>');
     }
     parts.push('</div>');
+    // D10: queued/summarized overflow — one muted line on the primary bubble;
+    // the expanded view lists the samples.
+    parts.push('<span class="town-bubble__overflow" hidden></span>');
     if (bubble.content.startTime) {
       // §9 expanded tool-call details: start/completion times are metadata of
       // the expanded view, populated in updateBubbleElement.
@@ -1058,6 +1090,31 @@ export class BubbleController {
         times.textContent = `Started ${new Date(start).toLocaleTimeString()}`;
       }
       times.hidden = !bubble.expanded;
+    }
+
+    // D10: queued/summarized overflow. The compact line always shows the count
+    // when non-zero; the expanded view appends the sample headlines.
+    const queued = element.querySelector('.town-bubble__overflow') as HTMLElement | null;
+    if (queued) {
+      const rec = this.overflow.get(bubble.role);
+      if (rec && rec.count > 0) {
+        queued.textContent = `+${rec.count} more queued event${rec.count === 1 ? '' : 's'}`;
+        queued.hidden = false;
+        if (bubble.expanded) {
+          const list = document.createElement('div');
+          list.className = 'town-bubble__overflow-list';
+          for (const s of rec.samples) {
+            const line = document.createElement('div');
+            line.className = 'town-bubble__overflow-item';
+            line.textContent = s;
+            list.appendChild(line);
+          }
+          queued.appendChild(list);
+        }
+      } else {
+        queued.hidden = true;
+        queued.textContent = '';
+      }
     }
 
     // Update accent color — for hermes.* tool events the role is always the
@@ -1217,9 +1274,9 @@ export class BubbleController {
 
   /** Dismiss a bubble with animation */
   dismissBubble(id: string): void {
-    const element = this.bubbleElements.get(id);
     const bubble = this.findBubbleById(id);
-    if (!element || !bubble) return;
+    if (!bubble) return;
+    const element = this.bubbleElements.get(id);
 
     // Cancel the dismissal timer (idempotent — may already have fired).
     const timer = this.timers.get(id);
@@ -1231,11 +1288,16 @@ export class BubbleController {
     bubble.animationState = 'exiting';
     bubble.visible = false;
 
-    if (!this.reducedMotion) {
-      element.classList.add('exiting');
-      window.setTimeout(() => this.removeBubbleElement(id), this.config.fadeDuration);
-    } else {
-      this.removeBubbleElement(id);
+    // D10 fix: dismissal works on the STATE even when no DOM element exists
+    // (a headless/offscreen controller still owns its bubble list) — without
+    // this, programmatic dismissal silently leaked the records.
+    if (element) {
+      if (!this.reducedMotion) {
+        element.classList.add('exiting');
+        window.setTimeout(() => this.removeBubbleElement(id), this.config.fadeDuration);
+      } else {
+        this.removeBubbleElement(id);
+      }
     }
 
     // Remove from role bubbles
@@ -1243,6 +1305,9 @@ export class BubbleController {
     if (roleBubbles) {
       const index = roleBubbles.findIndex(b => b.id === id);
       if (index >= 0) roleBubbles.splice(index, 1);
+      // D10: when a resident's bubbles drain to zero, its queued summary has
+      // nothing to attach to anymore — clear it rather than leak it.
+      if (roleBubbles.length === 0) this.overflow.delete(bubble.role);
     }
   }
 

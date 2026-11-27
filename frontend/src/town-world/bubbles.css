@@ -269,6 +269,29 @@
 .town-bubble__times[hidden] { display: none; }
 .town-bubble.expanded .town-bubble__times { display: block; }
 
+/* D10: queued/summarized overflow (review.md) — a muted "+N more" line on the
+   primary bubble; the expanded view lists the sample headlines. */
+.town-bubble__overflow {
+  display: block;
+  font-size: 10px;
+  font-style: italic;
+  color: #7f9aa0;
+  margin-top: 2px;
+}
+.town-bubble__overflow[hidden] { display: none; }
+.town-bubble__overflow-list {
+  margin-top: 3px;
+  padding-left: 10px;
+  display: block;
+}
+.town-bubble__overflow-item {
+  font-size: 10px;
+  color: #8fa8ac;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 /* Expand/collapse and click-to-navigate affordances. */
 .town-bubble__expand {
   display: inline-block;

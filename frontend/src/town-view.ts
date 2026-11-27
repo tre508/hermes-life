@@ -548,7 +548,7 @@ function clock(timestamp: number): string {
 
 // --------------------------------------------------------------------------- interaction
 
-import { openWorkspace, openWorkView, openTask, setSelection, type WorkView } from './navigation-state.ts';
+import { openWorkspace, openWorkView, openTask, openActivityForTask, setSelection, type WorkView } from './navigation-state.ts';
 import { registerKindRenderer, rerenderInspector, KIND_LABEL } from './context-inspector';
 
 function openView(view: string): void {
@@ -642,6 +642,16 @@ function showResident(role: Role): void {
       openTask(resident.taskId!, { destination: 'work' });
     });
     actions.append(task);
+    // D18 (review.md): the spec's resident focus shows "relevant events,
+    // evidence" — the task's Activity timeline is the durable record, one
+    // filtered click away instead of a manual hunt.
+    const evidence = document.createElement('button');
+    evidence.type = 'button';
+    evidence.textContent = 'Activity / evidence';
+    evidence.addEventListener('click', () => {
+      openActivityForTask(resident.taskId!);
+    });
+    actions.append(evidence);
   }
   const close = document.createElement('button');
   close.type = 'button';

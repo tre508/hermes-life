@@ -351,7 +351,11 @@ def add_passkey_routes(app: FastAPI, config: GateConfig) -> None:
         )
         raw = options.challenge
         config.store_challenge(raw, KIND_REGISTER)
-        return options_to_json(options)
+        # options_to_json() returns a JSON *string*; returning a str from a route
+        # makes FastAPI JSON-encode the string itself, so the browser receives
+        # "{\"rp\":...}" instead of an object and navigator.credentials.create()
+        # throws on it. Parse to a dict so the route returns a real object.
+        return json.loads(options_to_json(options))
 
     @app.post('/api/entrance/webauthn/register')
     def register(request: Request, credential: dict):
@@ -421,7 +425,8 @@ def add_passkey_routes(app: FastAPI, config: GateConfig) -> None:
                 id=_from_b64url(c['credential_id'])) for c in creds],
         )
         config.store_challenge(options.challenge, KIND_AUTHENTICATE)
-        return options_to_json(options)
+        # Same as register/options: return an object, not a JSON-encoded string.
+        return json.loads(options_to_json(options))
 
     @app.post('/api/entrance/webauthn/authenticate')
     def authenticate(request: Request, credential: dict):

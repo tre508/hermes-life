@@ -20,11 +20,14 @@ TERMINAL_TASK_STATES = ('completed', 'failed', 'cancelled')
 
 
 class Personality:
-    def __init__(self, store):
+    def __init__(self, store, episodic_memory=None, relational_memory=None, retrieval=None):
         self.store = store
         self.reflection = Reflection(store)
         self.technical_memory = TechnicalMemory(store)
         self.recall = Recall(store)  # User preferences, corrections, decisions, workflows
+        self.episodic_memory = episodic_memory  # hermeshaobsidianexpansion.md §6A.2
+        self.relational_memory = relational_memory  # hermeshaobsidianexpansion.md §6A.2
+        self.retrieval = retrieval  # hermeshaobsidianexpansion.md §6A.7
 
     def record_applied_context(self, task_id, persona_sha256, memory_ids, lesson_ids):
         """Record what this run was given, so "the profile adapted future behaviour" is checkable.
@@ -139,7 +142,9 @@ def task_context(profile, learned_profile=None, task_knowledge=None):
     return '\n'.join(lines) + '\n\n'
 
 
-def compose_prompt(*, library, profile, learned_profile, task_knowledge, lessons, reflections, prompt):
+def compose_prompt(*, library, profile, learned_profile, task_knowledge,
+                   episodic_context=None, relational_context=None,
+                   memory_context=None, lessons, reflections, prompt):
     """The single, documented context-assembly order for a user-facing prompt (HL-PERS-001 §5A/§5C/#11).
 
     This function is the only owner of that order: nothing else concatenates these sources, so a source
@@ -149,13 +154,19 @@ def compose_prompt(*, library, profile, learned_profile, task_knowledge, lessons
     2. core identity                the fixed persona
     3. learned behavioural profile  durable preferences / corrections / decisions / workflows
     4. recalled task memory         past turns and learned memories relevant to this prompt
-    5. technical lessons            stored evidence-backed lessons that matched the prompt
-    6. past reflections             prior outcome summaries
-    7. the task prompt
-    8. the learning-report protocol asked to be appended to the human answer
+    5. contextual memory            retrieved from all memory layers (hermeshaobsidianexpansion.md §6A.7)
+       (replaces separate episodic + relational blocks when available)
+    6. (legacy) episodic memory     significant shared experiences — only when memory_context is absent
+    7. (legacy) relational memory   conversational patterns — only when memory_context is absent
+    8. technical lessons            stored evidence-backed lessons that matched the prompt
+    9. past reflections             prior outcome summaries
+    10. the task prompt
+    11. the learning-report protocol asked to be appended to the human answer
     """
+    memory_block = memory_context or (episodic_context or '') + (relational_context or '')
     return (library
             + task_context(profile, learned_profile, task_knowledge)
+            + memory_block
             + lessons
             + reflections
             + prompt + '\n\n' + REPORT_INSTRUCTIONS)
@@ -205,6 +216,36 @@ class PersonalityAdapter:
         applied_memory_ids = sorted({entry['memory_id'] for entry in entries if entry['memory_id']}
                                     | {row['id'] for row in injected_profile_memories(learned)})
         
+        # Retrieve contextual memory via the enhanced pipeline (hermeshaobsidianexpansion.md §6A.7)
+        # or fall back to the legacy separate-layer calls.
+        memory_context = ''
+        episodic_context = ''
+        relational_context = ''
+        retrieval = getattr(self.personality, 'retrieval', None)
+        if retrieval is not None:
+            try:
+                ctx = retrieval.retrieve(prompt)
+                if ctx.context_block:
+                    memory_context = ctx.context_block
+                    applied_memory_ids.extend(ctx.entry_ids)
+            except Exception:
+                pass  # Pipeline failure falls through to legacy path
+
+        # Legacy fallback: separate episodic + relational retrieval
+        if not memory_context:
+            episodic_context = ''
+            relational_context = ''
+            if hasattr(self.personality, 'episodic_memory') and self.personality.episodic_memory is not None:
+                ep_entries = self.personality.episodic_memory.relevant_context(prompt)
+                episodic_context = self.personality.episodic_memory.format_context(ep_entries)
+                applied_memory_ids.extend(e[1]['id'] for e in ep_entries)
+            if hasattr(self.personality, 'relational_memory') and self.personality.relational_memory is not None:
+                rel_entries = self.personality.relational_memory.relevant_context(prompt)
+                relational_context = self.personality.relational_memory.format_context(rel_entries)
+                applied_memory_ids.extend(r[1]['id'] for r in rel_entries)
+            memory_context = (episodic_context or '') + (relational_context or '')
+        applied_memory_ids = sorted(set(applied_memory_ids))
+        
         def collect(kind, payload):
             if len(kinds)<1000: kinds.append(str(kind)[:80])
             evidence=observation(kind,payload)
@@ -218,6 +259,7 @@ class PersonalityAdapter:
         augmented = compose_prompt(
             library=self.library.context(prompt) if self.library is not None else '',
             profile=profile, learned_profile=learned, task_knowledge=relevant_memories,
+            memory_context=memory_context,
             lessons=memory.context(relevant), reflections=reflection.context(prompt), prompt=prompt)
         # Recorded before the delegate runs: this is the input the task received.
         self.personality.record_applied_context(task_id,

@@ -57,24 +57,17 @@ window.addEventListener('unhandledrejection',e=>window.__errs.push('REJ '+String
     <span class="mode-note" id="mode-note"></span>
   </div>
   <div id="harness-errs"></div>
-  <header class="workspace-heading">
-    <h2>Conversations <small>one canonical thread system</small> — HARNESS</h2>
-    <p>Chat tab is a placeholder; the Project tab is the real phase412 surface, IDE shell and all.</p>
-  </header>
-  <nav id="conv-tabs" class="conv-tabs" role="tablist" aria-label="Conversation surfaces">
-    <button id="conv-tab-chat" class="conv-tab active" role="tab" aria-selected="true" type="button">Chat</button>
-    <button id="conv-tab-project" class="conv-tab" role="tab" aria-selected="false" type="button">Project</button>
-  </nav>
+  <!-- Phase 1: no heading or Chat/Project tabs — the IDE workspace fills directly -->
   <div id="chat-focus-host" class="chat-focus-host">
-    <p class="placeholder">#hermes-chat-root lives here in the real app.<br/>Switch to the Project tab →</p>
+    <p class="placeholder">#hermes-chat-root lives here in the real app.<br/>The IDE workspace is directly below.</p>
   </div>
-  <section id="project-focus-host" role="tabpanel" aria-label="Project files" hidden></section>
+  <section id="project-focus-host" role="tabpanel" aria-label="Project workspace"></section>
 </div>
 
 <!-- Minimal chat-panel stub: phase412 anchors on #hc-panel / #hc-form / #hc-input and
      mounts its project selector into #hc-project-slot (mirrors src/hermes-chat.ts). -->
 <div id="hc-panel" hidden>
-  <form id="hc-form"><div class="hc-composer-box"><textarea id="hc-input" rows="1" placeholder="Ask Hermesha to build, explain, fix, or research…" aria-label="Message Hermesha"></textarea><div class="hc-composer-tools"><button id="hc-attach" type="button"><span aria-hidden="true">＋</span> Attach</button><span id="hc-project-slot" class="hc-project-slot"></span></div><div class="hc-composer-actions"><button id="hc-model-button" type="button"><span id="hc-model-button-label">Worker default</span></button><button id="hc-usage-chip" type="button"><span id="hc-usage-chip-label">Context unavailable</span></button><button id="hc-send" type="submit"><span aria-hidden="true">➤</span> Send</button></div></div></form>
+  <form id="hc-form"><div class="hc-composer-box"><textarea id="hc-input" rows="1" placeholder="Ask Hermesha to build, explain, fix, or research…" aria-label="Message Hermesha"></textarea><div class="hc-composer-tools"><button id="hc-attach" type="button"><span aria-hidden="true">＋</span> Attach</button><span id="hc-project-slot" class="hc-project-slot"></span></div><div class="hc-composer-actions"><button id="hc-model-button" type="button"><span id="hc-model-button-label">Worker default</span></button><button id="hc-usage-chip" type="button" class="hc-metrics-toolbar" aria-haspopup="dialog" aria-expanded="false" title="Live model usage — click for the detail panel"><span class="hc-metric hc-metric-context" id="hc-metric-context">Context: —</span><span class="hc-metric-sep" aria-hidden="true">|</span><span class="hc-metric hc-metric-tokens" id="hc-metric-tokens">Tokens: —</span><span class="hc-metric-sep" aria-hidden="true">|</span><span class="hc-metric hc-metric-cost" id="hc-metric-cost">Cost: —</span><span class="hc-metric-sep" aria-hidden="true">|</span><span class="hc-metric hc-metric-balance" id="hc-metric-balance">Balance: —</span></button><button id="hc-send" type="submit"><span aria-hidden="true">➤</span> Send</button></div></div></form>
 </div>
 
 <script type="module">
@@ -187,13 +180,10 @@ await import('/src/phase412-project-ui.ts');
 // ---- surface anything the page threw (the module swallows most of it) --------
 const paint=()=>{const el=document.getElementById('harness-errs');const e=window.__errs||[];el.dataset.any=String(e.length>0);el.textContent=e.length?('page errors: '+e.join(' | ')):''};
 setInterval(paint,700);paint();
-// Open the Project tab for the reader. NOT a synchronous click: the module defers
-// its setup to DOMContentLoaded, which fires after every module script, so a click
-// on the next line would land before the listener exists and silently do nothing
-// (measured: the tab appeared inert and the tree stayed on its empty state).
-const openProjectTab=()=>{const el=document.getElementById('conv-tab-project');if(el)el.click()};
-if(document.readyState==='complete')setTimeout(openProjectTab,0);
-else addEventListener('DOMContentLoaded',()=>setTimeout(openProjectTab,0));
+// Phase 1: no Chat/Project tab bar — the IDE workspace is the default view.
+// The setup() function in phase412-project-ui.ts constructs #hc415-project-view
+// and appends it to #project-focus-host automatically at module load.
+// (The old conv-tab-project click is removed since the element no longer exists.)
 </script>
 </body>
 </html>

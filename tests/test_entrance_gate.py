@@ -158,6 +158,43 @@ def _register_passkey(client, authenticator):
     return credential
 
 
+def test_webauthn_options_are_json_objects_not_encoded_strings(tmp_path, monkeypatch):
+    """The wire SHAPE, not just the behaviour.
+
+    The browser does navigator.credentials.create({publicKey: options}), which
+    needs an OBJECT. The webauthn library's options_to_json() returns a str, and
+    returning a str from a FastAPI route JSON-encodes the string itself — so the
+    browser received "{\\"rp\\":...}" and threw, and the registration POST never
+    happened. The simulator unwrapped the string, so the suite stayed green while
+    enrolment was broken for every real browser. Pin the shape here.
+    """
+    from webauthn_sim import SoftAuthenticator
+    with _passkey_client(tmp_path, monkeypatch) as client:
+        client.post('/api/entrance/unlock', json={'password': PASSWORD})
+
+        options = client.get('/api/entrance/webauthn/register/options')
+        assert options.status_code == 200, options.text
+        payload = options.json()
+        assert isinstance(payload, dict), (
+            'register/options must return a JSON object; got '
+            f'{type(payload).__name__} — a browser cannot pass that to '
+            'navigator.credentials.create()')
+        assert 'challenge' in payload and 'rp' in payload
+
+        authenticator = SoftAuthenticator(RP_ID, ORIGIN)
+        reg = client.post('/api/entrance/webauthn/register',
+                          json=authenticator.registration_response(payload))
+        assert reg.status_code == 200, reg.text
+
+        auth = client.get('/api/entrance/webauthn/authenticate/options')
+        assert auth.status_code == 200, auth.text
+        payload = auth.json()
+        assert isinstance(payload, dict), (
+            'authenticate/options must return a JSON object; got '
+            f'{type(payload).__name__}')
+        assert 'challenge' in payload
+
+
 def test_passkey_requires_gate_and_session(tmp_path, monkeypatch):
     with _passkey_client(tmp_path, monkeypatch) as client:
         # Enrolment is session-gated: a locked client gets 401.

@@ -1,12 +1,17 @@
-/** Chat composer attachments — Hermes-Desktop-style (user brief, 2026-11-25):
- *  the chat is NOT pre-attached to any project. The ＋ Attach button opens a
- *  menu (Files…, Folders…, Images…, Paste image, URL…) and each pick becomes a
- *  chip above the composer; on send the chips compose into a reference block
- *  prepended to the prompt. Files/folders/URLs are PATH references — the worker
- *  has real filesystem reach and reads them with its tools, mirroring the CLI.
- *  Images need the project upload endpoint (PUT /api/projects/{name}/file), so
- *  those two items stay disabled until THIS conversation has an explicit
- *  project chosen in the Project tab — never a global fallback.
+/** Chat composer attachments (user brief hermashauigoalexplained.md §5):
+ *  the chat is NOT pre-attached to any project, and attaching a hosted file or
+ *  directory does NOT require registering it as a project. The ＋ Attach button
+ *  opens a menu (Browse the host…, Images…, Paste image, URL…) and each pick
+ *  becomes a chip above the composer; on send the chips compose into a reference
+ *  block prepended to the prompt. File/folder chips are PATH references — the
+ *  worker has real filesystem reach and reads them with its tools, mirroring the
+ *  CLI. The host picker browses through /api/fs/list, which serves only paths
+ *  inside the configured permitted roots, so the affordance adds reach beyond a
+ *  registered project but never beyond the deployment's boundary.
+ *  Images and pasted images upload WITHOUT any registered project (policy
+ *  decision 2026-11-27, review.md D6): the server stores them under
+ *  <primary permitted root>/hermes-uploads/<date>/ and the returned absolute
+ *  host path becomes an ordinary file reference chip.
  *
  *  Contract used by hermes-chat.ts:
  *    initChatAttach()      — wire the menu once (idempotent, safe on re-import)
@@ -68,35 +73,168 @@ function askValue(title:string,placeholder:string,validate?:(v:string)=>string|n
 const absPath=(v:string)=>v.startsWith('/')?null:'Use an absolute path (starts with /) — the worker reads host paths.';
 const nonEmpty=(v:string)=>v?null:'Enter a value.';
 
-function addChip(kind:Chip['kind']){return async()=>{
-  let v:string|null=null;
-  if(kind==='url')v=await askValue('Attach a URL','https://…',nonEmpty);
-  else v=await askValue(kind==='file'?'Attach a file':'Attach a folder','/absolute/path/…',absPath);
+async function addUrl(){
+  const v=await askValue('Attach a URL','https://…',nonEmpty);
   if(!v)return;
-  if(chips.some(c=>c.kind===kind&&c.value===v))return;
-  chips.push({kind,value:v});renderChips();
-}}
-
-/** Images (file picker or paste) upload into the conversation's project
- *  workspace via the existing PUT endpoint — the same path the Project tab's
- *  Upload button uses. Without an explicit project there is nowhere to put an
- *  image, so the menu items are disabled with that reason in the tooltip. */
-function conversationProject():string{
-  try{
-    const cid=localStorage.getItem('hermes-life-chat-conversation')||'';
-    const map=JSON.parse(localStorage.getItem('hermes-life-project-by-conversation')||'{}');
-    return (cid&&map&&typeof map==='object'&&typeof map[cid]==='string')?map[cid]:'';
-  }catch{return ''}
+  if(chips.some(c=>c.kind==='url'&&c.value===v))return;
+  chips.push({kind:'url',value:v});renderChips();
 }
 
+/* ---- §5: the hosted-filesystem picker ---------------------------------------
+ *  Registration and attachment are separate operations (user brief §5): a file
+ *  or directory can be attached WITHOUT first becoming a project. This browses
+ *  the host one level at a time through /api/fs/list, which enforces the same
+ *  configured-root containment the project reader uses — so the picker offers
+ *  more reach than a registered project, never more than the deployment allows.
+ *  Registered projects appear as shortcuts; anything under a permitted root is
+ *  reachable by navigating. */
+
+type FsEntry={name:string;path:string;type:'dir'|'file';size?:number|null};
+type FsListing={path:string;parent:string|null;roots:string[];entries:FsEntry[]};
+
+async function fsList(path?:string):Promise<FsListing>{
+  const r=await fetch('/api/fs/list'+(path?'?path='+encodeURIComponent(path):''));
+  if(!r.ok){let detail='';try{detail=(await r.json() as {detail?:string}).detail||''}catch{}
+    throw new Error(detail||('HTTP '+r.status))}
+  return await r.json() as FsListing;
+}
+
+function fmtSize(n?:number|null):string{
+  if(typeof n!=='number')return '';
+  if(n<1024)return n+' B';
+  if(n<1024*1024)return (n/1024).toFixed(1)+' KB';
+  return (n/1048576).toFixed(1)+' MB';
+}
+
+function shortName(p:string):string{
+  const bits=p.split('/').filter(Boolean);
+  return bits.length?bits[bits.length-1]:p;
+}
+
+function openHostPicker():Promise<void>{
+  return new Promise(resolve=>{
+    const dlg=document.createElement('dialog');dlg.className='hc-fs-picker';
+    dlg.innerHTML='<div class="hc-fs-head"><strong>Attach from the hosted computer</strong>'+
+      '<button type="button" class="hc-fs-close" aria-label="Close">✕</button></div>'+
+      '<div class="hc-fs-bar"><button type="button" class="hc-fs-up" title="Go up one level">↑ Up</button>'+
+      '<input class="hc-fs-path" type="text" spellcheck="false" autocomplete="off" aria-label="Current directory"></div>'+
+      '<div class="hc-fs-shortcuts"></div>'+
+      '<div class="hc-fs-list" role="listbox" aria-multiselectable="true"></div>'+
+      '<p class="hc-fs-note" role="status"></p>'+
+      '<div class="hc-fs-foot"><span class="hc-fs-count">Nothing selected</span>'+
+      '<button type="button" class="hc-fs-cancel">Cancel</button>'+
+      '<button type="button" class="hc-fs-add" disabled>Attach</button></div>';
+
+    const listEl=dlg.querySelector('.hc-fs-list') as HTMLElement;
+    const pathEl=dlg.querySelector('.hc-fs-path') as HTMLInputElement;
+    const noteEl=dlg.querySelector('.hc-fs-note') as HTMLElement;
+    const countEl=dlg.querySelector('.hc-fs-count') as HTMLElement;
+    const upEl=dlg.querySelector('.hc-fs-up') as HTMLButtonElement;
+    const addEl=dlg.querySelector('.hc-fs-add') as HTMLButtonElement;
+    const scEl=dlg.querySelector('.hc-fs-shortcuts') as HTMLElement;
+    const picked=new Map<string,'dir'|'file'>();
+    let shortcutsBuilt=false;
+
+    const paintPicked=()=>{
+      countEl.textContent=picked.size?picked.size+' selected':'Nothing selected';
+      addEl.disabled=!picked.size;
+      addEl.textContent=picked.size?'Attach '+picked.size:'Attach';
+    };
+
+    const mkShortcut=(label:string,path:string,title:string)=>{
+      const b=document.createElement('button');b.type='button';b.className='hc-fs-shortcut';
+      b.textContent=label;b.title=title;b.onclick=()=>void go(path);return b;
+    };
+
+    // Registered projects are a SHORTCUT, not a requirement — the roots are the
+    // real boundary, and every directory beneath them is reachable by navigating.
+    async function buildShortcuts(roots:string[]){
+      const bits=roots.map(r=>mkShortcut('⌂ '+shortName(r),r,'Permitted root: '+r));
+      try{
+        const r=await fetch('/api/projects');
+        if(r.ok){
+          const d=await r.json() as {projects?:{name:string;host_path:string}[]};
+          for(const p of (d.projects||[]))bits.push(mkShortcut('▣ '+p.name,p.host_path,'Registered project: '+p.host_path));
+        }
+      }catch{/* shortcuts are optional; the browser still works without them */}
+      scEl.replaceChildren(...bits);
+    }
+
+    function row(e:FsEntry):HTMLElement{
+      const wrap=document.createElement('div');wrap.className='hc-fs-row';wrap.dataset.type=e.type;
+      const box=document.createElement('input');box.type='checkbox';box.className='hc-fs-check';
+      box.checked=picked.has(e.path);box.setAttribute('aria-label','Select '+e.name);
+      const sync=()=>{if(box.checked)picked.set(e.path,e.type);else picked.delete(e.path);paintPicked()};
+      box.onchange=sync;
+      const glyph=document.createElement('span');glyph.className='hc-fs-glyph';
+      glyph.setAttribute('aria-hidden','true');glyph.textContent=e.type==='dir'?'📁':'📄';
+      const name=document.createElement('button');name.type='button';name.className='hc-fs-name';
+      name.textContent=e.name;
+      name.title=e.type==='dir'?'Open '+e.path:'Select '+e.path;
+      name.onclick=()=>{if(e.type==='dir')void go(e.path);else{box.checked=!box.checked;sync()}};
+      const meta=document.createElement('span');meta.className='hc-fs-meta';
+      meta.textContent=e.type==='dir'?'folder':fmtSize(e.size);
+      wrap.append(box,glyph,name,meta);
+      return wrap;
+    }
+
+    async function go(path?:string){
+      noteEl.textContent='Loading…';
+      try{
+        const data=await fsList(path);
+        pathEl.value=data.path;
+        upEl.disabled=!data.parent;
+        upEl.dataset.parent=data.parent||'';
+        noteEl.textContent=data.entries.length?'':'This folder has nothing attachable.';
+        listEl.replaceChildren(...data.entries.map(row));
+        if(!shortcutsBuilt){shortcutsBuilt=true;void buildShortcuts(data.roots)}
+      }catch(err){
+        // Never fail silently: the refusal reason (outside the permitted roots,
+        // not a directory) is the useful part.
+        noteEl.textContent='Cannot list that folder — '+(err as Error).message;
+      }
+    }
+
+    const finish=()=>{if(dlg.open)dlg.close();else{dlg.remove();resolve()}};
+    (dlg.querySelector('.hc-fs-close') as HTMLButtonElement).onclick=finish;
+    (dlg.querySelector('.hc-fs-cancel') as HTMLButtonElement).onclick=finish;
+    dlg.addEventListener('cancel',ev=>{ev.preventDefault();finish()}); // Escape
+    dlg.addEventListener('close',()=>{dlg.remove();resolve()});
+    upEl.onclick=()=>{const p=upEl.dataset.parent;if(p)void go(p)};
+    pathEl.addEventListener('keydown',ev=>{
+      if(ev.key!=='Enter')return;
+      ev.preventDefault();
+      const v=pathEl.value.trim();
+      const problem=absPath(v);
+      if(problem){noteEl.textContent=problem;return}
+      void go(v);
+    });
+    addEl.onclick=()=>{
+      for(const [p,type] of picked){
+        const kind:Chip['kind']=type==='dir'?'folder':'file';
+        if(!chips.some(c=>c.value===p))chips.push({kind,value:p});
+      }
+      renderChips();finish();
+    };
+
+    paintPicked();
+    document.body.append(dlg);dlg.showModal();
+    void go();
+  });
+}
+
+/** Images (file picker or paste) upload WITHOUT any registered project (policy
+ *  decision 2026-11-27, review.md D6): the server picks the destination inside
+ *  the permitted root (<root>/hermes-uploads/<date>/) and returns the absolute
+ *  host path, which becomes an ordinary file reference chip — the worker reads
+ *  it with its file tools, exactly like a browsed attachment. No permission is
+ *  granted and no task is submitted by uploading. */
 async function uploadImage(file:File){
-  const project=conversationProject();
-  if(!project){alert('Choose a project for this conversation in the Project tab first — images upload into the project workspace.');return}
   const buf=await file.arrayBuffer();
   let binary='';const bytes=new Uint8Array(buf);
   // Chunked String.fromCharCode — spread on a large file overflows the call stack.
   for(let i=0;i<bytes.length;i+=0x8000)binary+=String.fromCharCode(...bytes.subarray(i,i+0x8000));
-  const r=await fetch(`/api/projects/${encodeURIComponent(project)}/file`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({path:file.name,content_base64:btoa(binary)})});
+  const r=await fetch('/api/fs/upload',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({filename:file.name,content_base64:btoa(binary)})});
   if(!r.ok){let detail='';try{detail=JSON.stringify(await r.json())}catch{}alert('Upload failed: HTTP '+r.status+' '+detail);return}
   const data=await r.json() as {path?:string};
   const stored=data.path||file.name;
@@ -124,16 +262,6 @@ async function pasteImage(){
   alert('No image on the clipboard — use Images… to pick a file instead.');
 }
 
-function refreshImageItems(menu:HTMLElement){
-  const has=!!conversationProject();
-  const items=menu.querySelectorAll<HTMLElement>('[data-needs-project]');
-  for(let i=0;i<items.length;i++){
-    const item=items[i];
-    item.classList.toggle('hc-attach-disabled',!has);
-    item.title=has?'':'Choose a project for this conversation in the Project tab first — images upload into the project workspace.';
-  }
-}
-
 export function initChatAttach(){
   const btn=el('hc-attach');
   if(!btn||wired)return;
@@ -148,18 +276,17 @@ export function initChatAttach(){
     return b;
   };
   menu.append(
-    item('Files…','📄',()=>void addChip('file')()),
-    item('Folders…','📁',()=>void addChip('folder')()),
-    item('Images…','🖼️',imageInput,{'data-needs-project':'1'}),
-    item('Paste image','📋',()=>void pasteImage(),{'data-needs-project':'1'}),
-    item('URL…','🔗',()=>void addChip('url')()),
+    item('Browse the host…','🗂',()=>void openHostPicker()),
+    item('Images…','🖼️',imageInput),
+    item('Paste image','📋',()=>void pasteImage()),
+    item('URL…','🔗',()=>void addUrl()),
   );
   const tip=document.createElement('p');tip.className='hc-attach-tip';tip.textContent='💡 Type @ to reference files inline';
   menu.append(tip);
   btn.after(menu);
   const close=()=>{menu.hidden=true;btn.setAttribute('aria-expanded','false')};
   btn.setAttribute('aria-haspopup','menu');btn.setAttribute('aria-expanded','false');
-  btn.onclick=(ev)=>{ev.stopPropagation();const open=!menu.hidden;menu.hidden=open;btn.setAttribute('aria-expanded',String(!open));if(!open)refreshImageItems(menu)};
+  btn.onclick=(ev)=>{ev.stopPropagation();const open=!menu.hidden;menu.hidden=open;btn.setAttribute('aria-expanded',String(!open))};
   document.addEventListener('click',(ev)=>{if(!menu.hidden&&!menu.contains(ev.target as Node)&&ev.target!==btn)close()});
   document.addEventListener('keydown',(ev)=>{if(ev.key==='Escape'&&!menu.hidden)close()});
 }
@@ -178,3 +305,10 @@ export function chatAttachmentBlock():string{
 }
 
 export function clearChatAttachments(){chips.length=0;renderChips()}
+
+/** D9 (review.md): Projects-side "Send file reference to chat". The path
+ *  becomes an ordinary reference chip above the canonical composer — it is
+ *  included with the NEXT message and NEVER sends anything by itself. */
+export function addExternalRef(value:string){
+  if(!chips.some(c=>c.value===value)){chips.push({kind:'file',value});renderChips()}
+}

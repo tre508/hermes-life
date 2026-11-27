@@ -29,6 +29,7 @@
                 <div id="global-search-results" class="global-search-results" role="listbox" hidden></div>
             </div>
             <button id="header-chat-open" type="button" class="header-chat-btn" title="Open Hermes conversation">Chat ✦</button>
+            <button id="header-project-open" type="button" class="header-chat-btn" title="Open the project workspace — browse, open and edit files">Project ⬒</button>
             <span id="attention-badge" hidden title="Items awaiting your decision"></span>
             <button id="topbar-logout" type="button" class="header-chat-btn" title="Log out — return to the entrance gate">Logout</button>
             <button id="topbar-passkey" type="button" class="header-chat-btn" title="Register a passkey on this device for passwordless unlock" hidden>🔑 Passkey</button>
@@ -45,7 +46,8 @@
              preserved selection — nothing is dropped. -->
         <span class="hc-nav-caption">Experience</span>
         <button data-workspace="world" class="active" type="button" aria-pressed="true">◈ World</button>
-        <button data-workspace="conversations" type="button" aria-pressed="false">◉ Conversations</button>
+        <button data-workspace="conversations" type="button" aria-pressed="false">◉ Chat</button>
+        <button data-workspace="projects" type="button" aria-pressed="false">⬒ Projects</button>
         <button data-workspace="home" type="button" aria-pressed="false">◇ Home</button>
         <span class="hc-nav-caption">Operations</span>
         <button data-workspace="work" data-hc-workview="tasks" type="button" aria-pressed="false">▤ Work</button>
@@ -80,6 +82,9 @@
         <!-- The World's operational status (spec §5): one strip at the bottom of
              the app, not a block wedged between the canvas and the composer. -->
         <div id="status-world" class="status-world"></div>
+        <!-- IDE workspace state (spec phase 2 §9): the workspace row is NOT a second
+             status bar — its chips render into this single app-wide strip. -->
+        <div id="status-ide-slot" class="status-ide-slot"></div>
         <div class="status-strip-actions">
             <button id="status-open-activity" type="button" title="Open the full Activity timeline">Activity</button>
             <button id="hc-sync" type="button" class="header-chat-btn" title="Reload synchronized status">Sync</button>
@@ -388,28 +393,23 @@
         <div id="attention-list" class="attention-list"></div>
     </section>
 
-    <!-- ===================== CONVERSATIONS · one canonical thread surface =====================
-         The floating Hermes chat panel (#hermes-chat-root, hermes-chat.ts) is
-         reparented here by main.v2 while this workspace is active — the same
-         conversation system, threads and drafts, only the presentation changes
-         (spec invariant §1 "One conversation system", §4 Conversations).
-         Outside this workspace the panel returns to <body> as the corner dock. -->
+    <!-- ===================== CHAT WORKSPACE · the conversational interface =====================
+         Chat and Projects are two EQUAL, independent primary views (user brief
+         hermashauigoalexplained.md): neither is nested inside the other, neither
+         requires the other to be open, and they share only infrastructure —
+         filesystem, execution state and file-change events — never presentation.
+         Projects is its own top-level workspace, below. -->
     <section id="workspace-conversations" class="workspace-view" data-layout="focus" hidden>
-        <header class="workspace-heading">
-            <div>
-                <h2>Conversations <small>one canonical thread system</small></h2>
-                <p>Every thread shares the same canonical conversation IDs as Task Board and Chat — presentation only changes here.</p>
-            </div>
-        </header>
-        <nav id="conv-tabs" class="conv-tabs" role="tablist" aria-label="Conversation surfaces">
-            <button id="conv-tab-chat" class="conv-tab active" role="tab" aria-selected="true" type="button">Chat</button>
-            <button id="conv-tab-project" class="conv-tab" role="tab" aria-selected="false" type="button">Project</button>
-        </nav>
         <div id="chat-focus-host" class="chat-focus-host"></div>
-        <!-- Project tab: the same two-column anatomy as the chat — the file rail in the
-             thread-list slot, the file stage in the conversation slot. Populated by
-             phase412-project-ui.ts; the cramped in-chat Files sidebar is retired. -->
-        <section id="project-focus-host" class="hc415-project-host" role="tabpanel" aria-label="Project files" hidden></section>
+    </section>
+
+    <!-- ===================== PROJECT WORKSPACE · the IDE =====================
+         A VS Code-style environment for files, directories and registered
+         workspaces. Runs WITHOUT an active conversation, fills the whole main
+         stage beneath the shared navigation, and has no enclosing Conversations
+         container or heading. -->
+    <section id="workspace-projects" class="workspace-view" data-layout="focus" hidden>
+        <section id="project-focus-host" class="hc415-project-host" role="region" aria-label="Project workspace"></section>
     </section>
 
     <!-- ===================== RESEARCH · session with sources, findings, questions =====================
@@ -498,6 +498,64 @@
                     <button type="submit">Search vault</button>
                 </form>
                 <div id="vault-results" class="knowledge-panel knowledge-panel--results"></div>
+            </div>
+
+            <!-- ===== Episodic memories (hermeshaobsidianexpansion.md §6A.2/§6A.10) ===== -->
+            <div id="episodic-memory-block" class="knowledge-vault">
+                <header class="knowledge-vault-head">
+                    <h3>Episodic memory <small>significant experiences</small></h3>
+                    <div id="episodic-health" role="status" aria-live="polite">Loading…</div>
+                </header>
+                <div class="memory-filter-bar">
+                    <select id="episodic-kind-filter" aria-label="Filter by kind">
+                        <option value="">All kinds</option>
+                        <option value="significant_conversation">Significant conversations</option>
+                        <option value="shared_discovery">Shared discoveries</option>
+                        <option value="milestone">Milestones</option>
+                        <option value="unfinished_discussion">Unfinished discussions</option>
+                        <option value="lesson_learned">Lessons learned</option>
+                        <option value="humorous_exchange">Humorous exchanges</option>
+                        <option value="important_decision">Important decisions</option>
+                    </select>
+                    <button id="episodic-refresh" type="button">Refresh</button>
+                </div>
+                <div id="episodic-list" class="knowledge-panel knowledge-panel--results"></div>
+            </div>
+
+            <!-- ===== Relational memory (hermeshaobsidianexpansion.md §6A.2/§6A.10) ===== -->
+            <div id="relational-memory-block" class="knowledge-vault">
+                <header class="knowledge-vault-head">
+                    <h3>Relational memory <small>conversational patterns &amp; shared references</small></h3>
+                    <div id="relational-health" role="status" aria-live="polite">Loading…</div>
+                </header>
+                <div class="memory-filter-bar">
+                    <select id="relational-category-filter" aria-label="Filter by category">
+                        <option value="">All categories</option>
+                        <option value="shared_reference">Shared references</option>
+                        <option value="conversational_dynamic">Conversational dynamics</option>
+                        <option value="collaborative_pattern">Collaborative patterns</option>
+                        <option value="evolving_understanding">Evolving understanding</option>
+                        <option value="shared_humour">Shared humour</option>
+                        <option value="recurring_theme">Recurring themes</option>
+                    </select>
+                    <button id="relational-refresh" type="button">Refresh</button>
+                </div>
+                <div id="relational-list" class="knowledge-panel knowledge-panel--results"></div>
+            </div>
+
+            <!-- ===== Consolidation status (hermeshaobsidianexpansion.md §6A.6) ===== -->
+            <div id="consolidation-block" class="knowledge-vault">
+                <header class="knowledge-vault-head">
+                    <h3>Memory consolidation <small>periodic dedup &amp; theme detection</small></h3>
+                    <div id="consolidation-health" role="status" aria-live="polite">Not checked yet</div>
+                </header>
+                <div class="memory-filter-bar">
+                    <button id="consolidation-run" type="button">Run now</button>
+                    <button id="consolidation-refresh" type="button">Refresh</button>
+                </div>
+                <div id="consolidation-detail" class="knowledge-panel knowledge-panel--results">
+                    <p class="knowledge-empty">Consolidation runs automatically every 6 hours. Use "Run now" to force a pass.</p>
+                </div>
             </div>
 
             <!-- ===== Regroup: Memory folded into Knowledge (one intelligence surface).

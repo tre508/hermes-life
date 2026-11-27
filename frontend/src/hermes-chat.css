@@ -9,7 +9,26 @@
 .hc-brand-copy{min-width:0}.hc-brand strong{display:block;font-size:19px;line-height:1.2;color:#f4fff9}.hc-brand small{display:block;margin-top:3px;font-size:11px;color:#b2ced3;white-space:nowrap}
 .hc-actions{display:flex;align-items:center;gap:7px;flex-wrap:nowrap;flex-shrink:0}.hc-actions button{display:inline-flex;gap:5px;align-items:center;justify-content:center;min-height:33px;padding:6px 9px;background:#15323d;border:1px solid #588a83;border-radius:8px;color:#e6f8ef;font:600 12px system-ui,sans-serif;cursor:pointer;white-space:nowrap}.hc-actions button:hover,.hc-actions button:focus-visible{background:#20515a;border-color:#9ce5c7}
 #hc-threads{flex:0 1 auto;max-height:195px;overflow-y:auto;padding:8px;background:#12323d;border-bottom:1px solid #457373;display:flex;flex-direction:column;gap:4px}#hc-threads button{width:100%;text-align:left;padding:9px 11px;background:transparent;border:0;border-radius:8px;color:#e6f5f5;cursor:pointer}#hc-threads button:hover{background:#24505a}
-#hc-messages{flex:1 1 auto;min-height:0;overflow-y:auto;overflow-x:hidden;padding:20px 21px;display:flex;flex-direction:column;gap:17px;scroll-behavior:smooth;overscroll-behavior:contain}
+/* scroll-behavior:auto, deliberately NOT smooth. This container is scrolled
+   PROGRAMMATICALLY many times a second (per streamed token, per trace refresh,
+   per appended bubble) — with `smooth` every one of those assignments starts a
+   CSS scroll ANIMATION instead of moving. Measured: with `smooth`,
+   `scrollTop = 400` reads back 0; with `auto` it reads back 400. That made the
+   view crawl during a run and, at the end of a turn, animated it to whatever
+   `topBefore` happened to be. Keep the smooth behaviour for the explicit
+   "jump to latest" action only (see jumpLatest in hermes-chat.ts). */
+/* overflow-anchor:none is load-bearing, not cosmetic. With the default (`auto`)
+   the browser silently DRAGS the scroll position to keep its own anchor stable
+   whenever content above the reader changes height — and this container is
+   exactly that case: the trace re-read rehydrates reasoning into turns ABOVE
+   the reader, measured at +21,500px of content for one turn. Measured on a
+   27,748px thread: with `auto` the scroll moved 16,000 -> 26,279 on its own,
+   with NO scrollTop assignment anywhere in the app (verified by wrapping the
+   setter, scrollTo, scrollBy, scrollIntoView and focus — none fired). With
+   `none` the same scroll stayed exactly where the reader left it. The app owns
+   the position instead: `if(stick)` follows the bottom, and scrollAnchor()/
+   applyAnchor() put a scrolled-up reader back on their own content. */
+#hc-messages{flex:1 1 auto;min-height:0;overflow-y:auto;overflow-x:hidden;padding:20px 21px;display:flex;flex-direction:column;gap:17px;scroll-behavior:auto;overscroll-behavior:contain;overflow-anchor:none}
 .hc-empty{margin:auto;text-align:center;color:var(--hc-muted);line-height:1.8;max-width:260px}
 .hc-bubble{display:flex;flex-direction:column;gap:4px;max-width:87%;min-width:0}.hc-bubble.user{align-self:flex-end;align-items:flex-end}.hc-bubble.assistant{align-self:flex-start;align-items:flex-start}
 .hc-body{max-width:100%;white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.52;font-size:14px;border-radius:16px;padding:12px 15px;background:#1c3a47;border:1px solid #385968;color:#eaf7fa;box-shadow:0 3px 10px #0002}
@@ -68,8 +87,6 @@
 .hc-attach-item{display:flex;align-items:center;gap:8px;width:100%;text-align:left;padding:7px 9px;border:none;border-radius:7px;background:none;color:#d9efe9;font:500 12.5px/1.3 system-ui,sans-serif;cursor:pointer}
 .hc-attach-item:hover{background:#20515a}
 .hc-attach-item-glyph{width:16px;text-align:center}
-.hc-attach-item.hc-attach-disabled{opacity:.45;cursor:not-allowed}
-.hc-attach-item.hc-attach-disabled:hover{background:none}
 .hc-attach-tip{margin:4px 6px 2px;padding-top:6px;border-top:1px solid #24464f;color:#8fb8b0;font:400 10.5px/1.4 system-ui,sans-serif}
 .hc-attach-dialog{border:1px solid #3c6a70;border-radius:12px;background:#122a33;color:#d9efe9;padding:14px 16px;min-width:340px}
 .hc-attach-dialog::backdrop{background:rgba(0,0,0,.5)}
@@ -79,14 +96,52 @@
 .hc-attach-dialog-row{display:flex;justify-content:flex-end;gap:8px;margin-top:8px}
 .hc-attach-dialog button{padding:6px 14px;border-radius:8px;border:1px solid #3c6a70;background:#15323d;color:#cfe9e2;font:600 12px/1.3 system-ui,sans-serif;cursor:pointer}
 .hc-attach-dialog .hc-attach-ok{background:#1d5b4c;border-color:#9ce5c7;color:#b8f4dc}
+/* §5 host picker: browse the hosted filesystem and attach WITHOUT registering a
+   project. A <dialog> (Escape + backdrop for free), one directory level per view
+   so a click never walks a whole tree. */
+.hc-fs-picker{border:1px solid #3c6a70;border-radius:12px;background:#122a33;color:#d9efe9;padding:0;width:min(680px,92vw);max-height:82dvh;display:flex;flex-direction:column}
+.hc-fs-picker::backdrop{background:rgba(0,0,0,.55)}
+.hc-fs-head{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:11px 14px;border-bottom:1px solid #23454e}
+.hc-fs-head strong{font:600 13px/1.3 system-ui,sans-serif}
+.hc-fs-close{padding:2px 8px;border:0;border-radius:6px;background:transparent;color:#9bb6be;font-size:13px;cursor:pointer}
+.hc-fs-close:hover{background:#1b3d47;color:#e6f5f0}
+.hc-fs-bar{display:flex;align-items:center;gap:8px;padding:9px 14px;border-bottom:1px solid #23454e}
+.hc-fs-up{padding:5px 10px;border-radius:7px;border:1px solid #3c6a70;background:#15323d;color:#cfe9e2;font:600 11.5px/1.3 system-ui,sans-serif;cursor:pointer;white-space:nowrap}
+.hc-fs-up:disabled{opacity:.45;cursor:default}
+.hc-fs-path{flex:1 1 auto;min-width:0;box-sizing:border-box;padding:6px 9px;border-radius:7px;border:1px solid #3c6a70;background:#0c1f26;color:#e6f5f0;font:500 12px/1.4 ui-monospace,monospace}
+.hc-fs-path:focus{outline:none;border-color:#69c7aa}
+.hc-fs-shortcuts{display:flex;flex-wrap:wrap;gap:6px;padding:8px 14px;border-bottom:1px solid #23454e}
+.hc-fs-shortcuts:empty{display:none}
+.hc-fs-shortcut{padding:3px 9px;border-radius:999px;border:1px solid #2f4f5a;background:#122b35;color:#a9c6c0;font:500 11px/1.3 system-ui,sans-serif;cursor:pointer}
+.hc-fs-shortcut:hover{border-color:#7ab0a3;color:#e4f3f4}
+.hc-fs-list{flex:1 1 auto;min-height:0;overflow:auto;padding:4px 8px}
+.hc-fs-row{display:grid;grid-template-columns:auto auto minmax(0,1fr) auto;align-items:center;gap:8px;padding:3px 6px;border-radius:6px}
+.hc-fs-row:hover{background:#173743}
+.hc-fs-check{margin:0;accent-color:#69c7aa}
+.hc-fs-glyph{font-size:13px;line-height:1}
+.hc-fs-name{text-align:left;background:none;border:0;padding:2px 0;color:#dcefe9;font:500 12.5px/1.5 system-ui,sans-serif;cursor:pointer;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.hc-fs-row[data-type="dir"] .hc-fs-name{color:#b8f4dc}
+.hc-fs-name:hover{text-decoration:underline}
+.hc-fs-meta{color:#7f9aa0;font:400 11px/1.4 ui-monospace,monospace;white-space:nowrap}
+.hc-fs-note{margin:0;padding:6px 14px;min-height:1.2em;color:#8fb0ac;font:400 11.5px/1.4 system-ui,sans-serif}
+.hc-fs-note:empty{display:none}
+.hc-fs-foot{display:flex;align-items:center;gap:8px;padding:10px 14px;border-top:1px solid #23454e}
+.hc-fs-count{flex:1 1 auto;color:#8fb0ac;font:400 11.5px/1.4 system-ui,sans-serif}
+.hc-fs-foot button{padding:6px 14px;border-radius:8px;border:1px solid #3c6a70;background:#15323d;color:#cfe9e2;font:600 12px/1.3 system-ui,sans-serif;cursor:pointer}
+.hc-fs-add{background:#1d5b4c;border-color:#9ce5c7;color:#b8f4dc}
+.hc-fs-add:disabled{opacity:.5;cursor:default}
 #hc-attach{display:inline-flex;align-items:center;gap:5px;padding:3px 8px;border-radius:8px;border:1px solid #3c6a70;background:#15323d;color:#cfe9e2;font:600 11.5px/1.3 system-ui,sans-serif;cursor:pointer}
 #hc-attach:hover{background:#20515a;border-color:#9ce5c7}
 .hc-composer-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap;border-top:1px solid #1f3d47;padding-top:6px;line-height:1.3}
-#hc-model-button,#hc-usage-chip{display:inline-flex;align-items:center;gap:5px;max-width:min(340px,60%);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:3px 10px;border-radius:999px;border:1px solid #2f4f5a;background:#122b35;color:#cfe9ec;font:500 12px/1.3 system-ui,sans-serif;cursor:pointer}
-#hc-model-button:hover,#hc-usage-chip:hover{border-color:#7ab0a3;color:#e4f3f4}
-#hc-model-button[aria-expanded="true"],#hc-usage-chip[aria-expanded="true"]{border-color:#7ab0a3;color:#b8f4dc}
+#hc-model-button{display:inline-flex;align-items:center;gap:5px;max-width:min(260px,42%);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:3px 10px;border-radius:999px;border:1px solid #2f4f5a;background:#122b35;color:#cfe9ec;font:500 12px/1.3 system-ui,sans-serif;cursor:pointer}
+#hc-model-button:hover{border-color:#7ab0a3;color:#e4f3f4}
+#hc-model-button[aria-expanded="true"]{border-color:#7ab0a3;color:#b8f4dc}
 .hc-caret{color:#7f9aa0;font-size:10px}
-#hc-usage-chip{color:#a9c6c0}
+/* The usage chip IS the persistent resource toolbar — inline text on the same row
+   as the model selector, clickable for the detail popover (never a second pill). */
+#hc-usage-chip{display:inline-flex;align-items:center;max-width:none;padding:0;border:none;background:none;border-radius:0}
+#hc-usage-chip:hover{border:none}
+#hc-usage-chip[aria-expanded="true"]{color:#b8f4dc}
 /* The popovers anchor above the action row; both are hidden-attribute toggled. */
 #hc-model-popover,#hc-usage-popover{position:absolute;left:8px;right:8px;bottom:calc(100% + 6px);z-index:30;background:#0e2833;border:1px solid #3d6a6f;border-radius:12px;box-shadow:0 18px 40px #000a;padding:10px 12px;max-height:46dvh;overflow:auto}
 #hc-model-popover[hidden],#hc-usage-popover[hidden]{display:none!important}
@@ -165,3 +220,100 @@
 #hc-panel .hc-tool-more[open]>summary::before{content:'▾ '}
 #hc-panel .hc-tool-result{margin:3px 0 0;padding:6px 8px;background:#091e26;border:1px solid #1c3a47;border-radius:8px;color:#a9c6c3;font-size:11px;white-space:pre-wrap;overflow-wrap:anywhere;max-height:180px;overflow-y:auto}
 
+
+/* PERSISTENT RESOURCE TOOLBAR — Context% | Tokens | Cost | Balance, on the SAME
+   action row as the model selector (#hc-model-button, beside it). Compact inline
+   text with subtle separators rather than outlined buttons or cards; clicking it
+   opens the detail popover. It flexes to fill the row and hides overflow on narrow
+   widths so the Send button is never pushed off. */
+.hc-metrics-toolbar{
+  display:flex;
+  align-items:center;
+  gap:6px;
+  flex:1 1 auto;
+  min-width:0;
+  padding:0;
+  font:500 11.5px/1.3 ui-monospace,monospace;
+  color:#a9c6c0;
+  white-space:nowrap;
+  overflow:hidden;
+  cursor:pointer;
+}
+.hc-metric{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.hc-metric-context{color:#8df0c8}
+.hc-metric-tokens{color:#dcefe9}
+.hc-metric-cost{color:#ffd7a0}
+.hc-metric-balance{color:#b8f4dc}
+.hc-metric-sep{color:#4a7c8a;opacity:.55}
+
+/* MODEL POPOVER ENHANCEMENTS */
+.hc-model-search{
+  width:100%;
+  box-sizing:border-box;
+  padding:6px 9px;
+  margin-bottom:8px;
+  border:1px solid #3c6a70;
+  border-radius:8px;
+  background:#0c1f26;
+  color:#e6f5f0;
+  font:500 12.5px/1.4 system-ui,sans-serif;
+}
+.hc-model-search:focus{outline:none;border-color:#9ce5c7}
+.hc-popover-model-meta{font-size:10.5px;color:#7f9aa0}
+.hc-popover-group{margin-bottom:4px}
+.hc-popover-group[hidden]{display:none}
+
+/* Usage popover context bar colors matching thresholds */
+#hc-context-bar.ok{accent-color:#3db87a}
+#hc-context-bar.warn{accent-color:#e8b84d}
+#hc-context-bar.crit{accent-color:#e06c75}
+
+/* CLI-STYLE MODEL POPOVER — column-aligned table */
+.hc-popover-header{
+  display:flex;
+  gap:8px;
+  padding:6px 8px 4px;
+  margin-bottom:4px;
+  border-bottom:1px solid #3c6a70;
+  font:600 11px/1.3 ui-monospace,monospace;
+  color:#7f9aa0;
+  text-transform:uppercase;
+  letter-spacing:.04em;
+}
+.hc-popover-header .hc-col{flex:0 0 auto;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.hc-popover-header .hc-col-name{flex:1 1 auto;min-width:0;max-width:28ch}
+.hc-popover-header .hc-col-ctx{width:7ch;text-align:right}
+.hc-popover-header .hc-col-in{width:9ch;text-align:right}
+.hc-popover-header .hc-col-out{width:9ch;text-align:right}
+.hc-popover-header .hc-col-cache{width:9ch;text-align:right}
+
+.hc-popover-model{
+  display:flex;
+  gap:8px;
+  width:100%;
+  text-align:left;
+  background:none;
+  border:1px solid transparent;
+  border-radius:7px;
+  padding:5px 8px;
+  color:#dcefe9;
+  cursor:pointer;
+  font:500 12.5px/1.3 ui-monospace,monospace;
+}
+.hc-popover-model:hover{background:#153441;border-color:#315d63}
+.hc-popover-model.hc-popover-selected{border-color:#69c7aa;color:#b8f4dc}
+
+.hc-popover-model .hc-col{
+  flex:0 0 auto;
+  white-space:nowrap;
+  overflow:hidden;
+  text-overflow:ellipsis;
+}
+.hc-popover-model .hc-col-name{flex:1 1 auto;min-width:0;max-width:28ch}
+.hc-popover-model .hc-col-ctx{width:7ch;text-align:right;color:#8df0c8}
+.hc-popover-model .hc-col-in{width:9ch;text-align:right;color:#dcefe9}
+.hc-popover-model .hc-col-out{width:9ch;text-align:right;color:#ffd7a0}
+.hc-popover-model .hc-col-cache{width:9ch;text-align:right;color:#9ce5c7}
+.hc-popover-model .hc-col-cache:empty{color:#7f9aa0}
+
+.hc-popover-group[hidden]{display:none}

@@ -113,7 +113,7 @@ test('§9 the composer is a box with a tools row and an action row', () => {
 
 test('§9A/§9B the input grows with the prompt and is capped', () => {
     assert.match(chat, /function autogrow\(\)/);
-    assert.match(chat, /addEventListener\('input',autogrow\)/);
+    assert.match(chat, /addEventListener\('input',\(\)=>\{saveChatDraft\(\);autogrow\(\)\}\)|addEventListener\('input',autogrow\)/);
     // Capped so a long prompt cannot swallow the conversation.
     assert.match(chat, /Math\.min\(box\.scrollHeight,\s*cap\)/);
     // Multiline stays discoverable — the convention moved to the Send tooltip
@@ -192,22 +192,27 @@ test('§6 threads are grouped by day, marked when current, and filtered locally'
 });
 
 test('§6 project files are the Project tab, not a cramped chat sidebar', () => {
-    // User redesign (2026-11-25): the Conversations workspace has Chat | Project
-    // tabs. The Project tab then became an IDE-shaped WORKSPACE (user brief,
-    // 2026-11-25) — icon activity bar, ONE sidebar view at a time, tabbed editor,
-    // collapsible bottom panel, status bar — mounted whole into
-    // #project-focus-host. The rail is still the sidebar column and the stage is
-    // still the editor column, now inside #hc415-main. The old contract
-    // (`view.append(sidebar,stage)`) is superseded, not relaxed: registration and
-    // directory discovery must live in the dialog, never permanently in the rail.
+    // Phase 1 redesign (2026-11-26): the Conversations workspace heading and
+    // Chat/Project tabs are removed. The IDE is the primary layout — the project
+    // host is a direct child of the workspace section with no enclosing header
+    // or tab bar. Registration and directory discovery must live in the dialog,
+    // never permanently in the rail.
     const html = readFileSync(join(src, '..', 'index.html'), 'utf8');
-    assert.match(html, /id="conv-tab-chat"/);
-    assert.match(html, /id="conv-tab-project"/);
+    assert.ok(!/id="conv-tab-chat"/.test(html), 'Chat tab button removed — Chat/Project tab bar gone');
+    assert.ok(!/id="conv-tab-project"/.test(html), 'Project tab button removed — IDE is the primary layout');
     assert.match(html, /id="project-focus-host"/);
     const ui = readFileSync(join(src, 'phase412-project-ui.ts'), 'utf8');
-    assert.match(ui, /view\.append\(activity,sidebar,mainCol,ideStatus\)/, 'activity bar | rail | editor | status bar');
+    assert.match(ui, /view\.append\(activity,sidebar,mainCol\)/, 'activity bar | rail | editor');
+    // Spec phase 2 §9: ONE application-wide status bar. The workspace row is
+    // reparented into the app status strip instead of being a second bar inside
+    // the IDE grid — workspace, repo, sync and agent state report from one place.
+    assert.match(ui, /getElementById\('status-ide-slot'\)\?\.append\(ideStatus\)/,
+      'the workspace row reports from the single app status strip');
+    assert.ok(!/grid-template-rows:minmax\(0,1fr\) 22px/.test(
+      readFileSync(join(src, 'phase415-workspace.css'), 'utf8')),
+      'the IDE grid no longer reserves a second status row');
     for (const id of ['hc415-activity','hc415-views','hc415-view-explorer','hc415-view-search','hc415-view-scm',
-                      'hc415-view-attachments','hc415-main','hc415-tabs','hc415-bottom','hc415-ide-status',
+                      'hc415-view-settings','hc415-main','hc415-tabs','hc415-bottom','hc415-ide-status',
                       'hc415-breadcrumb','hc415-rowmenu']) {
       assert.match(ui, new RegExp(`id='${id}'`), `${id} is a region of the IDE shell`);
     }
@@ -222,7 +227,8 @@ test('§6 project files are the Project tab, not a cramped chat sidebar', () => 
     assert.match(ui, /wsSelect\.append\(wsHead,wsList,wsInfo,registerPanel,projectList,wsActions\)/,
       'the workspace dialog owns registration, not the permanent rail');
     assert.match(ui, /function showProjectTab\(on:boolean\)/);
-    assert.match(ui, /getElementById\('conv-tab-project'\)\?\.addEventListener\('click',\(\)=>showProjectTab\(true\)/);
+    assert.ok(!/getElementById\('conv-tab-project'\)/.test(ui),
+      'Phase 1: tab button event listeners removed — no conv-tab-project reference in JS');
     assert.match(ui, /filesBtn\.onclick=\(\)=>showProjectTab\(true\)/);
     assert.ok(!/panel\.append\(sidebar\)/.test(ui), 'the sidebar no longer wedges into the chat panel');
     assert.ok(!/panel\.append\(drawer\)/.test(ui), 'the drawer overlay is retired');
@@ -363,3 +369,273 @@ test('§13 the stream stays reachable: jump-to-latest + contained code blocks', 
     const clarity = readFileSync(join(src, 'chat-clarity.css'), 'utf8');
     assert.match(clarity, /\.hc-body pre \{ max-width:100%; overflow-x:auto; \}/);
 });
+
+
+/* --------------------------------------------- resource toolbar + model prices */
+
+test('the persistent resource toolbar shares the action row with the model selector', () => {
+    // #hc-usage-chip IS the toolbar: inline metrics, not a second outlined pill.
+    assert.match(chat, /id="hc-usage-chip" type="button" class="hc-metrics-toolbar"/);
+    for (const id of ['hc-metric-context', 'hc-metric-tokens', 'hc-metric-cost', 'hc-metric-balance']) {
+        assert.match(chat, new RegExp(`id="${id}"`), `${id} is part of the inline toolbar`);
+    }
+    // It renders as inline text: no border, no pill background, no padding box.
+    assert.match(chatCss, /#hc-usage-chip\{display:inline-flex;align-items:center;max-width:none;padding:0;border:none;background:none/);
+    assert.match(chatCss, /\.hc-metric-sep\{/);
+    // Clicking it still opens the detail inspector.
+    assert.match(chat, /usageChip\.onclick=/);
+});
+
+test('the model popover shows CLI-style price columns and never throws on a null price', () => {
+    // Column headers exist (USD per million tokens, like the CLI's $/Mtok).
+    assert.match(chat, /In \$\/M/);
+    assert.match(chat, /Out \$\/M/);
+    assert.match(chat, /Cache \$\/M/);
+    assert.match(chat, /class="hc-col hc-col-in"/);
+    assert.match(chat, /class="hc-col hc-col-cache"/);
+    // Provider per-TOKEN rates are scaled to per-million.
+    assert.match(chat, /n\*1e6\)\.toFixed\(2\)/);
+    // A null cache_read must not reach toFixed — that threw inside the click
+    // handler and the popover never opened (regression 2026-11-26).
+    assert.match(chat, /typeof pricing\.cache_read==='number'/);
+    // Open-before-render so a catalogue build error can never leave it closed.
+    assert.match(chat, /modelPopover\.hidden=false;\s*modelButton\.setAttribute\('aria-expanded','true'\);\s*try\{renderModelPopover\(\)\}/);
+});
+
+test('balance resolves for the active provider and never fakes a zero', () => {
+    // Falls back to the provider behind the resolved worker default.
+    assert.match(chat, /chatProvider\(\)\.value\|\|defaultChatModel\.provider/);
+    // Unavailable states are named, not rendered as $0.00.
+    assert.match(chat, /Balance not supported/);
+    assert.match(chat, /Balance temporarily unavailable/);
+    // Refreshed on completion and on a bounded interval / tab focus.
+    assert.match(chat, /void refreshChatBalance\(\);\}\}catch\(err\)/);
+    assert.match(chat, /setInterval\(\(\)=>\{if\(!document\.hidden\)void refreshChatBalance\(\)\},60000\)/);
+});
+
+
+
+/* --------------------------- §1/§7 IDE reachability + contextual empty state */
+
+test('Chat and Projects are two equal, top-level workspaces — not nested', () => {
+    const html = readFileSync(join(src, '..', 'index.html'), 'utf8');
+    const convAt = html.indexOf('id="workspace-conversations"');
+    const projAt = html.indexOf('id="workspace-projects"');
+    assert.ok(convAt > 0 && projAt > convAt, 'Projects is its own workspace section');
+    // The chat workspace's closing tag comes BEFORE the projects section → siblings,
+    // not parent/child. This is the core requirement (user brief §2/§3).
+    assert.ok(html.indexOf('</section>', convAt) < projAt,
+        'Projects must NOT be nested inside the chat workspace');
+    assert.match(html, /id="chat-focus-host"/, 'the chat host lives in the chat workspace');
+    assert.match(html, /id="project-focus-host"/, 'the project host lives in its own workspace');
+    const ns = readFileSync(join(src, 'navigation-state.ts'), 'utf8');
+    assert.match(ns, /'conversations' \| 'projects'/, 'projects is a first-class workspace id');
+    const main = readFileSync(join(src, 'main.v2.ts'), 'utf8');
+    assert.match(main, /'conversations', 'projects'/, 'main.v2 routes the new workspace');
+});
+
+test('Projects is reachable from the shared navigation and owns its own state', () => {
+    const html = readFileSync(join(src, '..', 'index.html'), 'utf8');
+    assert.match(html, /data-workspace="projects"/, 'the nav rail carries Projects');
+    assert.match(html, /id="header-project-open"/, 'the header carries a Projects shortcut');
+    const ui = readFileSync(join(src, 'phase412-project-ui.ts'), 'utf8');
+    // The project UI ASKS to navigate instead of hiding a sibling host — the
+    // chat and the IDE are no longer two panes of one container.
+    assert.match(ui, /hermes:open-projects/, 'the project UI delegates navigation');
+    assert.ok(!/chatHost\.hidden=/.test(ui), 'the IDE no longer hides a sibling chat host');
+    const main = readFileSync(join(src, 'main.v2.ts'), 'utf8');
+    assert.match(main, /addEventListener\('hermes:open-projects'/, 'navigation has exactly one owner');
+    // The workspace status row reports only while Projects is on screen.
+    assert.match(ui, /hermes:workspace-shown/, 'the status row follows the active workspace');
+    const projStart = html.indexOf('<section id="workspace-projects"');
+    const projBody = html.slice(projStart, html.indexOf('</section>', projStart));
+    assert.ok(!/workspace-heading|<h2/.test(projBody),
+        'the Projects workspace carries no enclosing heading (brief §4)');
+});
+
+test('§7 the editor empty state is contextual, not one instruction line', () => {
+    const ui = readFileSync(join(src, 'phase412-project-ui.ts'), 'utf8');
+    assert.match(ui, /function renderStageEmpty\(\)/, 'the stage empty state is state-driven');
+    assert.match(ui, /if\(!hasWorkspace\)/, 'no-workspace is distinguished from workspace-loaded');
+    assert.match(ui, /'No workspace selected'/, 'the no-workspace state is named');
+    assert.match(ui, /'No file open'/, 'the workspace-loaded state is named');
+    assert.match(ui, /id='hc415-empty-open'/, 'the no-workspace state offers a door, not a dead end');
+    // The old behaviour: one static paragraph telling everyone to select a file.
+    assert.ok(!/stageEmpty\.textContent=/.test(ui),
+        'the static paragraph is gone — the state is rendered, not hard-coded');
+    assert.match(ui, /renderStageEmpty\(\);/, 'the state is rendered on selection change');
+  });
+
+test('mid-turn trace re-reads rebuild ONCE, then update in place', () => {
+  // The 15s transcript re-read used to call replaceChildren() every time,
+  // destroying and re-rendering the entire trace — 148 steps on a real turn —
+  // which the user reads as the chat glitching and dumping a page of content.
+  // The rebuild is only correct for the FIRST read (the transcript's step list
+  // is interleaved, unlike the live capture); after that it is pure churn.
+  assert.match(chat, /flowSource/, 'the renderer tracks what the step list came from');
+  assert.match(chat, /if\(redraw&&flowSource!=='read'\)/,
+      'the rebuild is conditional on the list not already being a transcript read');
+  assert.ok(!/if\(redraw\)\{box\.replaceChildren/.test(chat),
+      'the unconditional rebuild is gone');
+});
+
+test('the live bubble does not repeat reasoning the trace already shows', () => {
+  // The worker labels no reasoning, so every text delta — extended thinking
+  // included — streams into the answer bubble. Once the transcript read renders
+  // that reasoning as trace thought blocks, the bubble must show only the part
+  // the trace does not cover, or the user sees the same reasoning twice.
+  assert.match(chat, /function liveBubbleText/);
+  assert.match(chat, /function paintLiveBubble/);
+  assert.match(chat, /liveText\+=delta;paintLiveBubble\(taskId\)/,
+      'every delta repaints through the trimming path');
+  assert.match(chat, /paintLiveBubble\(taskId\);?\}/,
+      'a landed transcript read repaints the bubble immediately');
+});
+
+test('the chat reuses the ONE event stream and never replays history as live', () => {
+  // D17 (review.md): the chat no longer owns a second WebSocket with its own
+  // cursor. main.v2 owns the socket, the watermark seed (same rule as before:
+  // newest-event seed, retry, never zero) and the reconnect backoff, and fans
+  // events out tagged `historical`. The chat subscribes and IGNORES the
+  // historical tag — the replay problem the old seed solved is solved
+  // upstream, in the one connection.
+  assert.match(chat, /addEventListener\('hermes:event'/, 'the chat subscribes to the shared fan-out');
+  assert.match(chat, /if\(!e\|\|e\.historical\)return/, 'replayed history is never rendered as live');
+  assert.ok(!/new WebSocket\(/.test(chat), 'the chat opens no socket of its own');
+  // The remaining replay guard lives in eventItem's sequence watermark.
+  assert.match(chat, /e\.sequence<=lastSeq\)return/, 'duplicate/replayed sequences are dropped');
+});
+
+test('finishing a turn must not force the scroll position', () => {
+  // Forcing the bottom ignored where the reader was, so every completed turn
+  // yanked the view; combined with the old double render it landed at the very
+  // TOP of the thread (the first pass emptied the container, so the second
+  // captured topBefore=0 and read followBottom() as false). Unforced, render
+  // follows the bottom only when the reader was already there.
+  const start = chat.indexOf('async function renderFinished');
+  assert.ok(start > -1, 'renderFinished exists');
+  const body = chat.slice(start, chat.indexOf('\n}', start));
+  assert.ok(!/render\(true\)/.test(body),
+      'renderFinished must not force the bottom — it yanks the reader');
+  assert.match(body, /await render\(\)/);
+  // The preserve-or-follow rule itself must stay in render(): follow only when
+  // the reader was already at the bottom, otherwise re-find their content (see
+  // the anchor test below — a pixel offset is the wrong unit after a rebuild).
+  assert.match(chat, /const topBefore=messages\.scrollTop/);
+  assert.match(chat, /if\(follow\)\{messages\.scrollTop=messages\.scrollHeight;return;\}/);
+});
+
+test('the message list scrolls instantly; only "jump to latest" animates', () => {
+  // scroll-behavior:smooth turned EVERY programmatic scrollTop assignment into
+  // a CSS animation, and this container is assigned to many times a second while
+  // a turn streams (per token, per trace refresh, per appended bubble). Measured
+  // in the live page: with smooth, `scrollTop = 400` reads back 0; with auto it
+  // reads back 400. That made the view crawl during a run and, at the end of a
+  // turn, animate it to whatever topBefore happened to be.
+  const start = chatCss.indexOf('#hc-messages{');
+  assert.ok(start > -1, 'the #hc-messages rule exists');
+  const body = chatCss.slice(start, chatCss.indexOf('}', start));
+  assert.match(body, /scroll-behavior:auto/, 'the message list must scroll instantly');
+  assert.ok(!/scroll-behavior:smooth/.test(body),
+      'no smooth scrolling on the message list — it is scrolled programmatically');
+  assert.match(chat, /scrollTo\(\{top:messages\.scrollHeight,behavior:'smooth'\}\)/,
+      'the explicit jump to latest keeps its smooth animation');
+});
+
+test('a thread rebuild must not let each bubble scroll the reader down', () => {
+  // Between replaceChildren() and the last bubble the container is EMPTY, so
+  // followBottom() reads `0 - 0 - clientHeight < 110` = "at the bottom" for every
+  // bubble, and each one scrolls down — which dumped the reader at the bottom
+  // however far back they had scrolled. The rebuild's restore() owns the final
+  // position; the per-bubble follow must be suppressed while it runs.
+  assert.match(chat, /let rebuildingThread=false/);
+  assert.match(chat, /const stick=!rebuildingThread&&followBottom\(\)/);
+  assert.match(chat, /rebuildingThread=true;[\s\S]{0,140}finally\{rebuildingThread=false;\}/,
+      'the flag is set around the rebuild loop and always cleared');
+});
+
+test('a rebuild re-finds the reader\'s content instead of restoring a pixel offset', () => {
+  // The rebuild rehydrates the traces ABOVE the reader — and since the live
+  // stream labels no reasoning at all, every thought block comes from that read,
+  // so the content above changes height by tens of thousands of px on a long
+  // thread. Restoring the old scrollTop therefore lands near the top, worse the
+  // longer the thread. Anchor on the bubble instead.
+  assert.match(chat, /function scrollAnchor\(\):ScrollAnchor\|null/);
+  assert.match(chat, /function applyAnchor\(a:ScrollAnchor\|null\):boolean/);
+  assert.match(chat, /const anchor=scrollAnchor\(\)/);
+  assert.match(chat, /if\(!applyAnchor\(anchor\)\)messages\.scrollTop=topBefore/);
+  assert.ok(!/messages\.scrollTop=follow\?messages\.scrollHeight:topBefore/.test(chat),
+      'the raw pixel-offset restore must be gone');
+});
+
+test('reasoning is re-read promptly, because the live stream never labels it', () => {
+  // Measured: 241 of 241 hermes.text events arrived with channel=None,
+  // content_type=None, message_type=None — so hasExplicitThoughtMarker() is
+  // always false and EVERY thought block comes from the transcript read. A
+  // 15000ms gate made reasoning appear in 15-second lumps while tool rows
+  // streamed instantly.
+  assert.match(chat, /if\(now-traceReadAt<3000\)return/);
+  assert.ok(!/now-traceReadAt<15000/.test(chat), 'the 15s reasoning gate must be gone');
+});
+
+test('a trace re-read must never empty its box', () => {
+  // Emptying the box collapses the content above the reader, and the browser
+  // cannot scroll-anchor across destroyed nodes — so the view is thrown, worse
+  // the longer the thread (more content above to collapse). Measured in the live
+  // page: the trace re-read inserted +172 nodes and the scroll moved by 18,285px.
+  // Reconcile in place and drop only the surplus rows.
+  assert.ok(!/box\.replaceChildren\(\)/.test(chat), 'the trace box must never be emptied');
+  assert.match(chat, /flowEls\.forEach\(\(el,i\)=>\{if\(i>=t\.steps\.length\)/,
+      'surplus trace rows are removed individually instead');
+  assert.match(chat, /if\(redraw&&flowSource!=='read'\)flowSource='read'/);
+});
+
+test('re-asserting the chat must not force the reader to the bottom', () => {
+  // `hermes:chat-open` fires whenever the chat workspace is announced as focused
+  // (main.v2.ts) and calls openChat() -> render(true). During a live turn that
+  // pulled the reader to the bottom of what they were reading, and with the old
+  // end-of-turn double render it landed them at the very TOP. A forced bottom is
+  // only legitimate when the THREAD actually changes.
+  assert.match(chat, /let hcRenderedThread=''/);
+  assert.match(chat, /const threadChanged=thread!==hcRenderedThread/);
+  assert.match(chat, /const follow=\(forceBottom&&threadChanged\)\|\|followBottom\(\)/);
+  assert.match(chat, /messages\.replaceChildren\(\);[\s\S]{0,200}hcRenderedThread=thread;/);
+});
+
+test('a trace update puts a scrolled-up reader back on their own content', () => {
+  // Nothing in the app ASSIGNS the bottom during a trace update — measured, the
+  // only large scrollTop set was the reader's own — yet the view jumped 20,000px
+  // to the bottom when the trace grew. That is the browser's scroll anchoring:
+  // when content above the anchor changes size the scroll moves, and a rehydrated
+  // trace adds thousands of px above. So capture the reader's content first and
+  // restore it afterwards, unless they were already at the bottom.
+  assert.match(chat, /const keepAnchor=followBottom\(\)\?null:scrollAnchor\(\)/);
+  assert.match(chat, /if\(keepAnchor\)applyAnchor\(keepAnchor\);else messages\.scrollTop=messages\.scrollHeight;/);
+});
+
+test('the message list must opt OUT of the browser\'s scroll anchoring', () => {
+  // ROOT CAUSE. With overflow-anchor:auto the browser drags the scroll position
+  // to keep its own anchor stable whenever content above the reader changes
+  // height — and the trace re-read rehydrates reasoning into turns ABOVE the
+  // reader (measured +21,500px for one turn). Measured on a 27,748px thread the
+  // scroll moved 16,000 -> 26,279 BY ITSELF: wrapping the scrollTop setter,
+  // scrollTo, scrollBy, scrollIntoView and focus all fired ZERO times. With
+  // overflow-anchor:none the same scroll stayed exactly where the reader left it.
+  const start = chatCss.indexOf('#hc-messages{');
+  const body = chatCss.slice(start, chatCss.indexOf('}', start));
+  assert.match(body, /overflow-anchor:none/,
+      'the app owns the scroll position; the browser must not drag it');
+});
+
+test('a rebuild must set the scroll position synchronously, not only in a rAF', () => {
+  // A rebuild empties the container for a moment; a scrollTop left unset across
+  // that gap is CLAMPED against the shortened content and never recovers — the
+  // reader ends up far above where they were, further the longer the thread.
+  // Measured after the overflow-anchor fix: scrollTop 16000 -> 5952 (upward).
+  const s = chat.indexOf('async function render(');
+  const body = chat.slice(s, chat.indexOf('const threadTitles', s));
+  assert.match(body, /if\(follow\)messages\.scrollTop=messages\.scrollHeight;\s*\n\s*else if\(!applyAnchor\(anchor\)\)messages\.scrollTop=topBefore;/,
+      'the position is applied synchronously after the rebuild');
+  assert.match(body, /restore\(\);/);
+});
+

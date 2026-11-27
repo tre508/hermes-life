@@ -46,16 +46,6 @@
   </header>
   <main id="main-workspace">
     <section id="workspace-conversations" class="workspace-view" data-layout="focus">
-      <header class="workspace-heading">
-        <div>
-          <h2>Conversations <small>one canonical thread system</small></h2>
-          <p>Every thread shares the same canonical conversation IDs as Task Board and Chat — presentation only changes here.</p>
-        </div>
-      </header>
-      <nav id="conv-tabs" class="conv-tabs" role="tablist" aria-label="Conversation surfaces">
-        <button id="conv-tab-chat" class="conv-tab active" role="tab" aria-selected="true" type="button">Chat</button>
-        <button id="conv-tab-project" class="conv-tab" role="tab" aria-selected="false" type="button">Project</button>
-      </nav>
       <section id="chat-focus-host" class="chat-focus-host">
 <!-- the real app adds .in-focus-host on #hermes-chat-root when the chat mounts here;
      without it the panel falls back to its 560px overlay sizing (hermes-chat.css:4). -->
@@ -89,7 +79,7 @@ Scroll up and the ↓ Latest chip appears; click it to return.</div></div>
   <button id="hc-jump-latest" type="button" title="Jump to the latest messages" hidden>↓ Latest</button>
  </main>
  <div id="hc-feedback" role="status"></div>
- <form id="hc-form"><div class="hc-composer-box"><div id="hc-attach-chips" class="hc-attach-chips" hidden></div><textarea id="hc-input" rows="1" placeholder="Ask Hermesha to build, explain, fix, or research…" aria-label="Message Hermesha"></textarea><div class="hc-composer-tools"><button id="hc-attach" type="button" title="Attach files, folders, images or a URL to this message"><span aria-hidden="true">＋</span> Attach</button></div><div class="hc-composer-actions"><button id="hc-model-button" type="button"><span id="hc-model-button-label">GLM 5.3 Flash (default)</span><span class="hc-caret" aria-hidden="true"> ▾</span></button><button id="hc-usage-chip" type="button"><span id="hc-usage-chip-label">Context 6% · $0.11</span></button><button id="hc-send" type="submit"><span aria-hidden="true">➤</span> Send</button></div></div></form>
+ <form id="hc-form"><div class="hc-composer-box"><div id="hc-attach-chips" class="hc-attach-chips" hidden></div><textarea id="hc-input" rows="1" placeholder="Ask Hermesha to build, explain, fix, or research…" aria-label="Message Hermesha"></textarea><div class="hc-composer-tools"><button id="hc-attach" type="button" title="Attach files, folders, images or a URL to this message"><span aria-hidden="true">＋</span> Attach</button></div><div class="hc-composer-actions"><button id="hc-model-button" type="button"><span id="hc-model-button-label">GLM 5.3 Flash (default)</span><span class="hc-caret" aria-hidden="true"> ▾</span></button><button id="hc-usage-chip" type="button" class="hc-metrics-toolbar" aria-haspopup="dialog" aria-expanded="false" title="Live model usage — click for the detail panel"><span class="hc-metric hc-metric-context" id="hc-metric-context">Context: —</span><span class="hc-metric-sep" aria-hidden="true">|</span><span class="hc-metric hc-metric-tokens" id="hc-metric-tokens">Tokens: —</span><span class="hc-metric-sep" aria-hidden="true">|</span><span class="hc-metric hc-metric-cost" id="hc-metric-cost">Cost: —</span><span class="hc-metric-sep" aria-hidden="true">|</span><span class="hc-metric hc-metric-balance" id="hc-metric-balance">Balance: —</span></button><button id="hc-send" type="submit"><span aria-hidden="true">➤</span> Send</button></div></div></form>
  </div>
 </section>
 </div>

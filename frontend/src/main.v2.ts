@@ -46,7 +46,7 @@ if (versionPill) versionPill.textContent = 'HERMESHA / 0.4.0';
 
 // ============================= workspace & layout =============================
 const app = $('app')!;
-const workspaces = ['world', 'home', 'conversations', 'attention', 'work', 'activity', 'results', 'system', 'knowledge', 'research'];
+const workspaces = ['world', 'home', 'conversations', 'projects', 'attention', 'work', 'activity', 'results', 'system', 'knowledge', 'research'];
 
 // Single source of truth for workspace/layout — driven by navigation-state
 function setLayout(layout: 'world' | 'workspace' | 'focus') {
@@ -81,6 +81,17 @@ onNavigationChange((nav) => {
     // Leaving reparents it back to <body> as the corner dock. The thread,
     // drafts and conversation id never change owners.
     setChatFocus(id === 'conversations');
+    // Chat and Projects are two EQUAL primary views (user brief
+    // hermashauigoalexplained.md §2/§3): mark whichever is current, and let the
+    // project workspace's own status row report only while that workspace is on
+    // screen. `hermes:workspace-shown` is the single signal other modules use, so
+    // none of them re-derive the active workspace from the DOM.
+    const projBtn = $('header-project-open');
+    if (projBtn) {
+        if (id === 'projects') projBtn.setAttribute('aria-current', 'page');
+        else projBtn.removeAttribute('aria-current');
+    }
+    window.dispatchEvent(new CustomEvent('hermes:workspace-shown', { detail: { workspace: id } }));
     // Results is an integrated Work destination (spec §4/§13): load the canonical
     // task when the Results subview is shown. Passive guard — only when changed.
     if (nav.workspace === 'work' && nav.workView === 'results' && nav.selectedTaskId && viewedTaskId !== nav.selectedTaskId) {
@@ -204,6 +215,18 @@ function taskTerminal(type: string): boolean {
 // the Conversations workspace.
 const headerChat = $('header-chat-open');
 headerChat?.addEventListener('click', () => { openWorkspace('conversations'); });
+
+// Chat and Projects are two EQUAL top-level views (user brief
+// hermashauigoalexplained.md §2/§3): each takes the whole main stage, neither is
+// nested inside the other, and neither requires the other to be open. They share
+// infrastructure — filesystem, execution state, file-change events — never
+// presentation. These header buttons are the quick switcher; the nav rail also
+// carries both. Neither is a mode toggle of the other.
+const headerProject = $('header-project-open');
+headerProject?.addEventListener('click', () => { openWorkspace('projects'); });
+// The World composer and the project UI delegate here instead of navigating
+// themselves, so exactly one module owns where Projects lives.
+window.addEventListener('hermes:open-projects', () => { openWorkspace('projects'); });
 
 // ============================= chat focus (Conversations) =============================
 // One chat system, ONE presentation (chat audit §8). #hermes-chat-root mounts

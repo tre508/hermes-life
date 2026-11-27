@@ -1,7 +1,7 @@
 """Explicit, versioned schema setup and single-owner restart recovery."""
 from .store import now
 
-SCHEMA_VERSION = 40
+SCHEMA_VERSION = 42
 DDL = r'''
 
             CREATE TABLE IF NOT EXISTS tasks (
@@ -878,6 +878,70 @@ def _upgrade_to_v40(connection):
         cols = {r[1] for r in connection.execute(f'PRAGMA table_info({table})').fetchall()}
         if 'vm_path' in cols:
             connection.execute(f'ALTER TABLE {table} RENAME COLUMN vm_path TO remote_path')
+
+
+def _upgrade_to_v41(connection):
+    # Episodic and relational memory tables (hermeshaobsidianexpansion.md §6A.2)
+    connection.executescript("""
+    CREATE TABLE IF NOT EXISTS hl_episodic_memories (
+        id TEXT PRIMARY KEY,
+        conversation_id TEXT,
+        title TEXT NOT NULL,
+        summary TEXT NOT NULL,
+        context TEXT,
+        significance TEXT,
+        kind TEXT NOT NULL,
+        retrieval_triggers TEXT NOT NULL DEFAULT '[]',
+        emotional_context TEXT,
+        source_turn_id INTEGER,
+        status TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('active','superseded','archived')),
+        superseded_by TEXT,
+        created_at TEXT NOT NULL,
+        significant_at TEXT,
+        updated_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_hl_episodic_status ON hl_episodic_memories(status, created_at);
+    CREATE INDEX IF NOT EXISTS idx_hl_episodic_kind ON hl_episodic_memories(kind);
+    CREATE INDEX IF NOT EXISTS idx_hl_episodic_conversation ON hl_episodic_memories(conversation_id);
+
+    CREATE TABLE IF NOT EXISTS hl_relational_memories (
+        id TEXT PRIMARY KEY,
+        category TEXT NOT NULL,
+        title TEXT NOT NULL,
+        context TEXT,
+        significance TEXT,
+        retrieval_triggers TEXT NOT NULL DEFAULT '[]',
+        related_memory_ids TEXT NOT NULL DEFAULT '[]',
+        origin_conversation_id TEXT,
+        status TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('active','superseded','archived')),
+        superseded_by TEXT,
+        created_at TEXT NOT NULL,
+        reinforced_count INTEGER NOT NULL DEFAULT 1,
+        last_reinforced_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_hl_relational_status ON hl_relational_memories(status, last_reinforced_at);
+    CREATE INDEX IF NOT EXISTS idx_hl_relational_category ON hl_relational_memories(category);
+    """)
+    connection.commit()
+
+
+def _upgrade_to_v42(connection):
+    """Consolidation settings table (hermeshaobsidianexpansion.md §6A.6)."""
+    connection.executescript("""
+    CREATE TABLE IF NOT EXISTS consolidation_settings (
+        id INTEGER PRIMARY KEY CHECK(id=1),
+        enabled INTEGER NOT NULL DEFAULT 0,
+        interval_seconds INTEGER NOT NULL DEFAULT 21600,
+        last_run TEXT,
+        next_run TEXT,
+        last_error TEXT,
+        total_consolidated INTEGER NOT NULL DEFAULT 0
+    );
+    INSERT OR IGNORE INTO consolidation_settings(id,enabled,interval_seconds)
+        VALUES (1,0,21600);
+    """)
+    connection.commit()
 
 
 def _build_registry():

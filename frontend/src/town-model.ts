@@ -157,8 +157,12 @@ const EVENT_RULES: ReadonlyArray<[RegExp, Role]> = [
  * Agent-runtime stream events. They describe the tool/text output of a running task and are
  * consumed by the existing status strip (main.ts eventStatus). They belong to no workflow stage,
  * so they are deliberately excluded rather than reported as "unmapped".
+ *
+ * `session_usage` is the CLI's per-turn usage/telemetry record (tokens, context anchor,
+ * cost). It is consumed live by the chat composer's metrics toolbar, so it is handled by
+ * design too — leaving it out made the status strip report a permanently "unmapped event".
  */
-const RUNTIME_EVENTS = /^hermes\.(text|system|tool_use|tool_result|result)$/;
+const RUNTIME_EVENTS = /^hermes\.(text|system|tool_use|tool_result|result|session_usage)$/;
 
 /**
  * Which building the coordinator is working in, from the tool that is running right now. Only the

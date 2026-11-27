@@ -27,9 +27,13 @@ from .conversation_memory import ConversationMemory
 from .conversation_recall import Recall
 from .vault_memory import VaultMemory  # PHASE49_VAULT_MEMORY
 from .memory_service import MemoryService, add_memory_routes  # P4_OBSIDIAN_ADAPTER
+from .extended_memory import EpisodicMemory, RelationalMemory, add_extended_memory_routes  # hermeshaobsidianexpansion.md §6A.2
+from .autonomous_memory import AutonomousMemory, add_autonomous_memory_routes  # hermeshaobsidianexpansion.md §6A.5
+from .consolidation import MemoryConsolidation, add_consolidation_routes  # hermeshaobsidianexpansion.md §6A.6
+from .retrieval import RetrievalPipeline, add_retrieval_routes  # hermeshaobsidianexpansion.md §6A.7
 from .knowledge_library import KnowledgeLibrary
 from .search import add_search_routes  # HERMESHA §2/§3/§5 global search aggregate
-from .project_workspaces import ProjectWorkspaces, add_project_routes, SELECTOR  # PHASE411_PROJECT_WORKSPACES
+from .project_workspaces import ProjectWorkspaces, add_project_routes, add_fs_routes, SELECTOR  # PHASE411_PROJECT_WORKSPACES
 from .project_knowledge import ProjectKnowledge, add_knowledge_routes  # PHASE414_PROJECT_KNOWLEDGE
 from .project_approvals import add_approval_routes  # PHASE412_APPROVALS
 from .maintenance import MaintenanceService
@@ -73,7 +77,8 @@ class Runtime:
         # app (tests, CLI, background workers) failed its first task with
         # "no such table: chat_task_models". The runtime owns its schema.
         self.chat_models.migrate()
-        self.personality = Personality(self.store)
+        self.episodic_memory = EpisodicMemory(self.store)  # hermeshaobsidianexpansion.md §6A.2
+        self.relational_memory = RelationalMemory(self.store)  # hermeshaobsidianexpansion.md §6A.2
         self.conversations = ConversationMemory(self.store)
         self.recall = Recall(self.store)
         self.vault_memory = VaultMemory(self.store, self.recall)
@@ -98,7 +103,24 @@ class Runtime:
         # (verification criteria and adjudication, memory extraction). Same tool scope, no injection.
         self.analysis_adapters = dict(self.delegates)
         self.analysis_adapter = self.analysis_adapters['read_only']
-        self.vault_memory.adapter = self.analysis_adapter  # extraction answers in JSON, not in persona
+        self.vault_memory.adapter = self.analysis_adapter
+        # Autonomous episodic/relational memory formation (hermeshaobsidianexpansion.md §6A.5)
+        self.autonomous_memory = AutonomousMemory(
+            self.store, self.episodic_memory, self.relational_memory)
+        self.autonomous_memory.adapter = self.analysis_adapter  # extraction answers in JSON, not in persona
+        # Memory consolidation service (hermeshaobsidianexpansion.md §6A.6)
+        self.consolidation = MemoryConsolidation(self.store)
+        # Enhanced contextual retrieval pipeline (hermeshaobsidianexpansion.md §6A.7)
+        self.retrieval = RetrievalPipeline(
+            store=self.store,
+            recall=self.recall,
+            episodic_memory=self.episodic_memory,
+            relational_memory=self.relational_memory,
+            vault_memory=self.vault_memory,
+        )
+        # Personality depends on episodic_memory, relational_memory, AND retrieval
+        self.personality = Personality(self.store, self.episodic_memory,
+                                       self.relational_memory, self.retrieval)
         #: Task id → explicit CLI session to continue, set by POST /api/tasks
         #: (convo-redesign.md §10). Popped by run_task; never persisted, because
         #: the task row records the session the CLI reports on exit instead.
@@ -219,6 +241,10 @@ class Runtime:
                     self.vault_memory.extract_completed(conversation_id, ident)
                 except Exception as exc:
                     self.store.emit("memory.extraction_failed", {"error":str(exc)[:400]}, ident)
+                try:
+                    self.autonomous_memory.extract_completed(conversation_id, ident)
+                except Exception as exc:
+                    self.store.emit("autonomous_memory.extraction_failed", {"error":str(exc)[:400]}, ident)
             self.store.emit('task.completed', {'session_id':result.get('session_id')},ident)
         except Exception as exc:
             self.store.update_task(ident, 'failed', error=str(exc))
@@ -311,6 +337,7 @@ def create_app(database=None, adapter=None):
         autonomy.start()
         revisions.start()
         decision.start()
+        runtime.consolidation.start()  # hermeshaobsidianexpansion.md §6A.6
         # HL-LIB-001 §4.4: backfill missing/stale chunk embeddings in a daemon thread
         # so startup never waits on the model; search stays functional meanwhile.
         def _backfill_library_embeddings():
@@ -330,6 +357,7 @@ def create_app(database=None, adapter=None):
             yield
         finally:
             decision.stop()
+            runtime.consolidation.stop()  # hermeshaobsidianexpansion.md §6A.6
             revisions.stop()
             autonomy.stop()
 
@@ -346,8 +374,14 @@ def create_app(database=None, adapter=None):
     add_gate_middleware(app, gate)  # added last so it is the outermost boundary
     app.state.runtime = runtime
     add_project_routes(app, runtime, runtime.project_workspaces)
+    # §5: the hosted-filesystem browser — attachment without project registration.
+    add_fs_routes(app, runtime, runtime.project_workspaces)
     add_knowledge_routes(app, runtime.project_knowledge)
     add_memory_routes(app, runtime)  # P4_OBSIDIAN_ADAPTER
+    add_extended_memory_routes(app, runtime)  # hermeshaobsidianexpansion.md §6A.2
+    add_autonomous_memory_routes(app, runtime)  # hermeshaobsidianexpansion.md §6A.5
+    add_consolidation_routes(app, runtime)  # hermeshaobsidianexpansion.md §6A.6
+    add_retrieval_routes(app, runtime)  # hermeshaobsidianexpansion.md §6A.7
     add_search_routes(app, runtime)  # HERMESHA §2/§3/§5: one global search aggregate
     add_approval_routes(app, runtime.project_workspaces)
     app.state.autonomy = autonomy
@@ -1482,6 +1516,74 @@ def create_app(database=None, adapter=None):
                 await asyncio.sleep(0.4)
         except (WebSocketDisconnect, RuntimeError):
             pass
+
+    @app.websocket('/ws/terminal')
+    async def ws_terminal(websocket: WebSocket):
+        """PTY-backed shell over WebSocket — one shell per connection."""
+        import os as _os, pty as _pty, signal as _signal, threading as _threading
+        await websocket.accept()
+        master_fd, slave_fd = _os.openpty()
+        pid = _os.fork()
+        if pid == 0:
+            _os.close(master_fd)
+            _os.setsid()
+            for fd in (0, 1, 2):
+                if fd != slave_fd:
+                    _os.dup2(slave_fd, fd)
+            if slave_fd not in (0, 1, 2):
+                _os.close(slave_fd)
+            environ = dict(_os.environ)
+            environ['TERM'] = 'xterm-256color'
+            try:
+                _os.execve('/bin/bash', ['/bin/bash', '--norc'], environ)
+            except FileNotFoundError:
+                _os.execve('/bin/sh', ['/bin/sh'], environ)
+        _os.close(slave_fd)
+        loop = asyncio.get_running_loop()
+        queue = asyncio.Queue()
+        def _reader():
+            try:
+                while True:
+                    raw = _os.read(master_fd, 8192)
+                    if not raw:
+                        break
+                    asyncio.run_coroutine_threadsafe(queue.put(raw), loop)
+            except OSError:
+                pass
+            finally:
+                asyncio.run_coroutine_threadsafe(queue.put(None), loop)
+        thread = _threading.Thread(target=_reader, daemon=True)
+        thread.start()
+        async def _writer():
+            try:
+                while True:
+                    raw = await websocket.receive_text()
+                    _os.write(master_fd, raw.encode('utf-8', errors='replace'))
+            except (WebSocketDisconnect, RuntimeError):
+                pass
+        writer_task = asyncio.create_task(_writer())
+        try:
+            while True:
+                raw = await queue.get()
+                if raw is None:
+                    break
+                await websocket.send_text(raw.decode('utf-8', errors='replace'))
+        except (WebSocketDisconnect, RuntimeError):
+            pass
+        finally:
+            writer_task.cancel()
+            try:
+                writer_task.result()
+            except (asyncio.CancelledError, RuntimeError):
+                pass
+            try:
+                _os.close(master_fd)
+            except OSError:
+                pass
+            try:
+                _os.kill(pid, _signal.SIGTERM)
+            except (ProcessLookupError, OSError):
+                pass
 
     return app
 

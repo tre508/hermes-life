@@ -306,7 +306,7 @@ test('a reconnect replay never animates historical events', () => {
 });
 
 test('agent runtime stream events belong to no area and are not "unmapped"', () => {
-  for (const type of ['hermes.text', 'hermes.tool_use', 'hermes.tool_result', 'hermes.system', 'hermes.result']) {
+  for (const type of ['hermes.text', 'hermes.tool_use', 'hermes.tool_result', 'hermes.system', 'hermes.result', 'hermes.session_usage']) {
     assert.equal(isRuntimeEvent(type), true, `${type} is presentation-only`);
     assert.equal(roleForEvent(type, {}), null);
   }
@@ -314,6 +314,10 @@ test('agent runtime stream events belong to no area and are not "unmapped"', () 
   town = applyEvent(town, evt(20, 'hermes.tool_use', { tool_name: 'read_file' }), false, NOW + 1000);
   assert.deepEqual(town.unknownEvents, []);
   assert.equal(town.lastSequence, 20);
+  // session_usage is consumed by the composer's metrics toolbar, never by the town
+  // map — it must not surface as an unmapped event in the status strip.
+  town = applyEvent(town, evt(21, 'hermes.session_usage', { input_tokens: 100, output_tokens: 20 }), false, NOW + 2000);
+  assert.deepEqual(town.unknownEvents, []);
 });
 
 test('terminal events are acknowledged, then the record baseline returns', () => {

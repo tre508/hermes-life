@@ -15,6 +15,7 @@ import shlex
 import subprocess
 import tempfile
 import threading
+import time
 from pathlib import Path
 
 from fastapi import APIRouter, HTTPException
@@ -35,14 +36,35 @@ class ProjectCreate(BaseModel):
 
 class FileWrite(BaseModel):
     path: str = Field(min_length=1, max_length=1024)
-    content: str
+    content: str = ''
+    #: Binary upload channel (e.g. chat-composer image attach). When set, takes
+    #: precedence over `content` and skips the UTF-8 text validation — the bytes
+    #: are written as-is under the same containment, size limit and atomicity.
+    content_base64: str | None = None
     expected_mtime: float | None = None
+
+class FileUpload(BaseModel):
+    #: D6: project-free chat upload (images). The server picks the destination
+    #: inside the primary allowed root; the client sends only the basename.
+    filename: str = Field(min_length=1, max_length=255)
+    content_base64: str
+
+class PathIn(BaseModel):
+    #: D2: new-directory creation inside a workspace.
+    path: str = Field(min_length=1, max_length=1024)
+
+class MoveIn(BaseModel):
+    #: D2: rename/move inside a workspace. `source` → `target`; a same-parent
+    #: target is a rename. Relative to the workspace root.
+    source: str = Field(min_length=1, max_length=1024)
+    target: str = Field(min_length=1, max_length=1024)
 
 class WorkspaceError(ValueError): pass
 
 # HL-CHAT-006: file-context manager. Whole-tree inspection must never silently
 # pull junk or secrets, so the walk prunes a fixed denylist and caps volume.
 DENY_DIRS = {'.git', 'node_modules', '__pycache__', '.venv', 'venv', '.venv2',
+             '.trash',  # soft-delete destination (user decision, 2026-11-25) — never listed, never readable as project files
              'dist', 'build', '.next', '.cache', '.mypy_cache', '.pytest_cache',
              '.ruff_cache', '.tox', '.idea', '.vscode', '.run', 'coverage'}
 DENY_FILE = re.compile(r'(^\.env|\.env$|\.pem$|\.key$|\.p12$|\.pfx$|id_rsa|id_ed25519|'
@@ -259,6 +281,188 @@ class ProjectWorkspaces:
             raise WorkspaceError('Registered path no longer valid')
         return root
 
+    # --- §5: hosted-filesystem browse (attachment WITHOUT project registration) --
+
+    def _contained(self, path):
+        """Resolve a host path and prove it sits inside a configured allowed root.
+
+        Attachment must not require registering a project (user brief §5), but it
+        must not widen the agent's reach either: the boundary is still the
+        configured roots, so a path outside them is refused here exactly as
+        registration refuses it. resolve() also collapses `..` and follows
+        symlinks, so a link pointing outside a root is refused, not followed.
+        """
+        raw = str(path or '').strip()
+        target = Path(raw).expanduser() if raw else Path(self.allowed_root)
+        if not target.is_absolute():
+            target = self.allowed_root / target
+        resolved = target.resolve()
+        if any(resolved.is_relative_to(allowed) for allowed in self.allowed_roots):
+            return resolved
+        raise WorkspaceError('Path is outside the permitted roots: ' + str(resolved))
+
+    def browse(self, path=None):
+        """List ONE host directory under the permitted roots.
+
+        One level per call — an on-demand browser, so a single click never walks a
+        whole tree. The SAME denylist the reader applies is applied to entries, so
+        secrets, VCS metadata and build junk are never offered for attachment.
+        """
+        target = self._contained(path)
+        if not target.is_dir():
+            raise WorkspaceError('Not a directory: ' + str(target))
+        entries = []
+        for entry in sorted(target.iterdir(), key=lambda p: p.name.lower()):
+            name = entry.name
+            try:
+                is_dir = entry.is_dir()
+            except OSError:
+                continue
+            if is_dir:
+                if name in DENY_DIRS:
+                    continue
+            else:
+                try:
+                    if not entry.is_file():
+                        continue
+                except OSError:
+                    continue
+                if DENY_FILE.search(name):
+                    continue
+            item: dict[str, object] = {'name': name, 'path': str(entry), 'type': 'dir' if is_dir else 'file'}
+            if not is_dir:
+                try:
+                    item['size'] = entry.stat().st_size
+                except OSError:
+                    item['size'] = None
+            entries.append(item)
+        # "Up one level" is offered only while the parent is still inside a root —
+        # so the browser can never climb out of the permitted area.
+        parent = None
+        candidate = target.parent
+        if any(candidate.is_relative_to(allowed) for allowed in self.allowed_roots):
+            parent = str(candidate)
+        return {'path': str(target), 'parent': parent,
+                'roots': [str(r) for r in self.allowed_roots],
+                'entries': entries}
+
+    # --- D6: project-free uploads --------------------------------------------
+    # Policy (user decision 2026-11-27): local uploads (chat images) no longer
+    # require a registered project. The upload lands inside the SAME configured
+    # boundary the picker browses — <primary allowed root>/hermes-uploads/ —
+    # under the same denylist, size limit and atomic write as project writes.
+    # The stored file is referenced by absolute host path; contents are never
+    # injected and the upload grants no modification authority (spec §4.2).
+
+    @staticmethod
+    def _upload_dir():
+        day = time.strftime('%Y%m%d')
+        return Path('hermes-uploads') / day
+
+    def upload(self, filename: str, content_base64: str):
+        import base64 as base64_module
+        raw = str(filename or '').strip()
+        name = Path(raw).name
+        # Refuse path tricks outright — never launder them into a safe name.
+        if not name or name in ('.', '..') or raw != name or '/' in raw or '\\' in raw:
+            raise WorkspaceError('Invalid upload filename')
+        if DENY_FILE.search(name):
+            raise WorkspaceError('Refused filename (denylist): ' + name)
+        try:
+            data = base64_module.b64decode(content_base64, validate=True)
+        except Exception:
+            raise WorkspaceError('Invalid base64 file content') from None
+        if len(data) > MAX_WRITE_BYTES:
+            raise WorkspaceError(f'File too large to write ({len(data)} bytes; limit {MAX_WRITE_BYTES})')
+        dest_dir = self._contained(self._upload_dir())
+        dest_dir.mkdir(parents=True, exist_ok=True)
+        stem, suffix = Path(name).stem, Path(name).suffix
+        target = dest_dir / name
+        # A duplicate upload is disambiguated, never silently overwritten.
+        for n in range(2, 1000):
+            if not target.exists():
+                break
+            target = dest_dir / f'{stem}-{n}{suffix}'
+        handle_fd, tmp_name = tempfile.mkstemp(dir=dest_dir, prefix='.hermes-write-', suffix='.tmp')
+        tmp = Path(tmp_name)
+        try:
+            with os.fdopen(handle_fd, 'wb') as fh:
+                fh.write(data)
+            os.chmod(tmp, 0o644)
+            os.replace(tmp, target)
+        except BaseException:
+            tmp.unlink(missing_ok=True)
+            raise
+        st = target.stat()
+        self._emit_file_change('uploaded', '', str(target), mtime=st.st_mtime,
+                               size=st.st_size)
+        return {'path': str(target), 'name': target.name, 'size': st.st_size, 'mtime': st.st_mtime}
+
+    def search(self, name, query, limit=200):
+        """D12: content search across the workspace (spec §4.3 Search view).
+
+        Same walk rules as tree(): denylist, MAX_DEPTH, bounded volume. Files
+        above the read cap are SKIPPED AND COUNTED — honest about what was not
+        searched instead of pretending full coverage. Case-insensitive
+        substring match per line; hit text is trimmed for the results list.
+        """
+        q = str(query or '').strip()
+        if len(q) < 2:
+            raise WorkspaceError('Search query must be at least 2 characters')
+        root = self._root(name)
+        ql = q.lower()
+        hits: list[dict] = []
+        skipped = 0
+        scanned = 0
+        done = False
+        for dirpath, dirnames, filenames in os.walk(root):
+            if done:
+                break
+            rel_dir = os.path.relpath(dirpath, root)
+            depth = 0 if rel_dir == '.' else rel_dir.count(os.sep) + 1
+            if depth >= MAX_DEPTH:
+                dirnames[:] = []
+            dirnames[:] = sorted(d for d in dirnames if d not in DENY_DIRS)
+            for fname in sorted(filenames):
+                rel = fname if rel_dir == '.' else f'{rel_dir}/{fname}'
+                if self._denied(rel):
+                    continue
+                path = root / rel
+                try:
+                    if path.stat().st_size > MAX_FILE_BYTES * 2:
+                        skipped += 1
+                        continue
+                    text = path.read_bytes().decode('utf-8', errors='strict')
+                except (OSError, UnicodeDecodeError, ValueError):
+                    continue
+                scanned += 1
+                for lineno, line in enumerate(text.splitlines(), 1):
+                    if ql in line.lower():
+                        hits.append({'path': rel, 'line': lineno, 'text': line.strip()[:200]})
+                        if len(hits) >= limit:
+                            done = True
+                            break
+                if done:
+                    break
+        return {'query': q, 'hits': hits, 'scanned': scanned,
+                'truncated': done, 'skipped_oversize': skipped}
+
+    def _emit_file_change(self, change, name, path, **extra):
+        """D1: a host-side file fact, emitted AFTER the filesystem changed.
+
+        The event store already carries the durable record; this only adds the
+        live notification the Projects workspace subscribes to (spec §4.4
+        "shared file change events"). Task-id stays None — these are host
+        writes, not task executions.
+        """
+        try:
+            self.runtime.store.emit('file.changed', {
+                'project': name, 'path': path, 'change': change, **extra})
+        except Exception:
+            # The filesystem fact is already durable; a notification failure
+            # must never fail the operation that produced it.
+            pass
+
     @staticmethod
     def _denied(rel: str) -> bool:
         parts = Path(rel).parts
@@ -276,11 +480,39 @@ class ProjectWorkspaces:
                                     capture_output=True, text=True, timeout=10)
             status = subprocess.run(['git', '-C', str(root), 'status', '--porcelain'],
                                     capture_output=True, text=True, timeout=10)
+            # D13: the spec status row wants branch · host · sync — report the
+            # branch name alongside the commit when the repo is readable.
+            branch = subprocess.run(['git', '-C', str(root), 'rev-parse', '--abbrev-ref', 'HEAD'],
+                                    capture_output=True, text=True, timeout=10)
             if commit.returncode == 0 and status.returncode == 0:
-                return {'commit': commit.stdout.strip(), 'dirty': bool(status.stdout.strip())}
+                out: dict[str, object] = {'commit': commit.stdout.strip(),
+                                          'dirty': bool(status.stdout.strip())}
+                if branch.returncode == 0 and branch.stdout.strip():
+                    out['branch'] = branch.stdout.strip()
+                return out
         except (OSError, subprocess.SubprocessError):
             pass
         return None
+
+    @staticmethod
+    def _scm_status(root):
+        """D13: per-path source-control state for explorer decorations."""
+        try:
+            r = subprocess.run(['git', '-C', str(root), 'status', '--porcelain'],
+                               capture_output=True, text=True, timeout=10)
+            if r.returncode != 0:
+                return {}
+            state: dict[str, str] = {}
+            for line in r.stdout.splitlines():
+                if len(line) < 4:
+                    continue
+                code, path = line[:2], line[3:].strip().strip('"')
+                if '->' in path:  # rename "old -> new"
+                    path = path.split('->')[-1].strip()
+                state[path] = 'M' if code.strip() and code.strip() != '??' else 'U'
+            return state
+        except (OSError, subprocess.SubprocessError):
+            return {}
 
     def tree(self, name):
         root = self._root(name)
@@ -311,9 +543,12 @@ class ProjectWorkspaces:
                     break
         return {'project': name, 'root': str(root), 'count': len(entries),
                 'truncated': truncated, 'entries': entries,
+                'scm': self._scm_status(root),
                 'host_version': self._host_version(root)}
 
-    def file(self, name, relpath, preview=False):
+    IMAGE_EXTS = {'.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg', '.bmp', '.ico'}
+
+    def file(self, name, relpath, preview=False, raw=False):
         """Read a file from the workspace.
 
         preview=True (the UI stage) never hard-fails on size: files over the
@@ -322,6 +557,10 @@ class ProjectWorkspaces:
         content instead of a page of replacement characters. Attach flows
         (preview=False) keep the strict limit — an inline attachment must be
         complete or refused, never silently cut.
+
+        raw=True (D13, image previews): image files return their bytes as
+        `content_base64` (same containment + denylist as every read) so the
+        editor can render a real <img> instead of the binary dead end.
         """
         root = self._root(name)
         if not relpath or relpath.startswith('/') or '\\' in relpath or '..' in Path(relpath).parts:
@@ -336,6 +575,16 @@ class ProjectWorkspaces:
             raise WorkspaceError('Not a regular file: ' + rel)
         st = target.stat()
         import stat as stat_module
+        if raw and target.suffix.lower() in self.IMAGE_EXTS:
+            import base64 as base64_module
+            data = target.read_bytes()
+            if len(data) > MAX_FILE_BYTES * 4:
+                raise WorkspaceError(f'Image too large to preview ({len(data)} bytes)')
+            return {'path': rel, 'size': st.st_size, 'mtime': st.st_mtime,
+                    'mode': stat_module.filemode(st.st_mode), 'truncated': False,
+                    'binary': True, 'image': True,
+                    'content_base64': base64_module.b64encode(data).decode('ascii'),
+                    'content': '', 'host_version': self._host_version(root)}
         with target.open('rb') as handle:
             head = handle.read(MAX_FILE_BYTES + 1)
         is_binary = b'\x00' in head[:8192]
@@ -364,6 +613,68 @@ class ProjectWorkspaces:
             raise WorkspaceError('File is denylisted (secret or build artifact): ' + rel)
         return root, target, rel
 
+    def delete_file(self, name, relpath):
+        """Soft-delete a project file: move it into the project's `.trash/`.
+
+        User decision (2026-11-25): delete is a MOVE, not an unlink — the file
+        lands in `<project>/.trash/` under its original relative path so a
+        restore is a plain move back. The same containment and denylist rules
+        as the writer apply to the source path; directories are refused (the
+        IDE deletes files one at a time). Same-filesystem `os.replace` keeps
+        the move atomic; an existing trash entry is never silently overwritten
+        — a millisecond timestamp suffix disambiguates instead.
+        """
+        import os as os_module
+        root, target, rel = self._resolve_writable(name, relpath)
+        if not target.is_file():
+            raise WorkspaceError('Not a regular file (only files can be deleted): ' + rel)
+        trash_root = root / '.trash'
+        dest = trash_root / rel
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        if dest.exists():
+            stamp = f'.{int(time.time() * 1000)}'
+            dest = dest.with_name(dest.name + stamp)
+        os_module.replace(target, dest)
+        self._emit_file_change('deleted', name, rel, trash=dest.relative_to(root).as_posix())
+        return {'deleted': rel, 'trash': dest.relative_to(root).as_posix()}
+
+    def make_dir(self, name, relpath):
+        """D2: create a directory inside the workspace (IDE 'New Folder')."""
+        root, target, rel = self._resolve_writable(name, relpath)
+        # _denied only refuses a DENY_DIRS name as an ANCESTOR (a file may
+        # legitimately end in e.g. 'build'). A directory NAMED like a denylisted
+        # build/VCS dir must never be creatable: refuse any part.
+        if any(part in DENY_DIRS for part in Path(rel).parts):
+            raise WorkspaceError('Directory is denylisted (VCS or build artifact): ' + rel)
+        if target.exists():
+            raise WorkspaceError('Already exists in the project: ' + rel)
+        target.mkdir(parents=True, exist_ok=False)
+        return {'created': rel}
+
+    def move_entry(self, name, source, target_rel):
+        """D2: rename/move a file or directory inside the workspace.
+
+        IDE 'Rename / Move…'. Both endpoints resolve through the SAME
+        containment + denylist as writes. A rename is a same-parent move.
+        The target is never silently overwritten and its parent must exist
+        (the IDE creates directories explicitly). Plain os.rename keeps it
+        same-filesystem and atomic.
+        """
+        root, src, src_rel = self._resolve_writable(name, source)
+        root2, dst, dst_rel = self._resolve_writable(name, target_rel)
+        if not src.exists():
+            raise WorkspaceError('Source does not exist in the project: ' + src_rel)
+        if src == dst:
+            raise WorkspaceError('Source and target are the same path')
+        if dst.exists():
+            raise WorkspaceError('Target already exists in the project: ' + dst_rel)
+        if not dst.parent.is_dir():
+            parent_rel = dst_rel.rsplit('/', 1)[0] if '/' in dst_rel else '.'
+            raise WorkspaceError('Parent directory does not exist in the project: ' + parent_rel)
+        os.rename(src, dst)
+        self._emit_file_change('moved', name, dst_rel, source=src_rel)
+        return {'moved': src_rel, 'to': dst_rel}
+
     def roots(self):
         """Candidate project directories under every allowed root.
 
@@ -389,19 +700,29 @@ class ProjectWorkspaces:
                             'version': self._host_version(path)})
         return out
 
-    def write_file(self, name, relpath, content, expected_mtime=None):
-        """Create or overwrite a UTF-8 text file inside the project workspace.
+    def write_file(self, name, relpath, content, expected_mtime=None, content_base64=None):
+        """Create or overwrite a file inside the project workspace.
 
         Provisional by design, exactly like the agent's own edits: the change lands in
-        the host working tree UNCOMMITTED and is visible through `changes()`. Binary
-        targets are refused (a text round-trip would corrupt them), `expected_mtime`
-        refuses a save over a file that changed on disk since it was loaded, and the
-        write is atomic (tempfile + rename) so a failed save cannot truncate.
+        the host working tree UNCOMMITTED and is visible through `changes()`. Text
+        writes keep the strict round-trip contract (binary targets refused, UTF-8
+        validated); `content_base64` carries a BINARY upload (chat image attach) and
+        skips that text validation while keeping the same containment, size limit,
+        mtime guard and atomic write. `expected_mtime` refuses a save over a file
+        that changed on disk since it was loaded, and the write is atomic
+        (tempfile + rename) so a failed save cannot truncate.
         """
         root, target, rel = self._resolve_writable(name, relpath)
-        if not isinstance(content, str):
-            raise WorkspaceError('File content must be text')
-        data = content.encode('utf-8')
+        if content_base64 is not None:
+            import base64 as base64_module
+            try:
+                data = base64_module.b64decode(content_base64, validate=True)
+            except Exception:
+                raise WorkspaceError('Invalid base64 file content') from None
+        else:
+            if not isinstance(content, str):
+                raise WorkspaceError('File content must be text')
+            data = content.encode('utf-8')
         if len(data) > MAX_WRITE_BYTES:
             raise WorkspaceError(f'File too large to write ({len(data)} bytes; limit {MAX_WRITE_BYTES})')
         created = not target.exists()
@@ -410,15 +731,21 @@ class ProjectWorkspaces:
             if not target.is_file():
                 raise WorkspaceError('Not a regular file: ' + rel)
             st = target.stat()
-            try:
-                target.read_bytes()[:8192].decode('utf-8', errors='strict')
-            except UnicodeDecodeError:
-                raise WorkspaceError('Binary file — edit it in a real editor, not through chat') from None
+            if content_base64 is None:
+                try:
+                    target.read_bytes()[:8192].decode('utf-8', errors='strict')
+                except UnicodeDecodeError:
+                    raise WorkspaceError('Binary file — edit it in a real editor, not through chat') from None
             if expected_mtime is not None and abs(st.st_mtime - float(expected_mtime)) > 0.001:
                 raise WorkspaceError('File changed on disk since it was loaded — reload it before saving')
             mode = st.st_mode & 0o777
         if not target.parent.is_dir():
-            raise WorkspaceError('Parent directory does not exist in the project: ' + rel)
+            if content_base64 is not None:
+                # An upload may reference a fresh subpath (chat image attach);
+                # create the parents rather than refusing the upload.
+                target.parent.mkdir(parents=True, exist_ok=True)
+            else:
+                raise WorkspaceError('Parent directory does not exist in the project: ' + rel)
         import tempfile as tempfile_module
         handle_fd, tmp_name = tempfile_module.mkstemp(dir=target.parent, prefix='.hermes-write-', suffix='.tmp')
         tmp = Path(tmp_name)
@@ -431,6 +758,8 @@ class ProjectWorkspaces:
             tmp.unlink(missing_ok=True)
             raise
         st = target.stat()
+        self._emit_file_change('written', name, rel, mtime=st.st_mtime, size=st.st_size,
+                               created=created)
         return {'path': rel, 'size': st.st_size, 'mtime': st.st_mtime, 'created': created,
                 'host_version': self._host_version(root)}
 
@@ -461,11 +790,50 @@ def add_project_routes(app, runtime, manager):
     @router.get('/{name}/tree')
     def tree(name:str):return handle(manager.tree,name)
     @router.get('/{name}/file')
-    def file(name:str,path:str,preview:bool=False):
-        return handle(manager.file,name,path,preview)
+    def file(name:str,path:str,preview:bool=False,raw:bool=False):
+        return handle(manager.file,name,path,preview,raw)
+    # D12: content search across the workspace (same walk rules as tree()).
+    @router.get('/{name}/search')
+    def search(name:str,q:str,limit:int=200):
+        return handle(manager.search,name,q,limit)
     # UI edits and uploads: provisional, uncommitted host working-tree writes (see
     # the module docstring) — the same containment and denylist rules as the reader.
     @router.put('/{name}/file')
     def write_file(name:str,payload:FileWrite):
-        return handle(manager.write_file,name,payload.path,payload.content,payload.expected_mtime)
+        return handle(manager.write_file,name,payload.path,payload.content,payload.expected_mtime,payload.content_base64)
+    # Soft delete (user decision 2026-11-25): the file MOVES to <project>/.trash/
+    # under its original relative path — never an unlink.
+    @router.delete('/{name}/file')
+    def delete_file(name:str,path:str):
+        return handle(manager.delete_file,name,path)
+    # D2: IDE create-directory and rename/move. Same containment + denylist as
+    # every other write; a move never overwrites an existing target.
+    @router.post('/{name}/dir')
+    def make_dir(name:str,payload:PathIn):
+        return handle(manager.make_dir,name,payload.path)
+    @router.post('/{name}/move')
+    def move_entry(name:str,payload:MoveIn):
+        return handle(manager.move_entry,name,payload.source,payload.target)
+    app.include_router(router)
+
+
+def add_fs_routes(app, runtime, manager):
+    """§5: browse the HOST filesystem for attachment WITHOUT registering a project.
+
+    Registration and attachment are separate operations (user brief §5): a file or
+    directory may be attached to a conversation without first becoming a project.
+    The security boundary is unchanged — every path is proven to sit inside a
+    configured allowed root — so this UI affordance never widens the agent's reach.
+    """
+    router=APIRouter(prefix='/api/fs',tags=['filesystem'])
+    def handle(fn,*args):
+        try:return fn(*args)
+        except (WorkspaceError,OSError,subprocess.TimeoutExpired) as exc:
+            raise HTTPException(status_code=409,detail=str(exc)) from exc
+    @router.get('/list')
+    def listing(path:str|None=None):return handle(manager.browse,path)
+    # D6: project-free uploads (user decision 2026-11-27) — images land inside
+    # the primary allowed root under hermes-uploads/, same containment rules.
+    @router.put('/upload')
+    def upload(payload:FileUpload):return handle(manager.upload,payload.filename,payload.content_base64)
     app.include_router(router)
