@@ -95,6 +95,11 @@ const DEFAULT_CONFIG: BubbleConfig = {
   maxHistory: 100,
 };
 
+/** HA-034 (§9 "hover OR click exposes details"): hover reveals the same
+ *  detail block after this delay — short enough to feel direct, long enough
+ *  that pointer sweeps don't flap the view. */
+const HOVER_REVEAL_DELAY = 250;
+
 // ============================================================================
 // Event-to-Role Mapping (mirrors town-model.ts but for bubble categories)
 // ============================================================================
@@ -105,17 +110,24 @@ const RUNTIME_EVENTS = /^hermes\.(text|system|tool_use|tool_result|result)$/;
  *  anything reaches a bubble. Matches key=value / key: value / "key":"value"
  *  shapes with a sensitive key and replaces the value with ••••. Applied only
  *  to payload-derived strings (targets, args, result summaries) — never to
- *  Hermes's own streamed text, which is the answer, not a payload field. */
+ *  Hermes's own streamed text, which is the answer, not a payload field.
+ *  HA-015: unquoted values run to a safe delimiter (escaped quote, the old
+ *  ,;&"')]} set) or end of LINE — a first-token-only value leaked
+ *  `password=hello world and more`'s tail. */
+const SCHEME_CRED = /\b(basic|bearer|digest)\s+([A-Za-z0-9._~+/=-]{8,})/gi;
 const SENSITIVE_KEY =
-  /((?:pass(?:word)?|secret|token|api[-_ ]?key|authorization|credential|bearer)["']?\s*[:=]\s*)("[^"]*"|'[^']*'|[^\s,;&"']+)/gi;
-const BEARER_VALUE = /\b(bearer)\s+([A-Za-z0-9._~+/=-]{8,})/gi;
+  /((?:pass(?:word)?|secret|token|api[-_ ]?key|authorization|credential|bearer)["']?\s*[:=]\s*)(?:(basic|bearer|digest)\s+)?("[^"]*"|'[^']*'|[^\r\n]*?(?=[ \t]*(?:\\["']|[,;|&"'\])}])|\r?\n|$))/gi;
 export function redactSensitive(text: string): string {
   if (!text) return text;
   return text
-    // "Bearer <token>" FIRST — otherwise the key=value pass consumes the
-    // scheme word as the value and the real token survives.
-    .replace(BEARER_VALUE, (_m, scheme: string) => `${scheme} ••••`)
-    .replace(SENSITIVE_KEY, (_m, key: string) => `${key}••••`);
+    // Scheme-prefixed credentials FIRST ("Bearer <token>", "Basic <token>")
+    // — otherwise the key=value pass consumes the scheme word as the value
+    // and the real token survives.
+    .replace(SCHEME_CRED, (_m, scheme: string) => `${scheme} ••••`)
+    // HA-015: keep the scheme word ("Basic ••••") — only the credential is
+    // a value; the scheme label is structure.
+    .replace(SENSITIVE_KEY, (_m, key: string, scheme?: string) =>
+      `${key}${scheme ? `${scheme} ` : ''}••••`);
 }
 
 /** Live payloads observed on the wire use `payload.name`; older records and
@@ -492,13 +504,17 @@ export function categorizeEvent(event: {
  *  accumulated details so the full commentary builds up coherently.
  *
  *  For tool_result merging into tool_use (same tool_call_id), preserve the
- *  original meaningful headline and toolTarget from the tool_use bubble. */
-function mergeContent(oldC: BubbleContent, fresh: BubbleContent): BubbleContent {
+ *  original meaningful headline and toolTarget from the tool_use bubble.
+ *  HA-016: the anchor id belongs to the bubble created for the call — a
+ *  merged follow-up must never overwrite it or concurrent same-tool calls
+ *  lose their call/result correlation. */
+export function mergeContent(oldC: BubbleContent, fresh: BubbleContent): BubbleContent {
   const merged: Record<string, unknown> = { ...oldC };
   for (const k of Object.keys(fresh) as (keyof BubbleContent)[]) {
     const v = fresh[k];
     if (v === undefined || v === null) continue;
     if (typeof v === 'string' && v === '') continue;
+    if (k === 'id' && oldC.id) continue;
 
     // Special handling for streaming text fragments: append to accumulated details
     if (k === 'details' && typeof v === 'string' && fresh._streamFragment) {
@@ -715,6 +731,11 @@ export class BubbleController {
    *  same bubble is updated so a quick stream of events doesn't dismiss
    *  the bubble early (UI-VIS-007 §10, "completed" replaces "running"). */
   private timers = new Map<string, number>();
+  // HA-034 (§9): hover reveals the detail block after a short delay —
+  // transient per-bubble timers and a reveal set, so leaving the pointer
+  // re-hides only the hover reveal (never a click-expanded view).
+  private hoverTimers = new Map<string, number>();
+  private hoverRevealed = new Set<string>();
   // D10 (review.md): bubbles beyond maxPerResident are QUEUED + SUMMARIZED,
   // never silently discarded. Per-resident overflow counter + recent samples;
   // shown on the primary bubble as "+N more" and listed in the expanded view.
@@ -824,6 +845,8 @@ export class BubbleController {
         window.setTimeout(() => this.removeBubbleElement(id), this.config.fadeDuration);
       }
       this.timers.delete(id);
+      this.hoverTimers.delete(id);
+      this.hoverRevealed.delete(id);
     }
   }
 
@@ -833,21 +856,20 @@ export class BubbleController {
   private addOrUpdateBubble(role: Role, category: BubbleCategory, content: BubbleContent, taskId: string | null) {
     const roleBubbles = this.bubbles.get(role) || [];
 
-    // Two matching strategies:
+    // Two matching strategies (HA-016):
     //  1. A tool_use / tool_result pair that shares a tool_call_id updates
     //     the existing bubble instead of stacking.
     //  2. The streamed thought bubble per task (same role+category+taskId).
-    // After that, anything new (different tool or different lifecycle) is
-    // a fresh entry. `maxPerResident` bounds how many stack.
+    // Concurrent calls of the SAME tool carry distinct tool_call_ids and must
+    // stay distinct bubbles — merging by category+toolName collapsed them and
+    // orphaned the first result. `maxPerResident` + the overflow queue (D10)
+    // bound the stack instead.
     let existingIndex = -1;
     if (content.id) {
       existingIndex = roleBubbles.findIndex(b => b.content.id === content.id);
     }
     if (existingIndex === -1 && category === 'thought' && taskId) {
       existingIndex = roleBubbles.findIndex(b => b.category === 'thought' && b.content.taskId === taskId);
-    }
-    if (existingIndex === -1) {
-      existingIndex = roleBubbles.findIndex(b => b.category === category && b.content.toolName === content.toolName);
     }
 
     let bubble: BubbleState;
@@ -1013,6 +1035,10 @@ export class BubbleController {
     element.addEventListener('click', () => {
       this.toggleExpand(bubble.id);
       if (bubble.content.taskId) navButton?.removeAttribute('hidden');
+      // §4.3.3: the inspector shows this event. Content was redacted at creation.
+      window.dispatchEvent(new CustomEvent('hermes:bubble-select', {
+        detail: { id: bubble.id, role: bubble.role, category: bubble.category, createdAt: bubble.createdAt, content: { ...bubble.content } },
+      }));
     });
     element.addEventListener('mouseenter', () => this.onHover(bubble.id, true));
     element.addEventListener('mouseleave', () => this.onHover(bubble.id, false));
@@ -1045,7 +1071,7 @@ export class BubbleController {
     if (details) {
       if (bubble.content.details) {
         details.textContent = bubble.content.details;
-        details.hidden = !bubble.expanded;
+        details.hidden = !this.detailOpen(bubble);
       } else {
         details.remove();
       }
@@ -1089,7 +1115,7 @@ export class BubbleController {
       } else if (start) {
         times.textContent = `Started ${new Date(start).toLocaleTimeString()}`;
       }
-      times.hidden = !bubble.expanded;
+      times.hidden = !this.detailOpen(bubble);
     }
 
     // D10: queued/summarized overflow. The compact line always shows the count
@@ -1165,8 +1191,10 @@ export class BubbleController {
 
     // Clamp so the bubble stays inside the canvas. We allow a small margin
     // so the bubble's own translateX(-50%) doesn't push it past the edge.
-    const halfW = 110; // bubble width / 2 ~= 220
+    // HA-033: measure the live element — bubbles.css allows 200-320px wide
+    // (400-500px expanded) — instead of trusting stale half-width constants.
     const margin = 8;
+    const halfW = (element.offsetWidth || 220) / 2;
     if (canvasRect.width < halfW * 2 + margin * 2) {
       element.style.maxWidth = `${Math.max(120, canvasRect.width - margin * 2)}px`;
       x = canvasRect.width / 2;
@@ -1175,9 +1203,9 @@ export class BubbleController {
       x = Math.max(halfW + margin, Math.min(canvasRect.width - halfW - margin, x));
     }
     // y is the bubble's anchor point (after translateY(-100%) the bubble
-    // body sits above this y). Keep the anchor inside the canvas so the
-    // bubble body never bleeds past the top.
-    y = Math.max(110, Math.min(canvasRect.height - margin, y));
+    // body sits above this y). Keep the MEASURED body — not a 110px guess —
+    // inside the canvas so it never bleeds past the top.
+    y = clampAnchorTop(y, element.offsetHeight || 110, canvasRect.height, margin);
 
     element.style.left = `${Math.round(x)}px`;
     element.style.top = `${Math.round(y)}px`;
@@ -1206,7 +1234,8 @@ export class BubbleController {
    *  with. Bounded work: at most one bubble per resident (≤7 rects), one
    *  layout read per frame only when two or more bubbles are visible. */
   private resolveOverlaps(): void {
-    if (this.bubbleElements.size < 2) return;
+    const overlay = this.overlay;
+    if (!overlay || this.bubbleElements.size < 2) return;
     const rects: Array<{
       id: string; left: number; top: number; width: number; height: number; createdAt: number;
     }> = [];
@@ -1219,13 +1248,22 @@ export class BubbleController {
     }
     if (rects.length < 2) return;
     rects.sort((a, b) => a.createdAt - b.createdAt);
-    const plan = planOverlapAdjustments(rects);
+    // HA-033: bound the plan by the overlay (same space as the rects) so a
+    // nudge can never push a body past the top — stacking flips downward
+    // when the space above is exhausted.
+    const margin = 8;
+    const oRect = overlay.getBoundingClientRect();
+    const bounds = { top: oRect.top + margin, bottom: oRect.bottom - margin };
+    const plan = planOverlapAdjustments(rects, margin, bounds);
     for (const { id, deltaTop } of plan) {
       const element = this.bubbleElements.get(id);
       if (!element) continue;
       const current = parseFloat(element.style.top);
       if (Number.isNaN(current)) continue;
-      element.style.top = `${Math.round(current + deltaTop)}px`;
+      // Re-clamp the final anchor against the overlay height: the plan is
+      // pure geometry and can't see the body's live offsetHeight.
+      const top = clampAnchorTop(current + deltaTop, element.offsetHeight, oRect.height, margin);
+      element.style.top = `${Math.round(top)}px`;
     }
   }
 
@@ -1284,6 +1322,12 @@ export class BubbleController {
       window.clearTimeout(timer);
       this.timers.delete(id);
     }
+    const hover = this.hoverTimers.get(id);
+    if (hover !== undefined) {
+      sooner(hover);
+      this.hoverTimers.delete(id);
+    }
+    this.hoverRevealed.delete(id);
 
     bubble.animationState = 'exiting';
     bubble.visible = false;
@@ -1320,20 +1364,36 @@ export class BubbleController {
     }
   }
 
-  /** Toggle expanded view (click) */
+  /** Toggle expanded view (click). State-first so a headless controller
+   *  still tracks the view (like dismissBubble, D10). */
   private toggleExpand(id: string): void {
     const bubble = this.findBubbleById(id);
-    const element = this.bubbleElements.get(id);
-    if (!bubble || !element) return;
+    if (!bubble) return;
 
     bubble.expanded = !bubble.expanded;
-    element.classList.toggle('expanded', bubble.expanded);
-    const details = element.querySelector('.town-bubble__details') as HTMLElement | null;
-    if (details) details.hidden = !bubble.expanded;
-    const times = element.querySelector('.town-bubble__times') as HTMLElement | null;
-    if (times) times.hidden = !bubble.expanded;
-    const expand = element.querySelector('.town-bubble__expand');
+    this.syncExpansion(id);
+    const expand = this.bubbleElements.get(id)?.querySelector('.town-bubble__expand');
     if (expand) expand.textContent = bubble.expanded ? 'less ▴' : 'more ▾';
+  }
+
+  /** §9: the detail block is open when clicked OR hover-revealed (HA-034). */
+  private detailOpen(bubble: BubbleState): boolean {
+    return bubble.expanded || this.hoverRevealed.has(bubble.id);
+  }
+
+  /** Reveal/hide the §9 detail block — the single path behind click and
+   *  hover so both expose exactly the same metadata. */
+  private syncExpansion(id: string): void {
+    const bubble = this.findBubbleById(id);
+    if (!bubble) return;
+    const open = this.detailOpen(bubble);
+    const element = this.bubbleElements.get(id);
+    if (!element) return;
+    element.classList.toggle('expanded', open);
+    const details = element.querySelector('.town-bubble__details') as HTMLElement | null;
+    if (details) details.hidden = !open;
+    const times = element.querySelector('.town-bubble__times') as HTMLElement | null;
+    if (times) times.hidden = !open;
   }
 
   /** Dispatch to the existing Activity workspace with the chosen task id. */
@@ -1342,11 +1402,28 @@ export class BubbleController {
     window.dispatchEvent(new CustomEvent('hermes:open-task', { detail: { id: taskId } }));
   }
 
-  /** Handle hover for expanded preview */
+  /** HA-034 (§9 "hover OR click exposes details"): hover reveals the same
+   *  detail block click shows, after HOVER_REVEAL_DELAY so pointer sweeps
+   *  don't flap the view. The reveal is transient — leaving re-hides it but
+   *  never collapses a click-expanded bubble. */
   private onHover(id: string, entering: boolean): void {
     const element = this.bubbleElements.get(id);
-    if (!element) return;
-    element.classList.toggle('hovered', entering);
+    if (element) element.classList.toggle('hovered', entering);
+    const pending = this.hoverTimers.get(id);
+    if (pending !== undefined) {
+      sooner(pending);
+      this.hoverTimers.delete(id);
+    }
+    if (!entering) {
+      this.hoverRevealed.delete(id);
+      this.syncExpansion(id);
+      return;
+    }
+    this.hoverTimers.set(id, later(() => {
+      this.hoverTimers.delete(id);
+      this.hoverRevealed.add(id);
+      this.syncExpansion(id);
+    }, HOVER_REVEAL_DELAY));
   }
 
   /** Get icon for category */
@@ -1440,6 +1517,9 @@ export class BubbleController {
     this.history.length = 0;
     for (const handle of this.timers.values()) window.clearTimeout(handle);
     this.timers.clear();
+    for (const handle of this.hoverTimers.values()) sooner(handle);
+    this.hoverTimers.clear();
+    this.hoverRevealed.clear();
     this.overlay?.remove();
     this.overlay = null;
     this.host = null;
@@ -1464,6 +1544,17 @@ function prefersReducedMotion(): boolean {
   return typeof window !== 'undefined'
     && typeof window.matchMedia === 'function'
     && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+}
+
+/** window timers in the browser, global timers headless — the HA-034 hover
+ *  path must run without a document. */
+function later(fn: () => void, ms: number): number {
+  const host = typeof window !== 'undefined' ? window : globalThis;
+  return host.setTimeout(fn, ms) as unknown as number;
+}
+function sooner(handle: number): void {
+  const host = typeof window !== 'undefined' ? window : globalThis;
+  host.clearTimeout(handle);
 }
 
 /** One inspectable row of the §11 presentation cache. Pure so tests can run
@@ -1499,10 +1590,15 @@ export function formatHistoryRows(history: BubbleState[], limit = 20): HistoryRo
  * (oldest/highest priority first — each keeps its anchor position); every
  * later item that intersects an already-placed one is moved to sit just
  * above it. Pure geometry so tests can run headless.
+ *
+ * HA-033: optional `bounds` (same coordinate space as `items`) keep nudged
+ * bodies inside the overlay — stacking flips DOWNWARD when the space above
+ * runs out, and the final top is re-clamped to the bounds.
  */
 export function planOverlapAdjustments(
   items: Array<{ id: string; left: number; top: number; width: number; height: number }>,
   margin = 8,
+  bounds?: { top: number; bottom: number },
 ): Array<{ id: string; deltaTop: number }> {
   const adjusted = new Map<string, number>();
   const placed: Array<{ id: string; left: number; top: number; width: number; height: number }> = [];
@@ -1517,14 +1613,31 @@ export function planOverlapAdjustments(
         top < pTop + p.height + margin &&
         pTop < top + item.height + margin;
       if (horizontalOverlap && verticalOverlap) {
-        // Sit fully above the colliding (higher-priority) bubble.
-        top = pTop - item.height - margin;
+        // Sit fully above the colliding (higher-priority) bubble — or below
+        // it when the overlay top has no room left (HA-033).
+        const above = pTop - item.height - margin;
+        if (bounds && above < bounds.top) {
+          top = Math.min(pTop + p.height + margin, bounds.bottom - item.height);
+        } else {
+          top = above;
+        }
       }
     }
+    if (bounds) top = Math.max(bounds.top, Math.min(bounds.bottom - item.height, top));
     adjusted.set(item.id, top - item.top);
     placed.push(item);
   }
   return [...adjusted.entries()]
     .filter(([, delta]) => delta !== 0)
     .map(([id, deltaTop]) => ({ id, deltaTop }));
+}
+
+/**
+ * Clamp a bubble's anchor `top` (the body renders translateY(-100%) above
+ * it) so the measured body stays inside an overlay of `height`. HA-033:
+ * driven by the live offsetHeight — bubbles.css allows up to 500px expanded,
+ * far past the old 110px constant. Pure so the geometry is testable headless.
+ */
+export function clampAnchorTop(top: number, bodyHeight: number, height: number, margin = 8): number {
+  return Math.max(bodyHeight + margin, Math.min(height - margin, top));
 }

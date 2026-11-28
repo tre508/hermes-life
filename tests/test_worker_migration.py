@@ -203,7 +203,9 @@ def test_health_reports_which_worker_the_backend_drives(tmp_path, monkeypatch):
 
     client = TestClient(create_app(database=tmp_path / 'worker.db'))
     client.__enter__()
-    body = client.get('/health').json()
+    # HA-019: the HL-WORKER contract moved behind the gate (/health is
+    # liveness-only now) — the assertions are unchanged, only the route differs.
+    body = client.get('/api/health/detail').json()
     assert body['status'] == 'ok'
     assert body['hermes_available'] is True
     assert body['worker']['transport'] == 'ssh'

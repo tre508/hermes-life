@@ -2,71 +2,66 @@
    Existing workspaces, modules, IDs and backend state remain authoritative. */
 :root { color-scheme: dark; }
 #app {
-  --hc-bg: #0b1020;
-  --hc-panel: #141c30;
-  --hc-border: #354058;
-  --hc-text: #e4e9f7;
-  --hc-muted: #97a5bd;
+  --hc-bg: #0B1C20;
+  --hc-panel: #142B30;
+  --hc-border: #355258;
+  --hc-text: #E4F3F7;
+  --hc-muted: #97B7BD;
   --hc-coral: #ff766f;
   --hc-cyan: #62cadb;
   background: var(--hc-bg); color: var(--hc-text);
-  grid-template-rows: 54px minmax(0, 1fr);
 }
-#app.layout-home, #app.layout-workspace { grid-template-columns: 185px minmax(0,1fr) 288px; }
-#app.layout-focus { grid-template-columns: 185px minmax(0,1fr) 0px; }
-#app .topbar { background: #11182c; border-bottom: 1px solid #2c3652; padding: 7px 14px; }
-#app .topbar .brand h1 { color: #f3f4fc; font-size: 17px; text-transform: none; letter-spacing: .01em; }
-#app .topbar .brand p { color: #96a4bd; font-size: 9px; letter-spacing: .14em; text-transform: uppercase; }
-#app .topbar .pill { font-size: 9px; border-color: #9e615b; background: #272332; color: #ffc3ae; }
-#app .hc-header-centre { margin-inline: auto; min-width: 0; padding: 6px 15px; border: 1px solid #ad635c; border-radius: 8px; background: #2a2435; color: #fff0ef; box-shadow: 0 0 14px #dc645322; font-size: 12px; font-weight: 700; white-space: nowrap; }
+#app .topbar { background: #11272C; border-bottom: 1px solid #2C4B52; padding: 7px 14px; }
+#app .topbar .brand h1 { color: #F3FAFC; font-size: 17px; text-transform: none; letter-spacing: .01em; }
+#app .topbar .brand p { color: #96B7BD; font-size: 9px; letter-spacing: .14em; text-transform: uppercase; }
+#app .topbar .pill { font-size: 9px; border-color: #9e615b; background: #232D32; color: #ffc3ae; }
+#app .hc-header-centre { margin-inline: auto; min-width: 0; padding: 6px 15px; border: 1px solid #ad635c; border-radius: 8px; background: #242F35; color: #fff0ef; box-shadow: 0 0 14px #dc645322; font-size: 12px; font-weight: 700; white-space: nowrap; }
 #app #global-status { gap: 6px; flex-wrap: wrap; justify-content: end; }
-#app #global-status span { border-color: #354058; background: #151e34; color: #aebed0; font-size: 10px; padding: 4px 7px; }
+#app #global-status span { border-color: #355258; background: #152E34; color: #AECBD0; font-size: 10px; padding: 4px 7px; }
 #app #global-status #connection-status[data-state="live"] { color: #6ee8bd; }
-#app .header-chat-btn { background: #242e45; border: 1px solid #4a5771; border-radius: 7px; color: #d8e2fa; padding: 5px 9px; }
-#app #primary-nav { padding: 14px 8px; background: #10192d; border-right: 1px solid #2c3954; overflow-y: auto; scrollbar-width: thin; }
-#app #primary-nav .hc-nav-caption { display: block; font-size: 9px; font-weight: 800; letter-spacing: .13em; color: #7b94b7; padding: 6px 9px 8px; text-transform: uppercase; }
-#app #primary-nav .hc-nav-room-caption { margin-top: 15px; }
-#app #primary-nav button { display: block; width: 100%; text-align: left; min-height: 30px; padding: 7px 10px; border-radius: 6px; font-size: 12px; color: #aebcd6; background: transparent; border: 1px solid transparent; white-space: normal; }
-#app #primary-nav button.active, #app #primary-nav button[aria-current="location"] { background: #24253b; color: #f0f0fc; border-color: #b86463; }
+#app .header-chat-btn { background: #243F45; border: 1px solid #4A6A71; border-radius: 7px; color: #D8F4FA; padding: 5px 9px; }
+#app #primary-nav { padding: 0 14px; background: #10282D; border-bottom: 1px solid #2C4D54; overflow-x: auto; overflow-y: hidden; scrollbar-width: thin; }
+#app #primary-nav .hc-nav-caption { display: inline-block; flex: 0 0 auto; font-size: 9px; font-weight: 800; letter-spacing: .13em; color: #7BAEB7; padding: 0 4px; text-transform: uppercase; }
+#app #primary-nav button { min-height: 30px; padding: 6px 11px; border-radius: 6px; font-size: 12px; color: #AED0D6; background: transparent; border: 1px solid transparent; white-space: nowrap; }
+#app #primary-nav button.active, #app #primary-nav button[aria-current="location"] { background: #24363B; color: #F0F9FC; border-color: #b86463; }
 #app #primary-nav .hc-room-link { font-size: 11px; min-height: 27px; padding: 6px 11px; }
-#app #primary-nav .nav-sep { background: #2a3650; margin: 8px 6px; }
-#app #main-workspace { background: linear-gradient(160deg,#121729,#10192c 60%,#0c1325); }
-#app #workspace-world, #app #workspace-home { padding: 11px 13px 16px; gap: 8px; }
-#app #workspace-world .workspace-heading, #app #workspace-home .workspace-heading { background: #222138; border: 1px solid #383651; border-radius: 10px 10px 0 0; padding: 11px 13px; margin: 0; }
-#app #workspace-world .workspace-heading h2, #app #workspace-home .workspace-heading h2 { color: #eef3ff; font-size: 19px; }
-#app #workspace-world .workspace-heading h2 small, #app #workspace-home .workspace-heading h2 small { color: #ffafa0; font-size: 11px; }
-#app #workspace-world .workspace-heading p, #app #workspace-home .workspace-heading p { color: #8f9bb5; font-size: 11px; }
-#app #workspace-world .workspace-heading, #app #workspace-home .workspace-heading > .hint { max-width: 270px; }
-#app #workspace-world .home-status-strip { background: #182237; border: 1px solid #39425a; border-radius: 5px; padding: 7px 11px; }
-#app .home-world { background: #0b101e; border: 1px solid #3f3e54; border-radius: 10px; padding: 0; min-width: 0; overflow: hidden; }
+#app #primary-nav .nav-sep { background: #2A4950; margin: 8px 6px; }
+#app #main-workspace { background: linear-gradient(160deg,#122429,#10272C 60%,#0C2025); }
+#app #workspace-home{ padding: 11px 13px 16px; gap: 8px; }
+#app #workspace-home .workspace-heading{ background: #213238; border: 1px solid #364A51; border-radius: 10px 10px 0 0; padding: 11px 13px; margin: 0; }
+#app #workspace-home .workspace-heading h2{ color: #EEFCFF; font-size: 19px; }
+#app #workspace-home .workspace-heading h2 small{ color: #ffafa0; font-size: 11px; }
+#app #workspace-home .workspace-heading p{ color: #8FAEB5; font-size: 11px; }
+#app #workspace-home .workspace-heading{ max-width: 270px; }
+#app #workspace-home .home-status-strip { background: #183237; border: 1px solid #39545A; border-radius: 5px; padding: 7px 11px; }
+#app .home-world { background: #0B1A1E; border: 1px solid #3E4E54; border-radius: 10px; padding: 0; min-width: 0; overflow: hidden; }
 #app .home-world #game { width: 100%; max-width: 100%; border-radius: 8px; }
 #app .home-world canvas { max-width: 100%; }
 #app .home-world > .hint { font-size: 10px; margin: 2px 10px 8px; }
 #app .home-recent-strip { background: transparent; border: none; padding: 0; display: grid; gap: 9px; grid-template-columns: minmax(0, 1fr) minmax(225px, .8fr); }
-#app .home-recent-strip > div { border-radius: 9px; border: 1px solid #3a3a53; background: #1b2037; padding: 10px; min-width: 0; }
-#app .hrs-eyebrow { color: #d8e0f1; text-transform: uppercase; font-size: 10px; font-weight: 800; letter-spacing: .08em; }
-#app #contextual-panel { background: #10192c; border-left-color: #2c3954; padding: 10px 8px; }
-#app #contextual-panel .ctx-block { background: #1a2035; border: 1px solid #383a55; border-radius: 8px; }
-#app #contextual-panel h2, #app #contextual-panel h3 { color: #f0f2fa; }
-#app .hc-side-title { color: #bdc9df; font-size: 10px; letter-spacing: .1em; text-transform: uppercase; font-weight: 800; margin: 3px 0 9px; }
+#app .home-recent-strip > div { border-radius: 9px; border: 1px solid #3A4D53; background: #1B3137; padding: 10px; min-width: 0; }
+#app .hrs-eyebrow { color: #D8EDF1; text-transform: uppercase; font-size: 10px; font-weight: 800; letter-spacing: .08em; }
+#app #contextual-panel { background: #10272C; border-left-color: #2C4D54; padding: 10px 8px; }
+#app #contextual-panel .ctx-block { background: #1A3035; border: 1px solid #384E55; border-radius: 8px; }
+#app #contextual-panel h2, #app #contextual-panel h3 { color: #F0F8FA; }
+#app .hc-side-title { color: #BDDADF; font-size: 10px; letter-spacing: .1em; text-transform: uppercase; font-weight: 800; margin: 3px 0 9px; }
 #app #contextual-panel .persona-card { border-color: #5a3b51; }
-#app #contextual-panel .home-new-task { border-color: #48405d; }
-#app #contextual-panel .home-current-work { border-color: #48405d; }
-#app .hc-room-info { border: 1px solid #48536d; background: #202740; padding: 9px; border-radius: 8px; font-size: 11px; color: #aebed9; }
-#app .hc-room-info strong { display: block; color: #e6edf8; margin-bottom: 4px; }
-#app .hc-room-info button { margin-top: 7px; border: 1px solid #54647e; border-radius: 6px; padding: 5px 7px; background: #202f47; color: #e5edff; cursor: pointer; }
+#app #contextual-panel .home-new-task { border-color: #40545D; }
+#app #contextual-panel .home-current-work { border-color: #40545D; }
+#app .hc-room-info { border: 1px solid #48666D; background: #203A40; padding: 9px; border-radius: 8px; font-size: 11px; color: #AED2D9; }
+#app .hc-room-info strong { display: block; color: #E6F5F8; margin-bottom: 4px; }
+#app .hc-room-info button { margin-top: 7px; border: 1px solid #54777E; border-radius: 6px; padding: 5px 7px; background: #204147; color: #E5FAFF; cursor: pointer; }
 #app .hc-room-info[hidden] { display: none; }
 #app #primary-nav button:focus-visible, #app .hc-room-info button:focus-visible { outline: 2px solid #70cde7; outline-offset: 2px; }
-@media (max-width: 1250px) { #app.layout-home, #app.layout-workspace { grid-template-columns: 165px minmax(0,1fr) 255px; } }
 @media (max-width: 1000px) {
-  #app.layout-home, #app.layout-workspace { grid-template-columns: 150px minmax(0,1fr) 0; }
+  #app.layout-home, #app.layout-workspace { grid-template-columns: minmax(0,1fr) 0; }
   #app.layout-home #contextual-panel, #app.layout-workspace #contextual-panel { display: none; }
-  #app.layout-focus { grid-template-columns: 150px minmax(0,1fr) 0; }
+  #app.layout-focus { grid-template-columns: minmax(0,1fr) 0; }
   #app .hc-header-centre { padding: 5px 8px; font-size: 10px; }
 }
 @media (max-width: 700px) {
-  #app.layout-home, #app.layout-workspace, #app.layout-focus { grid-template-columns: 58px minmax(0,1fr) 0; }
-  #app #primary-nav { padding: 8px 3px; }
+  #app.layout-home, #app.layout-workspace, #app.layout-focus { grid-template-columns: minmax(0,1fr) 0; }
+  #app #primary-nav { padding: 0 8px; }
   #app #primary-nav button { font-size: 9px; line-height: 1.2; padding: 7px 3px; text-align: center; }
   #app #primary-nav .hc-room-link { font-size: 9px; }
   #app #primary-nav .hc-nav-caption { font-size: 7px; padding: 7px 2px; text-align: center; }
@@ -75,8 +70,8 @@
   #app .topbar .brand p { display: none; }
   #app .hc-header-centre { white-space: normal; font-size: 9px; }
   #app #global-status #execution-status, #app #global-status #data-freshness-status { display: none; }
-  #app #workspace-world, #app #workspace-home { padding: 7px; }
-  #app #workspace-world .workspace-heading, #app #workspace-home .workspace-heading > .hint { display: none; }
+  #app #workspace-home{ padding: 7px; }
+  #app #workspace-home .workspace-heading{ display: none; }
   #app .home-recent-strip { grid-template-columns: minmax(0, 1fr); }
 }
 @media (prefers-reduced-motion: reduce) { #app .hc-header-centre { box-shadow: none; } }
@@ -86,19 +81,20 @@
 #app #contextual-panel #chat-dock[hidden],
 #app #contextual-panel #ctx-selection[hidden] { display: none !important; }
 #app .home-world { box-shadow: inset 0 0 0 1px rgba(76,153,179,.12); }
-#app .home-world #game { background: radial-gradient(ellipse at 50% 40%, #142434 0%, #0c1521 76%, #09101b 100%); }
-#app #workspace-home .home-recent-strip > div { min-height: 118px; }
+#app .home-world #game { background: radial-gradient(ellipse at 50% 40%, #143034 0%, #0C1E21 76%, #09181B 100%); }
+#app #ctx-overview .home-recent-strip > div { min-height: 0; }
+#app #ctx-overview .home-recent-strip { grid-template-columns: 1fr; }
 #app #contextual-panel { scrollbar-width: thin; }
 
 /* VIS-008 responsive fit: canvas and wrapper must agree on one visible box. */
-#app #workspace-world .home-world #game {
+#app #workspace-home .home-world #game {
   width: 100%;
   height: 100%;
   min-height: 0;
   overflow: hidden;
   box-sizing: border-box;
 }
-#app #workspace-world .home-world #game canvas {
+#app #workspace-home .home-world #game canvas {
   display: block;
   max-width: none;
   width: 100% !important;
@@ -106,23 +102,179 @@
   object-fit: fill;
 }
 
-/* HERMESHA-WORLD-ASPECT-001 BEGIN */
-/* The world box matches the world. The facility projects to ~2.85:1 at the 30 degree camera, so a
-   2.85:1 canvas is filled edge to edge at every viewport; a fixed 620px panel only ever left the
-   diorama floating in grey with a dead band above and below it. The panel sizes to its content
-   (canvas + hint + HUD), and #game's aspect-ratio is the single source of truth for the canvas box —
-   the renderer reads that box, so camera aspect and displayed aspect cannot drift apart again. */
-#app.layout-home #workspace-world > .home-world {
-    flex: 0 0 auto;
-    height: auto;
+/* HL-UI-PLAN-001 §4.3.1 — the 3D world fills Home.
+   The aspect lock on #game is gone. The renderer re-fits the facility to the
+   host box's real aspect (town-renderer-v2 resize -> frameBounds, observed by a
+   ResizeObserver), so the box is the viewport and nothing is cropped or banded.
+   The heading and the composer float over the scene instead of framing it. */
+#app.layout-home #workspace-home {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    height: 100%;
     min-height: 0;
-    max-height: none;
+    padding: 0;
+    gap: 0;
 }
-#app.layout-home #workspace-world > .home-world > #game {
-    flex: 0 0 auto;
+#app.layout-home #workspace-home > .workspace-heading {
+    position: absolute;
+    top: 10px;
+    left: 12px;
+    z-index: 5;
+    max-width: 320px;
+    margin: 0;
+    padding: 9px 12px;
+    border: 1px solid #364A51;
+    border-radius: 10px;
+    background: rgba(24, 40, 44, .84);
+    backdrop-filter: blur(6px);
+}
+#app.layout-home #workspace-home > .home-world {
+    flex: 1 1 auto;
+    min-height: 0;
+    height: auto;
+    border: 0;
+    border-radius: 0;
+    position: relative;
+}
+#app.layout-home #workspace-home > .home-world > #game {
+    flex: 1 1 auto;
     width: 100%;
-    aspect-ratio: 2.85 / 1;
-    height: auto;
+    height: 100%;
     min-height: 0;
+    aspect-ratio: auto;
 }
-/* HERMESHA-WORLD-ASPECT-001 END */
+#app.layout-home #workspace-home > #world-composer {
+    position: absolute;
+    left: 50%;
+    bottom: 14px;
+    transform: translateX(-50%);
+    z-index: 5;
+    width: min(720px, calc(100% - 32px));
+    background: rgba(18, 30, 34, .9);
+    border-radius: 12px;
+}
+#app.layout-home #workspace-home > #world-composer-status {
+    position: absolute;
+    left: 50%;
+    bottom: 70px;
+    transform: translateX(-50%);
+    z-index: 5;
+    margin: 0;
+}
+#app.layout-home #workspace-home > #world-composer-status:empty { display: none; }
+
+/* HL-UI-PLAN-001 §4.3.2 — world camera controls overlaid on the viewport (top-right). */
+#app.layout-home #workspace-home .world-controls {
+    position: absolute;
+    top: 10px;
+    right: 12px;
+    z-index: 5;
+    display: flex;
+    gap: 6px;
+}
+#app.layout-home #workspace-home .world-controls button {
+    padding: 5px 10px;
+    border: 1px solid #3A5F66;
+    border-radius: 8px;
+    background: rgba(24, 40, 44, .84);
+    color: #DBF1F5;
+    font: 600 11.5px system-ui, sans-serif;
+    cursor: pointer;
+}
+#app.layout-home #workspace-home .world-controls button:hover { border-color: #5A8C96; color: #EEFCFF; }
+#app.layout-home #workspace-home .world-controls button:disabled { opacity: .45; cursor: not-allowed; }
+
+
+/* uichange.md State B: Home shows Stop while Hermes works. */
+#app.layout-home #workspace-home [hidden] { display: none !important; }
+#app.layout-home #workspace-home #world-composer-stop {
+    border: 1px solid #c1796f;
+    border-radius: 10px;
+    background: #5a2b28;
+    color: #ffe9e4;
+    padding: 8px 14px;
+    font: 600 12.5px system-ui, sans-serif;
+    cursor: pointer;
+}
+#app.layout-home #workspace-home #world-composer-stop:hover { background: #6d3630; }
+/* uichange.md §3: Home's explicit new-conversation control. */
+#app.layout-home #workspace-home #world-composer-new {
+    border: 1px solid #3A5F66;
+    border-radius: 10px;
+    background: rgba(24, 40, 44, .84);
+    color: #DBF1F5;
+    padding: 8px 12px;
+    font: 600 12.5px system-ui, sans-serif;
+    cursor: pointer;
+}
+
+/* uichange.md §2 State B — Home's live conversation panel (left column, 340-400px). */
+#home-conversation-host[hidden] { display: none !important; }
+#app.layout-home.home-live {
+    grid-template-areas:
+        "header header header"
+        "nav    nav    nav"
+        "conv   main   panel"
+        "status status status";
+    grid-template-columns: minmax(340px, 400px) minmax(0, 1fr) var(--inspector-w, 348px);
+}
+#app #home-conversation-host {
+    grid-area: conv;
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    min-height: 0;
+    background: #0C2024;
+    border-right: 1px solid #2C4D54;
+}
+#app .home-conversation-head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 12px;
+    border-bottom: 1px solid #2C4D54;
+    flex: 0 0 auto;
+}
+#app .home-conversation-head strong { flex: 1 1 auto; font-size: 13px; color: #EEFCFF; }
+#app .home-conversation-state { font-size: 11px; color: #8fd6b5; }
+#app .home-conversation-head button,
+#app #world-composer-resume,
+#app #world-composer-new {
+    padding: 5px 9px;
+    border: 1px solid #3A5F66;
+    border-radius: 7px;
+    background: rgba(24, 40, 44, .84);
+    color: #DBF1F5;
+    font: 600 11.5px system-ui, sans-serif;
+    cursor: pointer;
+}
+#app #home-conversation-body {
+    flex: 1 1 auto;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    position: relative;
+}
+/* The shared chat root fills the Home panel. Its floating dock geometry is reset. */
+#app #home-conversation-body #hermes-chat-root {
+    position: relative !important;
+    inset: auto !important;
+    width: 100% !important;
+    height: 100% !important;
+    min-height: 0;
+    z-index: auto !important;
+}
+#app #home-conversation-body #hc-panel {
+    position: relative !important;
+    right: auto !important;
+    bottom: auto !important;
+    width: 100% !important;
+    height: 100% !important;
+    max-width: none;
+    transform: none;
+    border-radius: 0;
+}
+#app #home-conversation-body #hc-thread-sidebar,
+#app #home-conversation-body #hc-sidebar-expand { display: none !important; }
+

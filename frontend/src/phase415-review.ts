@@ -21,7 +21,7 @@ const report=(p:Rec):Rec=>{try{const v=typeof p.report==='string'?JSON.parse(p.r
 const arr=(x:unknown):string[]=>Array.isArray(x)?x.map(s):[];
 function bullets(parent:HTMLElement,title:string,values:string[]){if(!values.length)return;parent.append(node('h4',title));const ul=node('ul');values.forEach(v=>ul.append(node('li',v)));parent.append(ul)}
 function status(run?:Rec,decision?:Rec){
- if(decision){const d=s(decision.decision);return d==='accepted'?'Accepted for separate application':d==='rejected'?'Rejected':'Revision requested'}
+ if(decision){const d=s(decision.decision);if(d==='accepted')return s(run?.state)==='applied'?'Applied to host working tree':'Accepted for separate application';return d==='rejected'?'Rejected':'Revision requested'}
  if(!run)return 'Approved · implementation not started';
  const st=s(run.state);
  return ({preparing:'Preparing isolated workspace',testing_baseline:'Testing original baseline',implementing:'Hermes is editing candidate',evaluating:'Running independent evaluation',candidate_passed:'Candidate passed · awaiting human review',candidate_failed:'Candidate tests failed',evaluation_error:'Test environment/evaluator error',failed:'Implementation failed'} as Record<string,string>)[st]||st;
@@ -256,6 +256,29 @@ function renderReview(){let root=$('hl415-review');if(!root){root=node('section'
     decision,snapshot_sha256:s(snapshot.snapshot_sha256),criteria:verdicts.length?verdicts.map(v=>s(v.verdict)==='passed'):marks.map(x=>x.checked),feedback:feedback.value
   }).then(async()=>{decisionMessage=`${title} recorded`;await refresh();await openReview(run)}).catch(e=>{reviewError=s(e);root.append(node('p',reviewError,'hl415-error'))}).finally(()=>{requestBusy=false;b.disabled=false});
  });if(decision==='accepted'&&(s(run.state)!=='candidate_passed'||(verdicts.length>0&&!verifiedAll)))b.disabled=true;actions.append(b)}
+ // HA-007: an accepted candidate reaches the host only through THIS action
+ // (spec §4.4: candidate / review / APPLY → actual hosted filesystem changes).
+ if(decisionMap.get(s(run.id))?.decision==='accepted'&&s(run.state)!=='applied'){
+  actions.append(btn('Apply to host',()=>{
+   if(requestBusy)return;
+   requestBusy=true;reviewError='';decisionMessage='';
+   void api(`/implementations/${encodeURIComponent(s(run.id))}/apply-preview`).then(async(raw)=>{
+    const p=raw as Rec;
+    const blockers=arr(p.blockers);
+    if(!p.can_apply){
+     reviewError=blockers.length?'Cannot apply yet — '+blockers.join(', ')+'.':'Cannot apply yet.';
+     return;
+    }
+    const phrase='APPLY '+s(p.project);
+    const typed=window.prompt('Apply the reviewed diff to the HOST working tree (uncommitted)?\nType exactly: '+phrase);
+    if(typed===null)return;
+    if(typed!==phrase){reviewError='Confirmation phrase did not match — nothing was applied.';return}
+    await api(`/implementations/${encodeURIComponent(s(run.id))}/apply`,'POST',{confirmation:typed});
+    decisionMessage='Applied to host working tree — the host now has these changes (uncommitted).';
+    await refresh();await openReview(run);
+   }).catch(e=>{reviewError=s(e)}).finally(()=>{requestBusy=false;renderReview()});
+  }));
+ }
  root.append(actions);if(decisionMessage)root.append(node('p',decisionMessage,'hl415-good'));
 }
 function renderAll(){renderPlanning();renderBuild();

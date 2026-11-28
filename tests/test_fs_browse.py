@@ -132,7 +132,7 @@ def test_upload_lands_inside_the_permitted_root_without_a_project(tmp_path, monk
     data = r.json()
     stored = data['path']
     # Absolute, inside the allowed root, under the hermes-uploads area.
-    assert stored.startswith(str(tmp_path / 'hermes-uploads' + '/'))
+    assert stored.startswith(str(tmp_path / 'hermes-uploads') + '/')
     assert data['name'] == 'shot.png'
     assert data['size'] > 0
     # The stored file is browsable by the same containment-checked picker.
@@ -144,7 +144,13 @@ def test_upload_refuses_a_denylisted_filename(tmp_path, monkeypatch):
     client = _client(tmp_path, monkeypatch)
     assert _upload(client, 'server.key').status_code == 409
     assert _upload(client, '.env').status_code == 409
-    assert not (tmp_path / 'server.key').exists()
+    # The seed (_tree) puts server.key/.env at the root to prove the denylist, so
+    # the contract is about the UPLOAD TARGET: refused names must never land under
+    # hermes-uploads/, and the seeded originals must stay untouched.
+    uploads = tmp_path / 'hermes-uploads'
+    assert not uploads.exists() or not any(uploads.rglob('server.key'))
+    assert not uploads.exists() or not any(uploads.rglob('.env'))
+    assert (tmp_path / 'server.key').read_text() == 'PRIVATE KEY\n'
 
 
 def test_upload_refuses_path_tricks_and_oversized_payloads(tmp_path, monkeypatch):

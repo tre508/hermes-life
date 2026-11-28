@@ -1,22 +1,50 @@
 /* Hermes Life — Unified Workspace layout & composition.
  * Loaded AFTER style.css/town.css. Everything is scoped under #app so the historical
  * #shell / .ops-view / fixed aside rules in style.css never fight the new grid.
- * Palette mirrors the existing dark theme: bg #0b1720/#101922, text #dceae7,
+ * Palette mirrors the existing dark theme: bg #0B1E20/#102022, text #dceae7,
  * accent greens (#a9d2be/#87e7ba), borders #426574/#415a66. */
 
+/* ── HL-UI-PLAN-001 §4.2 design tokens (new.md.md) ─────────────────────────
+ * The single source of truth for the desired visual identity: a neutral
+ * navy/slate dark system with an indigo accent (replacing the pre-token teal
+ * theme). Surfaces migrate onto these tokens incrementally; hard-coded hexes
+ * elsewhere are the legacy palette being replaced. */
+:root {
+    --hl-bg: #0B1214;         /* application background */
+    --hl-surface: #111B1D;    /* primary surface */
+    --hl-surface-2: #172326;  /* secondary surface */
+    --hl-elevated: #203033;   /* elevated surface */
+    --hl-border: #25373A;     /* borders */
+    --hl-text: #E5EEF0;       /* primary text */
+    --hl-text-2: #93A7AB;     /* secondary text */
+    --hl-accent: #7CDDF8;     /* primary accent (indigo) */
+    --hl-active: #38BDF8;     /* active operation (sky) */
+    --hl-success: #34D399;
+    --hl-warning: #FBBF24;
+    --hl-error: #F87171;
+    --hl-font-ui: Inter, system-ui, sans-serif;
+    --hl-font-mono: "JetBrains Mono", "Fira Code", monospace;
+    --hl-radius: 8px;
+    --hl-header-h: 52px;
+    --hl-status-h: 28px;
+}
 #app {
     display: grid;
     grid-template-areas:
-        "header header header"
-        "nav    main   panel"
-        "status status status";
-    grid-template-rows: 60px minmax(0, 1fr) 36px;
+        "header header"
+        "nav    nav"
+        "main   panel"
+        "status status";
+    grid-template-columns: minmax(0, 1fr) var(--inspector-w, 348px);
+    grid-template-rows: 54px 44px minmax(0, 1fr) 36px;
     height: 100vh;
     height: 100dvh;
-    overflow: hidden;
-    color: #dceae7;
-    background: #0b1720;
-    font-family: Inter, system-ui, sans-serif;
+    /* clip, not hidden: a hidden box can still be scrolled by focus, which pushed the
+       whole shell left and cut off the header and nav (2026-11-28). */
+    overflow: clip;
+    color: var(--hl-text);
+    background: var(--hl-bg);
+    font-family: var(--hl-font-ui);
 }
 
 /* ---- region areas ---- */
@@ -33,30 +61,20 @@
 #app #contextual-panel  { grid-area: panel;  min-width: 0; min-height: 0; overflow-y: auto; }
 
 /* ---- layout variants: width of the contextual panel, world size ---- */
-/* Navigation rail: 220px expanded (spec §2: 210–240), 64px collapsed.
+/* The top navigation row sits between the header and the workspace, so the
+   workspace has one column beside it: the inspector (HL-UI-PLAN-001 §4.1).
    Inspector: var(--inspector-w, 348px) within the 320–380 band (JS-clamped),
    collapsible to 0. */
 #app.layout-home,
 #app.layout-workspace {
-    grid-template-columns: 220px minmax(0, 1fr) var(--inspector-w, 348px);
+    grid-template-columns: minmax(0, 1fr) var(--inspector-w, 348px);
 }
 #app.layout-focus {
-    grid-template-columns: 220px minmax(0, 1fr) 0;
-}
-#app.nav-collapsed.layout-home,
-#app.nav-collapsed.layout-workspace {
-    grid-template-columns: 64px minmax(0, 1fr) var(--inspector-w, 348px);
-}
-#app.nav-collapsed.layout-focus {
-    grid-template-columns: 64px minmax(0, 1fr) 0;
+    grid-template-columns: minmax(0, 1fr) 0;
 }
 #app.inspector-collapsed.layout-home,
 #app.inspector-collapsed.layout-workspace {
-    grid-template-columns: 220px minmax(0, 1fr) 0;
-}
-#app.inspector-collapsed.nav-collapsed.layout-home,
-#app.inspector-collapsed.nav-collapsed.layout-workspace {
-    grid-template-columns: 64px minmax(0, 1fr) 0;
+    grid-template-columns: minmax(0, 1fr) 0;
 }
 
 /* Override the historical fixed height / grid-column on <aside> and the old #shell sizing. */
@@ -69,7 +87,7 @@
     gap: 0;
     padding: 12px;
     border-left: 1px solid #16303c;
-    background: #101922;
+    background: #102022;
     scrollbar-color: #426574 #10232c;
 }
 
@@ -82,7 +100,7 @@
     padding: 10px 18px;
     margin: 0;
     border-bottom: 1px solid #1c3a47;
-    background: #0e1720;
+    background: #0E1E20;
 }
 #app .topbar .brand h1 { font-size: 17px; letter-spacing: .02em; }
 #app .topbar .brand p { font-size: 11px; margin-top: 2px; }
@@ -98,19 +116,19 @@
     padding: 3px 9px;
     border: 1px solid #2b4856;
     border-radius: 20px;
-    background: #12212c;
+    background: #12292C;
     white-space: nowrap;
 }
 #connection-status[data-state="live"]     { color: #87e7ba; border-color: #2f6f57; }
 #connection-status[data-state="reconnecting"] { color: #f1ba79; border-color: #7a5c2f; }
 #connection-status[data-state="offline"]  { color: #f2a6a0; border-color: #7a3a38; }
-#execution-status[data-state="running"]   { color: #93c6f2; border-color: #33506e; }
+#execution-status[data-state="running"]   { color: #93E7F2; border-color: #33666E; }
 #execution-status[data-state="completed"] { color: #87e7ba; border-color: #2f6f57; }
 #execution-status[data-state="failed"]    { color: #f2a6a0; border-color: #7a3a38; }
 #app .header-chat-btn {
     border-radius: 20px;
     border: 1px solid #2b4856;
-    background: #152633;
+    background: #153033;
     color: #b9d2ce;
     padding: 4px 12px;
     cursor: pointer;
@@ -127,19 +145,27 @@
 }
 #app .header-chat-btn:hover { border-color: #3d6b5e; color: #dceae7; }
 
-/* ---- nav rail ---- */
+/* ---- top navigation row (HL-UI-PLAN-001 §4.1) ----
+   Primary navigation is one horizontal row under the header. Chat and Projects
+   share a segmented group (peers, not nested). The eight rooms fold into a menu
+   so the row stays compact. Narrow screens scroll the row; nothing hides behind
+   a drawer. */
 #app #primary-nav {
     display: flex;
-    flex-direction: column;
-    gap: 4px;
-    padding: 10px 8px;
-    background: #0d181f;
-    border-right: 1px solid #16303c;
+    align-items: center;
+    gap: 6px;
+    padding: 0 14px;
+    min-width: 0;
+    min-height: 0;
+    background: #0D1D1F;
+    border-bottom: 1px solid #16303c;
+    overflow-x: auto;
+    overflow-y: hidden;
+    white-space: nowrap;
 }
 #app #primary-nav button {
-    display: block;
-    width: 100%;
-    padding: 11px 8px;
+    flex: 0 0 auto;
+    padding: 6px 11px;
     background: none;
     border: 1px solid transparent;
     border-radius: 8px;
@@ -147,21 +173,64 @@
     font-size: 12px;
     font-weight: 600;
     cursor: pointer;
-    text-align: left;
 }
-#app #primary-nav button:hover { background: #152633; color: #e6efe9; }
+#app #primary-nav button:hover { background: #153033; color: #e6efe9; }
 #app #primary-nav button.active {
     background: #1b3542;
     border-color: #2b5262;
     color: #eef6f0;
     box-shadow: inset 0 0 0 1px #2f6f57;
 }
-#app #primary-nav button.nav-secondary { color: #7f9aa0; font-weight: 500; }
-#app #primary-nav .nav-sep {
-    height: 1px;
-    margin: 6px 2px;
-    background: #1c3a47;
+#app #primary-nav .hc-nav-caption {
+    flex: 0 0 auto;
+    padding: 0 4px;
+    font-size: 10px;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    color: #6f8a90;
 }
+#app #primary-nav .hc-segment {
+    flex: 0 0 auto;
+    display: inline-flex;
+    gap: 2px;
+    padding: 2px;
+    border: 1px solid #1c3a47;
+    border-radius: 9px;
+}
+#app #primary-nav .hc-segment button { padding: 5px 10px; }
+#app #primary-nav .hc-rooms-menu { position: relative; flex: 0 0 auto; }
+#app #primary-nav .hc-rooms-toggle {
+    list-style: none;
+    cursor: pointer;
+    padding: 6px 11px;
+    border-radius: 8px;
+    border: 1px solid transparent;
+    color: #abc6c2;
+    font-size: 12px;
+    font-weight: 600;
+}
+#app #primary-nav .hc-rooms-toggle::-webkit-details-marker { display: none; }
+#app #primary-nav .hc-rooms-toggle:hover { background: #153033; color: #e6efe9; }
+#app #primary-nav .hc-rooms-menu[open] > .hc-rooms-toggle {
+    background: #1b3542;
+    border-color: #2b5262;
+    color: #eef6f0;
+}
+#app #primary-nav .hc-rooms-list {
+    position: absolute;
+    top: calc(100% + 6px);
+    left: 0;
+    z-index: 70;
+    display: grid;
+    gap: 2px;
+    min-width: 200px;
+    padding: 6px;
+    background: #0E1E20;
+    border: 1px solid #1c3a47;
+    border-radius: 10px;
+    box-shadow: 0 14px 30px #000a;
+}
+#app #primary-nav .hc-rooms-list button { width: 100%; text-align: left; }
 
 /* ---- workspaces ----
    `min-height: 100%` makes a hidden view stay tall in flex/grid parents;
@@ -174,14 +243,6 @@
     box-sizing: border-box;
 }
 #app .workspace-view[hidden] { display: none !important; }
-#app #workspace-home {
-    display: flex;
-    flex-direction: column;
-    gap: 14px;
-    padding: 14px 18px 16px;
-    box-sizing: border-box;
-    min-height: 0;
-}
 
 /* Workspace heading — every primary destination opens with one bar so the
    user knows where they are without guessing from the world alone (§14,
@@ -265,9 +326,9 @@
     grid-template-columns: minmax(0, 1.4fr) minmax(180px, 1fr);
     gap: 12px;
     padding: 10px 12px;
-    border: 1px solid #223a46;
+    border: 1px solid #224346;
     border-radius: 10px;
-    background: #101a23;
+    background: #102123;
 }
 #app .home-recent-strip .hrs-eyebrow {
     margin: 0 0 4px;
@@ -307,7 +368,7 @@
     flex-direction: column;
     gap: 2px;
     padding-left: 10px;
-    border-left: 1px solid #223a46;
+    border-left: 1px solid #224346;
 }
 #app .home-recent-strip .hrs-current .kv { padding: 1px 0; font-size: 11.5px; }
 #app .home-recent-strip .hrs-current .hrs-cta {
@@ -321,10 +382,10 @@
     color: #dceae7;
     cursor: pointer;
 }
-#app .home-recent-strip .hrs-current .hrs-cta:hover { border-color: #3d6b9e; color: #eef6f0; }
+#app .home-recent-strip .hrs-current .hrs-cta:hover { border-color: #3D919E; color: #eef6f0; }
 @media (max-width: 880px) {
     #app .home-recent-strip { grid-template-columns: 1fr; }
-    #app .home-recent-strip .hrs-current { padding-left: 0; border-left: 0; border-top: 1px solid #223a46; padding-top: 8px; }
+    #app .home-recent-strip .hrs-current { padding-left: 0; border-left: 0; border-top: 1px solid #224346; padding-top: 8px; }
 }
 
 /* ---- Home contextual blocks (persona + new task + current work) ----
@@ -333,18 +394,13 @@
    current work) remain above the fold on a normal desktop viewport (P1
    audit §7). */
 @media (max-width: 1080px) {
-    #app.layout-home { grid-template-columns: 64px minmax(0, 1fr) 0; }
+    #app.layout-home,
+    #app.layout-workspace { grid-template-columns: minmax(0, 1fr) 0; }
     #app.layout-home #contextual-panel { border: 0; padding: 0; overflow: hidden; }
-    /* Narrow screens: the rail is collapsed-width and icon-only regardless
-       of the persisted collapse state (spec §2 narrow behavior). */
-    #app .hc-nav-caption,
-    #app .hc-room-link,
-    #app #primary-nav .nav-sep { display: none; }
-    #app #primary-nav button { text-align: center; padding-left: 2px; padding-right: 2px; overflow: hidden; white-space: nowrap; }
 }
 #app #contextual-panel .ctx-block { display: flex; flex-direction: column; gap: 10px; }
 #app #contextual-panel .ctx-block + .ctx-block { margin-top: 10px; border-top: 1px solid #1c3a47; padding-top: 10px; }
-#app #contextual-panel .ctx-block { border: 1px solid #223a46; border-radius: 10px; padding: 12px 12px 12px; background: #101a23; }
+#app #contextual-panel .ctx-block { border: 1px solid #224346; border-radius: 10px; padding: 12px 12px 12px; background: #102123; }
 #app #contextual-panel .ctx-block + .ctx-block { margin-top: 10px; border-top: 0; }
 #app .home-new-task form { display: flex; flex-direction: column; gap: 8px; }
 #app .home-current-work .home-open-work { margin-top: 6px; }
@@ -363,7 +419,7 @@
     gap: 4px;
     margin-top: 8px;
     padding-top: 8px;
-    border-top: 1px solid #223a46;
+    border-top: 1px solid #224346;
 }
 #app #persona-card .persona-compact-meta .kv { padding: 2px 0; font-size: 11.5px; }
 #app #persona-card details.persona-profile-detail { margin-top: 8px; }
@@ -400,7 +456,7 @@
     padding: 6px 14px;
     border-radius: 20px;
     border: 1px solid #2b4856;
-    background: #12212c;
+    background: #12292C;
     color: #abc6c2;
     font-size: 12px;
     font-weight: 600;
@@ -424,10 +480,10 @@
     padding: 10px 12px;
     border: 1px solid #2b4856;
     border-radius: 8px;
-    background: #101a23;
+    background: #102123;
     cursor: pointer;
 }
-#app .task-entry:hover { border-color: #3d6b5e; background: #14222d; }
+#app .task-entry:hover { border-color: #3d6b5e; background: #142A2D; }
 #app .task-entry .task-prompt { color: #e6efe9; font-size: 13px; }
 #app .task-entry .task-meta { color: #7f9aa0; font-size: 11px; }
 #app .task-entry .task-state {
@@ -438,10 +494,10 @@
     font-weight: 700;
     text-transform: uppercase;
     letter-spacing: .04em;
-    background: #223c4a; color: #bfe0d8;
+    background: #22474A; color: #bfe0d8;
 }
 #app .task-entry .task-state.queued   { background: #3a3a2e; color: #e2cf9a; }
-#app .task-entry .task-state.running  { background: #233c55; color: #b7d4f2; }
+#app .task-entry .task-state.running  { background: #234F55; color: #B7EAF2; }
 #app .task-entry .task-state.completed{ background: #1f483a; color: #a8e6c9; }
 #app .task-entry .task-state.failed, #app .task-entry .task-state.cancelled { background: #522b2a; color: #f2b7b1; }
 #app .task-entry.task-selected { border-color: #2f6f57; box-shadow: 0 0 0 1px #2f6f57; }
@@ -457,7 +513,7 @@
     padding: 14px;
     border: 1px solid #2b4856;
     border-radius: 10px;
-    background: #101a23;
+    background: #102123;
 }
 #app .task-detail-head h3 { margin: 0; color: #eef6f0; font-size: 15px; }
 #app .task-detail-head .task-detail-meta { color: #7f9aa0; font-size: 12px; margin-top: 6px; }
@@ -478,12 +534,12 @@
     font-weight: 600;
     color: #7f9aa0;
     padding: 6px 4px;
-    border: 1px solid #223a46;
+    border: 1px solid #224346;
     border-radius: 6px;
-    background: #0f1a22;
+    background: #0F2022;
 }
 #app .lifecycle li.complete { border-color: #2f6f57; color: #a8e6c9; background: #12301f; }
-#app .lifecycle li.current  { border-color: #3d6b9e; color: #cfe6f7; background: #14293c; box-shadow: 0 0 0 1px #3d6b9e; }
+#app .lifecycle li.current  { border-color: #3D919E; color: #CFF3F7; background: #14373C; box-shadow: 0 0 0 1px #3D919E; }
 #app .lifecycle li.blocked  { border-color: #7a3a38; color: #f2b7b1; background: #2c1f20; }
 #app .lifecycle li.failed   { border-color: #7a3a38; color: #f2b7b1; background: #2c1f20; }
 
@@ -492,7 +548,7 @@
     padding: 5px 12px;
     border-radius: 16px;
     border: 1px solid #2b4856;
-    background: #12212c;
+    background: #12292C;
     color: #abc6c2;
     font-size: 11px;
     font-weight: 600;
@@ -502,9 +558,9 @@
 
 #app .task-stage-content { display: flex; flex-direction: column; gap: 10px; }
 #app .stage-card {
-    border: 1px solid #223a46;
+    border: 1px solid #224346;
     border-radius: 8px;
-    background: #0f1a22;
+    background: #0F2022;
     padding: 12px 14px;
 }
 #app .stage-card h4 { margin: 0 0 6px; color: #e1d6bc; font-size: 12px; }
@@ -642,7 +698,7 @@
 #app .task-chat-handoff__btn {
     border: 1px solid #426574;
     border-radius: 6px;
-    background: #0b1720;
+    background: #0B1E20;
     color: #87e7ba;
     padding: 6px 12px;
     cursor: pointer;
@@ -730,9 +786,9 @@
 #app #workview-goals > section,
 #app #workview-planning > section,
 #app #workview-build > section {
-    border: 1px solid #223a46;
+    border: 1px solid #224346;
     border-radius: 10px;
-    background: #101a23;
+    background: #102123;
     padding: 16px;
     margin-bottom: 12px;
 }
@@ -766,7 +822,7 @@
     padding: 6px 14px;
     border-radius: 20px;
     border: 1px solid #2b4856;
-    background: #12212c;
+    background: #12292C;
     color: #abc6c2;
     font-size: 12px;
     font-weight: 600;
@@ -783,9 +839,9 @@
 
 /* Fold styling for Build view (kept from legacy) */
 #app #workview-build details.fold {
-    border: 1px solid #223a46;
+    border: 1px solid #224346;
     border-radius: 10px;
-    background: #101a23;
+    background: #102123;
     padding: 16px;
 }
 #app #workview-build details.fold > summary {
@@ -820,9 +876,9 @@
     color: #7f9aa0;
 }
 #app .activity-entry {
-    border: 1px solid #223a46;
+    border: 1px solid #224346;
     border-radius: 6px;
-    background: #0f1a22;
+    background: #0F2022;
     padding: 7px 10px;
 }
 #app .activity-entry .ae-top { display: flex; align-items: baseline; gap: 10px; }
@@ -840,7 +896,7 @@
 #app .activity-entry button.ae-expand {
     background: none; border: none; color: #7f9aa0; font-size: 11px; cursor: pointer; padding: 0;
 }
-#app .activity-entry button.ae-expand:hover { color: #cfe6f7; }
+#app .activity-entry button.ae-expand:hover { color: #CFF3F7; }
 
 /* =====================================================================
  * Conversation thread + composer + actionable CTAs (Work workspace)
@@ -872,21 +928,21 @@
     flex-direction: column;
     gap: 6px;
     padding: 4px 4px 10px;
-    border-bottom: 1px dashed #223a46;
+    border-bottom: 1px dashed #224346;
     margin-bottom: 10px;
 }
 #app .tool-group {
-    border: 1px solid #223a46;
+    border: 1px solid #224346;
     border-radius: 8px;
-    background: #0d1a22;
+    background: #0D2022;
     overflow: hidden;
 }
 #app .tool-group--read { border-color: #2b5262; }
 #app .tool-group--edit { border-color: #6a5e22; }
 #app .tool-group--shell { border-color: #6a4e22; }
 #app .tool-group--test { border-color: #4a512e; }
-#app .tool-group--web { border-color: #33506e; }
-#app .tool-group--memory { border-color: #2b3d4a; }
+#app .tool-group--web { border-color: #33666E; }
+#app .tool-group--memory { border-color: #2B474A; }
 #app .tool-group__head {
     width: 100%;
     background: none;
@@ -906,8 +962,8 @@
     padding: 1px 6px;
     border-radius: 14px;
     border: 1px solid #2b4856;
-    background: #12212c;
-    color: #cfe6f7;
+    background: #12292C;
+    color: #CFF3F7;
 }
 #app .tool-group__status--completed { background: #1f483a; border-color: #2f6f57; }
 #app .tool-group__status--failed    { background: #522b2a; border-color: #7a3a38; color: #f2b7b1; }
@@ -917,7 +973,7 @@
     color: #7f9aa0;
     font-size: 12px;
 }
-#app .tool-group--open .tool-group__chevron { color: #cfe6f7; }
+#app .tool-group--open .tool-group__chevron { color: #CFF3F7; }
 #app .tool-group__list {
     list-style: none;
     margin: 0;
@@ -925,8 +981,8 @@
     display: flex;
     flex-direction: column;
     gap: 3px;
-    background: #0a141a;
-    border-top: 1px solid #223a46;
+    background: #0A181A;
+    border-top: 1px solid #224346;
 }
 #app .tool-group__list[hidden] { display: none; }
 #app .tool-run {
@@ -938,7 +994,7 @@
     padding: 2px 0;
 }
 #app .tool-run__status {
-    color: #cfe6f7;
+    color: #CFF3F7;
     font-size: 10.5px;
     text-transform: uppercase;
     letter-spacing: .04em;
@@ -947,7 +1003,7 @@
 #app .tool-run--failed .tool-run__status { color: #f2b7b1; }
 #app .tool-run--pending .tool-run__status { color: #f1d68a; }
 #app .tool-run__name {
-    color: #cfe6f7;
+    color: #CFF3F7;
     font-family: "JetBrains Mono", "Fira Code", monospace;
     font-size: 11px;
 }
@@ -981,19 +1037,19 @@
 #app .conv-thread__sync a {
     padding: 4px 9px;
     border-radius: 14px;
-    background: #12212c;
+    background: #12292C;
     border: 1px solid #2b4856;
-    color: #cfe6f7;
+    color: #CFF3F7;
     font-size: 11px;
     text-decoration: none;
     cursor: pointer;
 }
-#app .conv-thread__sync a:hover { background: #1c3340; }
+#app .conv-thread__sync a:hover { background: #1C3D40; }
 #app .work-center { min-width: 0; min-height: 0; display: flex; flex-direction: column; }
 #app .work-center__empty {
     margin: 14px 4px 0;
     padding: 16px 18px;
-    border: 1px dashed #223a46;
+    border: 1px dashed #224346;
     border-radius: 10px;
     color: #8cafb7;
     font-size: 12.5px;
@@ -1010,9 +1066,9 @@
     gap: 10px;
 }
 #app .ctx-card {
-    border: 1px solid #223a46;
+    border: 1px solid #224346;
     border-radius: 10px;
-    background: #101a23;
+    background: #102123;
     padding: 10px 12px;
     font-size: 12px;
 }
@@ -1052,13 +1108,13 @@
 #app .approval-card {
     border: 1px solid #2b5262;
     border-radius: 10px;
-    background: #11212b;
+    background: #11282B;
     padding: 12px 14px;
     display: flex;
     flex-direction: column;
     gap: 8px;
 }
-#app .approval-card__title { margin: 0; font-size: 13px; font-weight: 700; color: #cfe6f7; }
+#app .approval-card__title { margin: 0; font-size: 13px; font-weight: 700; color: #CFF3F7; }
 #app .approval-card__subtitle { margin: 0; font-size: 11.5px; color: #a8e7d5; }
 #app .approval-card__body {
     margin: 0;
@@ -1082,7 +1138,7 @@
 #app .approval-card__criteria li {
     border: 1px solid #1c3a47;
     border-radius: 6px;
-    background: #0d1a22;
+    background: #0D2022;
     padding: 6px 8px;
     font-size: 11.5px;
     color: #dceae7;
@@ -1092,7 +1148,7 @@
     padding: 5px 11px;
     border-radius: 14px;
     border: 1px solid #2b4856;
-    background: #12212c;
+    background: #12292C;
     color: #dceae7;
     font-size: 11.5px;
     font-weight: 600;
@@ -1101,7 +1157,7 @@
 #app .approval-card__btn--approve {
     background: #1f483a;
     border-color: #2f6f57;
-    color: #cfe6f7;
+    color: #CFF3F7;
 }
 #app .approval-card__btn--approve:hover { background: #2c6a55; }
 #app .approval-card__btn--changes {
@@ -1156,10 +1212,10 @@
     gap: 10px;
 }
 #app .conv-turn {
-    border: 1px solid #223a46;
+    border: 1px solid #224346;
     border-radius: 10px;
     padding: 10px 12px;
-    background: #0f1a22;
+    background: #0F2022;
     max-width: 92%;
 }
 #app .conv-turn--assistant {
@@ -1190,15 +1246,15 @@
     color: #a8e7d5;
 }
 #app .conv-turn--user .conv-turn__role { color: #bfe0d8; }
-#app .conv-turn--assistant .conv-turn__role { color: #93c6f2; }
+#app .conv-turn--assistant .conv-turn__role { color: #93E7F2; }
 #app .conv-turn__head time { color: #7f9aa0; }
 #app .conv-turn__task {
     margin-left: auto;
     padding: 1px 6px;
     border-radius: 14px;
-    background: #192c38;
+    background: #193538;
     border: 1px solid #2b4856;
-    color: #cfe6f7;
+    color: #CFF3F7;
     font-size: 10.5px;
     cursor: pointer;
 }
@@ -1220,12 +1276,12 @@
     padding: 0;
     margin-left: 4px;
 }
-#app .conv-turn__more:hover { color: #cfe6f7; }
+#app .conv-turn__more:hover { color: #CFF3F7; }
 #app .conv-turn__full { display: block; margin-top: 6px; }
 #app .conv-thread__empty {
     margin: 6px 4px 0;
     padding: 10px 12px;
-    border: 1px dashed #223a46;
+    border: 1px dashed #224346;
     border-radius: 10px;
     color: #8cafb7;
     font-size: 12px;
@@ -1236,7 +1292,7 @@
 #app .task-composer {
     border: 1px solid #2b4856;
     border-radius: 10px;
-    background: #101a23;
+    background: #102123;
     padding: 10px 12px;
     display: flex;
     flex-direction: column;
@@ -1274,7 +1330,7 @@
     box-sizing: border-box;
     background: #08161d;
     color: #e6efe9;
-    border: 1px solid #223a46;
+    border: 1px solid #224346;
     border-radius: 6px;
     padding: 8px 10px;
     font-family: inherit;
@@ -1310,7 +1366,7 @@
     font-weight: 600;
     cursor: pointer;
 }
-#app .task-composer__submit:hover:not([disabled]) { background: #244658; border-color: #4dac82; }
+#app .task-composer__submit:hover:not([disabled]) { background: #245458; border-color: #4dac82; }
 #app .task-composer__submit[disabled] { opacity: 0.55; cursor: not-allowed; }
 
 /* ----- Actionable next-action panel ----- */
@@ -1329,23 +1385,23 @@
     padding: 5px 11px;
     border-radius: 14px;
     border: 1px solid #2b4856;
-    background: #12212c;
+    background: #12292C;
     color: #dceae7;
     font-size: 11.5px;
     font-weight: 600;
     cursor: pointer;
 }
-#app .task-action:hover { background: #1c3340; }
+#app .task-action:hover { background: #1C3D40; }
 #app .task-action--primary {
     background: #1b3542;
     border-color: #2f6f57;
-    color: #cfe6f7;
+    color: #CFF3F7;
 }
-#app .task-action--primary:hover { background: #244658; }
+#app .task-action--primary:hover { background: #245458; }
 #app .task-action--success {
     background: #1f483a;
     border-color: #2f6f57;
-    color: #cfe6f7;
+    color: #CFF3F7;
 }
 #app .task-action--success:hover { background: #2c6a55; }
 #app .task-action--secondary {
@@ -1642,7 +1698,7 @@
     gap: 12px;
     padding: 0 14px;
     border-top: 1px solid #1c3a47;
-    background: #0e1720;
+    background: #0E1E20;
     font-size: 11px;
     overflow: hidden;
 }
@@ -1672,10 +1728,10 @@
 #app #status-strip #status-world:empty { display: none; }
 /* The IDE workspace row is reparented into this single strip (spec phase 2 §9). */
 #app #status-strip #status-ide-slot { display: flex; align-items: center; min-width: 0; flex: 0 0 auto; }
-#app #status-running-count[data-state="none"] { color: #aebed0; }
+#app #status-running-count[data-state="none"] { color: #AECBD0; }
 #app #status-running-count[data-state="running"] {
-    color: #93c6f2;
-    border: 1px solid #33506e;
+    color: #93E7F2;
+    border: 1px solid #33666E;
     border-radius: 10px;
     padding: 2px 8px;
 }
@@ -1690,34 +1746,7 @@
     font-size: 11px;
     cursor: pointer;
 }
-#app #status-open-activity:hover { background: #152633; color: #e6efe9; }
-
-/* ===== P1: nav rail expand/collapse ===== */
-#app #primary-nav { overflow: hidden auto; }
-#app #primary-nav #nav-collapse {
-    width: 100%;
-    padding: 6px 8px;
-    background: none;
-    border: 1px solid transparent;
-    border-radius: 8px;
-    color: #7f9aa0;
-    font-size: 13px;
-    cursor: pointer;
-    text-align: left;
-}
-#app #primary-nav #nav-collapse:hover { background: #152633; color: #e6efe9; }
-#app.nav-collapsed #primary-nav #nav-collapse { text-align: center; }
-#app.nav-collapsed #primary-nav .hc-nav-caption,
-#app.nav-collapsed #primary-nav .hc-room-link,
-#app.nav-collapsed #primary-nav .nav-sep { display: none; }
-#app.nav-collapsed #primary-nav button {
-    text-align: center;
-    padding-left: 2px;
-    padding-right: 2px;
-    overflow: hidden;
-    white-space: nowrap;
-    text-overflow: clip;
-}
+#app #status-open-activity:hover { background: #153033; color: #e6efe9; }
 
 /* ===== P1: resizable + collapsible inspector ===== */
 /* The drag grip and the collapse tab are fixed to the viewport so they stay
@@ -1725,7 +1754,7 @@
    driven by --inspector-w (set and clamped by main.v2). */
 #app #inspector-grip {
     position: fixed;
-    top: 60px;
+    top: 98px;
     bottom: 36px;
     right: calc(var(--inspector-w, 348px) - 4px);
     width: 9px;
@@ -1752,11 +1781,11 @@
 
 #app #ctx-collapse {
     position: fixed;
-    top: 70px;
+    top: 108px;
     right: 6px;
     z-index: 75;
     padding: 2px 8px;
-    background: #0e1720;
+    background: #0E1E20;
     border: 1px solid #35505c;
     border-radius: 8px;
     color: #abc6c2;
@@ -1764,7 +1793,7 @@
     line-height: 1.2;
     cursor: pointer;
 }
-#app #ctx-collapse:hover { background: #152633; color: #e6efe9; }
+#app #ctx-collapse:hover { background: #153033; color: #e6efe9; }
 #app.layout-focus #ctx-collapse { display: none; }
 /* Collapsed: the panel column is 0 — the tab becomes the reopen control. */
 #app.inspector-collapsed #ctx-collapse {
@@ -1778,16 +1807,12 @@
 @media (max-width: 1439px) {
     #app.layout-home,
     #app.layout-workspace {
-        grid-template-columns: 220px minmax(0, 1fr) 0;
-    }
-    #app.nav-collapsed.layout-home,
-    #app.nav-collapsed.layout-workspace {
-        grid-template-columns: 64px minmax(0, 1fr) 0;
+        grid-template-columns: minmax(0, 1fr) 0;
     }
     #app.layout-home #contextual-panel,
     #app.layout-workspace #contextual-panel {
         position: fixed;
-        top: 60px;
+        top: 98px;
         bottom: 36px;
         right: 0;
         width: var(--inspector-w, 348px);
@@ -1807,7 +1832,7 @@
     padding: 0 5px;
     border-radius: 10px;
     background: #e8a45c;
-    color: #10161c;
+    color: #101A1C;
     font-size: 11px;
     font-weight: 700;
     line-height: 18px;
@@ -1817,15 +1842,15 @@
 #app .attention-list { display: flex; flex-direction: column; gap: 14px; max-width: 860px; }
 #app .attention-list h2 { font-size: 14px; color: #abc6c2; margin: 12px 0 2px; letter-spacing: .02em; }
 #app .attention-item {
-    border: 1px solid #223a46;
+    border: 1px solid #224346;
     border-left: 3px solid #e8a45c;
     border-radius: 10px;
-    background: #101a23;
+    background: #102123;
     padding: 12px 14px;
 }
-#app .attention-item[data-group="review"] { border-left-color: #93c6f2; }
+#app .attention-item[data-group="review"] { border-left-color: #93E7F2; }
 #app .attention-item[data-group="blocked"] { border-left-color: #f2a6a0; }
-#app .attention-item[data-group="memory"] { border-left-color: #b79be0; }
+#app .attention-item[data-group="memory"] { border-left-color: #9BC8E0; }
 #app .attention-item h3 { font-size: 14px; margin: 0 0 6px; }
 #app .attention-item dl { margin: 0; display: grid; grid-template-columns: 130px 1fr; gap: 2px 10px; font-size: 12px; }
 #app .attention-item dt { color: #7f9aa0; font-weight: 600; }
@@ -1867,7 +1892,7 @@
     flex: 1 1 auto;
     background: #08161d;
     color: #e6efe9;
-    border: 1px solid #223a46;
+    border: 1px solid #224346;
     border-radius: 8px;
     padding: 8px 10px;
     font-family: inherit;
@@ -1883,7 +1908,7 @@
     font-weight: 600;
     cursor: pointer;
 }
-#app .research-session button:hover { background: #244658; }
+#app .research-session button:hover { background: #245458; }
 #app #research-status { font-size: 12px; color: #8cafb7; min-height: 16px; margin-bottom: 8px; }
 #app #research-status[data-error="true"] { color: #f2a6a0; }
 #app .research-columns {
@@ -1893,9 +1918,9 @@
     align-items: start;
 }
 #app .research-col {
-    border: 1px solid #223a46;
+    border: 1px solid #224346;
     border-radius: 10px;
-    background: #101a23;
+    background: #102123;
     padding: 12px 14px;
     min-width: 0;
 }
@@ -1903,7 +1928,7 @@
 #app .research-fact, #app .research-finding, #app .research-question, #app .research-note {
     border: 1px solid #1c3a47;
     border-radius: 8px;
-    background: #0d1a22;
+    background: #0D2022;
     padding: 9px 11px;
     margin-bottom: 8px;
     display: flex;
@@ -1911,7 +1936,7 @@
     gap: 4px;
 }
 #app .research-fact strong, #app .research-finding strong, #app .research-question strong, #app .research-note strong {
-    color: #cfe6f7;
+    color: #CFF3F7;
     font-size: 12.5px;
 }
 #app .research-fact small, #app .research-finding small, #app .research-question small, #app .research-note small {
@@ -1940,7 +1965,7 @@
     font-weight: 700;
     text-transform: uppercase;
     letter-spacing: .04em;
-    background: #223c4a;
+    background: #22474A;
     color: #bfe0d8;
 }
 #app .research-actions { display: flex; gap: 6px; margin-top: 4px; }
@@ -1948,7 +1973,7 @@
     padding: 4px 10px;
     border-radius: 8px;
     border: 1px solid #2b5262;
-    background: #12212c;
+    background: #12292C;
     color: #dceae7;
     font-size: 11px;
     cursor: pointer;
@@ -1974,7 +1999,7 @@
     padding: 5px 12px;
     border-radius: 8px;
     border: 1px solid #2b5262;
-    background: #12212c;
+    background: #12292C;
     color: #dceae7;
     font-size: 11.5px;
     cursor: pointer;
@@ -1985,8 +2010,8 @@
     padding: 1px 7px;
     border-radius: 10px;
     border: 1px solid #2b5262;
-    background: #12212c;
-    color: #cfe6f7;
+    background: #12292C;
+    color: #CFF3F7;
     font-size: 10.5px;
     cursor: pointer;
 }
@@ -2016,15 +2041,15 @@
 #app .hc-search { position: relative; flex: 0 1 320px; min-width: 160px; max-width: 380px; }
 #app #global-search-input {
     width: 100%; box-sizing: border-box; padding: 7px 12px; border-radius: 8px;
-    border: 1px solid #1c3a47; background: #0e1720; color: #dceceb;
+    border: 1px solid #1c3a47; background: #0E1E20; color: #dceceb;
     font: inherit; font-size: 13px;
 }
 #app #global-search-input::placeholder { color: #6d8b93; }
-#app #global-search-input:focus { outline: none; border-color: #7ab0a3; background: #12212c; }
+#app #global-search-input:focus { outline: none; border-color: #7ab0a3; background: #12292C; }
 .global-search-results {
     position: absolute; top: calc(100% + 6px); right: 0; z-index: 60;
     width: min(560px, 92vw); max-height: min(62vh, 540px); overflow: auto;
-    background: #101922; border: 1px solid #1c3a47; border-radius: 10px;
+    background: #102022; border: 1px solid #1c3a47; border-radius: 10px;
     box-shadow: 0 18px 44px #000a; padding: 6px;
 }
 .global-search-results h3 {
@@ -2049,9 +2074,9 @@
 .director-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
 .director-actions button {
     flex: 1 1 auto; padding: 6px 8px; border-radius: 8px; cursor: pointer;
-    border: 1px solid #1c3a47; background: #12212c; color: #dceceb; font: inherit; font-size: 12px;
+    border: 1px solid #1c3a47; background: #12292C; color: #dceceb; font: inherit; font-size: 12px;
 }
-.director-actions button:hover { border-color: #7ab0a3; background: #152633; }
+.director-actions button:hover { border-color: #7ab0a3; background: #153033; }
 
 /* Inspector room card: the room's own workspace action (spec §4). */
 #ctx-inspector-body .ctx-open-workspace {
@@ -2063,18 +2088,18 @@
 /* ===== World composer (HERMESHA §5/§6): conversation inside the World ===== */
 .world-composer {
     display: flex; align-items: center; gap: 8px; margin-top: 10px;
-    padding: 8px 10px; border: 1px solid #1c3a47; border-radius: 10px; background: #0e1720;
+    padding: 8px 10px; border: 1px solid #1c3a47; border-radius: 10px; background: #0E1E20;
 }
 .world-composer input {
     flex: 1 1 auto; min-width: 0; padding: 8px 12px; border-radius: 8px;
-    border: 1px solid #1c3a47; background: #0b1720; color: #dceceb; font: inherit; font-size: 13px;
+    border: 1px solid #1c3a47; background: #0B1E20; color: #dceceb; font: inherit; font-size: 13px;
 }
-.world-composer input:focus { outline: none; border-color: #7ab0a3; background: #12212c; }
+.world-composer input:focus { outline: none; border-color: #7ab0a3; background: #12292C; }
 .world-composer button {
     flex: 0 0 auto; padding: 8px 12px; border-radius: 8px; cursor: pointer;
-    border: 1px solid #1c3a47; background: #12212c; color: #dceceb; font: inherit; font-size: 12.5px;
+    border: 1px solid #1c3a47; background: #12292C; color: #dceceb; font: inherit; font-size: 12.5px;
 }
-.world-composer button:hover { border-color: #7ab0a3; background: #152633; }
+.world-composer button:hover { border-color: #7ab0a3; background: #153033; }
 #world-composer-send { border-color: #7ab0a3; background: #17302c; }
 .world-composer-status { margin: 6px 2px 0; font-size: 12px; color: #9ce5c7; min-height: 15px; }
 .world-composer-status:empty { display: none; }
@@ -2083,25 +2108,3 @@
     .world-composer input { flex-basis: 100%; }
 }
 
-/* ===== Narrow-screen navigation drawer (HERMESHA §2) ===== */
-#app #nav-drawer-toggle { display: none; }
-#app #nav-scrim { display: none; position: fixed; inset: 0; background: #000a; z-index: 85; border: 0; }
-#app.nav-drawer-open #nav-scrim { display: block; }
-@media (max-width: 1080px) {
-    #app #nav-drawer-toggle {
-        display: inline-flex; align-items: center; justify-content: center;
-        width: 34px; height: 34px; flex: 0 0 auto; border-radius: 8px; cursor: pointer;
-        border: 1px solid #1c3a47; background: #12212c; color: #dceceb; font-size: 16px;
-    }
-    #app #nav-drawer-toggle:hover { border-color: #7ab0a3; }
-    /* The rail becomes an off-canvas overlay drawer with full captions/rooms. */
-    #app #primary-nav {
-        position: fixed; top: 0; bottom: 0; left: 0; width: 240px; z-index: 90;
-        transform: translateX(-100%); transition: transform .18s ease;
-        background: #0e1720; border-right: 1px solid #1c3a47; padding: 10px; overflow-y: auto;
-    }
-    #app.nav-drawer-open #primary-nav { transform: translateX(0); }
-    #app.nav-drawer-open .hc-nav-caption { display: block; }
-    #app.nav-drawer-open .hc-room-link { display: block; }
-    #app.nav-drawer-open #primary-nav button { text-align: left; padding-left: 10px; padding-right: 10px; }
-}

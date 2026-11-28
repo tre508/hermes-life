@@ -149,7 +149,7 @@ test('parseNavQuery accepts valid enums and ignores invalid ones', () => {
 
 test('round-trip: parse(serialize(state)) preserves workspace/workview/task', () => {
     // 'results' is folded into Work (spec §4/§13) — see the redirect test below.
-    for (const ws of ['world', 'home', 'work', 'activity', 'knowledge'] as const) {
+    for (const ws of ['home', 'work', 'activity', 'knowledge'] as const) {
         for (const wv of ['overview', 'discoveries', 'goals', 'plans', 'tasks', 'builds', 'reviews', 'results'] as const) {
             const q = nav.serializeNavQuery({
                 workspace: ws, workView: wv, selectedTaskId: 'tid-1',
@@ -253,7 +253,7 @@ test('Back returns to the previous workspace/subview/task deterministically', as
 
     (g.history as FakeHistory).back(); // back to bare world (regroup default)
     snap = nav.getNavigationState();
-    assert.equal(snap.workspace, 'world');
+    assert.equal(snap.workspace, 'home');
 
     (g.history as FakeHistory).forward(); // forward to work/tasks
     snap = nav.getNavigationState();

@@ -104,7 +104,7 @@ def test_every_stage_of_the_status_table(tmp_path):
           run=('r-review', 'candidate_passed'), created_at=base)
     chain(app, 'd-done', formulation='f-done', goal=('g-done', 'completed'),
           task=('t-done', 'completed'), plan=('p-done', 'approved'),
-          run=('r-done', 'candidate_passed'), review='accepted', created_at=base)
+          run=('r-done', 'applied'), review='accepted', created_at=base)
     chain(app, 'd-dismissed', discovery_state='dismissed', created_at=base)
 
     snapshot = app.state.workflow.snapshot()
@@ -199,7 +199,7 @@ def test_duplicate_findings_are_grouped_and_marked_superseded(tmp_path):
 def test_a_completed_twin_supersedes_unfinished_duplicates(tmp_path):
     app = build(tmp_path)
     chain(app, 'd-done', note=NOTE, formulation='f', goal=('g', 'completed'), task=('t', 'completed'),
-          plan=('p', 'approved'), run=('r', 'candidate_passed'), review='accepted',
+          plan=('p', 'approved'), run=('r', 'applied'), review='accepted',
           created_at='2026-01-01T00:00:00+00:00')
     chain(app, 'd-tw', note=NOTE, formulation='f2', goal=('g2', 'completed'), task=('t2', 'completed'),
           plan=('p2', 'approved'), created_at='2026-02-01T00:00:00+00:00')

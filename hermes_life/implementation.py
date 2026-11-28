@@ -599,6 +599,9 @@ class ImplementationEngine:
                 'apply_sha256': actual_sha256,
                 'host_path': str(host)
             })
+            # HA-006: the host tree just changed — shared file-change events so
+            # Projects/Chat see the applied files without a reload (spec §4.4).
+            self.runtime.project_workspaces.emit_applied_changes(project, host)
 
             return {'status': 'applied', 'run_id': ident, 'project': project,
                     'base_commit': project_row['commit_hash'],

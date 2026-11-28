@@ -13,6 +13,17 @@ A pure-ASGI middleware refuses every other /api/* and /ws/* request with 401
 
 The gate is OFF unless HERMES_LIFE_GATE_PASSWORD_HASH is configured, so local
 development and every existing test/workflow are untouched.
+
+Hardening (audit HA-018/HA-020/HA-021):
+  - HERMES_LIFE_GATE_REQUIRED=1 makes startup refuse to serve when no
+    credentials are configured at all (fail-closed for the public tunnel);
+    the gate state is logged at startup either way.
+  - Rate-limit buckets follow the forwarded client identity (X-Forwarded-For /
+    X-Real-IP) — behind the vite proxy every request arrives from 127.0.0.1,
+    so the raw peer would be one shared lockout bucket.
+  - Session tokens embed a random server-side session id (v2.<sid>.<exp>.<sig>)
+    so every issue is unique and logout revokes the session server-side; v1
+    tokens are rejected outright after the rotation.
 """
 from __future__ import annotations
 
@@ -22,6 +33,7 @@ import hmac
 import json
 import os
 import secrets
+import sys
 import time
 from pathlib import Path
 
@@ -60,9 +72,10 @@ def hash_password(password: str) -> str:
 class GateConfig:
     def __init__(self):
         self.hash = os.getenv('HERMES_LIFE_GATE_PASSWORD_HASH', '').strip()
-        self.image = os.getenv(
-            'HERMES_LIFE_GATE_IMAGE',
-            '/home/gayzer/Pictures/Alchemical Bronze Astronomical Gate.png')
+        # The entrance image is opt-in: only an explicit HERMES_LIFE_GATE_IMAGE
+        # produces an image URL — no env value means no image (the status
+        # contract pins this: unconfigured image -> image_url None).
+        self.image = os.getenv('HERMES_LIFE_GATE_IMAGE', '').strip()
         try:
             self.session_hours = float(os.getenv('HERMES_LIFE_GATE_SESSION_HOURS',
                                                  str(DEFAULT_SESSION_HOURS)))
@@ -75,11 +88,35 @@ class GateConfig:
         # The gate is ON with a password hash OR a configured passkey store, so
         # a passkey-only deployment works without any hash at all.
         self.enabled = bool(self.hash or self.passkey_store)
-        self.has_password = bool(self.hash)
+        self.has_password = self.hash != ''
+        # HA-018: fail-closed switch for public deployments. With
+        # HERMES_LIFE_GATE_REQUIRED=1 a missing credential set must abort
+        # startup instead of silently serving every /api/* and /ws/*
+        # unauthenticated; without the flag nothing changes for local dev and
+        # tests (the gate stays opt-in).
+        self.required = os.getenv('HERMES_LIFE_GATE_REQUIRED', '').strip() == '1'
+        # HA-018: the gate state is logged at startup either way — a silently
+        # disabled gate on the tunneled deployment is the failure mode here.
+        print('[entrance-gate] startup gate state: {} (password={}, '
+              'passkey_store={})'.format(
+                  'ENABLED' if self.enabled else 'DISABLED',
+                  'on' if self.has_password else 'off',
+                  'on' if self.passkey_store else 'off'),
+              file=sys.stderr)
+        if self.required and not self.enabled:
+            raise RuntimeError(
+                'HERMES_LIFE_GATE_REQUIRED=1 but neither '
+                'HERMES_LIFE_GATE_PASSWORD_HASH nor '
+                'HERMES_LIFE_GATE_PASSKEY_STORE is configured — refusing to '
+                'serve the API unauthenticated')
         # Challenge store: challenge (b64url) -> (kind, expiry). In-memory is
         # correct for a single-process, single-user gate.
         self._challenges: dict[str, tuple[int, float]] = {}
         self._failures: dict[str, list[float]] = {}
+        # HA-021: server-side session set, sid -> expiry. Same single-process
+        # posture as the challenge store: restarts and deploys deliberately
+        # kill every outstanding session.
+        self._sessions: dict[str, float] = {}
         # Cookie-signing key: a dedicated env value when configured, otherwise
         # derived from the password hash (rotating the password then
         # invalidates every outstanding session cookie), otherwise from the
@@ -156,24 +193,68 @@ class GateConfig:
         return hmac.compare_digest(digest, base64.b64decode(hash_b64))
 
     def issue_token(self, now: float | None = None) -> str:
+        """v2.<sid>.<exp>.<sig> — one random session per issue.
+
+        v1 was HMAC(key, 'v1.<exp>'): the same expiry-second minted the same
+        token for everyone and nothing could revoke it. The random sid makes
+        every issue unique and gives the server-side session set a handle to
+        revoke on logout.
+        """
         exp = int((now or time.time()) + self.session_hours * 3600)
-        sig = hmac.new(self.key, f'v1.{exp}'.encode(), hashlib.sha256).hexdigest()
-        return f'v1.{exp}.{sig}'
+        sid = secrets.token_urlsafe(18)
+        sig = hmac.new(self.key, f'v2.{sid}.{exp}'.encode(),
+                       hashlib.sha256).hexdigest()
+        self._prune_sessions()
+        self._sessions[sid] = float(exp)
+        return f'v2.{sid}.{exp}.{sig}'
 
     def verify_token(self, token: str | None, now: float | None = None) -> bool:
         if not self.enabled or not token:
             return False
         parts = token.split('.')
-        if len(parts) != 3 or parts[0] != 'v1':
+        # v1 tokens are rejected outright after the rotation: every session
+        # dies on upgrade, which is the desired posture for leaked cookies.
+        if len(parts) != 4 or parts[0] != 'v2':
             return False
+        sid, exp_raw, sig = parts[1], parts[2], parts[3]
         try:
-            exp = int(parts[1])
+            exp = int(exp_raw)
         except ValueError:
             return False
-        expected = hmac.new(self.key, f'v1.{exp}'.encode(), hashlib.sha256).hexdigest()
-        if not hmac.compare_digest(parts[2], expected):
+        expected = hmac.new(self.key, f'v2.{sid}.{exp}'.encode(),
+                            hashlib.sha256).hexdigest()
+        if not hmac.compare_digest(sig, expected):
             return False
-        return exp > (now or time.time())
+        if exp <= (now or time.time()):
+            return False
+        return sid in self._sessions
+
+    def revoke_token(self, token: str | None) -> bool:
+        """Drop the token's session server-side (logout). True when revoked.
+
+        The signature is checked first so a forged token naming someone
+        else's sid cannot revoke their session.
+        """
+        if not token:
+            return False
+        parts = token.split('.')
+        if len(parts) != 4 or parts[0] != 'v2':
+            return False
+        sid, exp_raw, sig = parts[1], parts[2], parts[3]
+        try:
+            exp = int(exp_raw)
+        except ValueError:
+            return False
+        expected = hmac.new(self.key, f'v2.{sid}.{exp}'.encode(),
+                            hashlib.sha256).hexdigest()
+        if not hmac.compare_digest(sig, expected):
+            return False
+        return self._sessions.pop(sid, None) is not None
+
+    def _prune_sessions(self) -> None:
+        now = time.time()
+        for sid in [s for s, exp in self._sessions.items() if exp <= now]:
+            del self._sessions[sid]
 
     def register_failure(self, client: str) -> bool:
         """True when the client is allowed to keep trying."""
@@ -203,6 +284,23 @@ def _cookie_token(scope) -> str | None:
 
 
 def _client_id(scope) -> str:
+    """Rate-limit identity for one request.
+
+    HA-020: behind the local vite proxy every request arrives from the peer
+    127.0.0.1, so the raw ASGI peer was one shared bucket — 10 failures locked
+    out every user at once. Use the forwarded client identity the proxy sets
+    (X-Forwarded-For's first entry, then X-Real-IP) and fall back to the peer
+    address for direct connections. Trusted-proxy posture: this deployment
+    always sits behind the local proxy.
+    """
+    headers = {k.decode('latin-1').lower(): v.decode('latin-1')
+               for k, v in scope.get('headers') or []}
+    forwarded = headers.get('x-forwarded-for', '').split(',')[0].strip()
+    if forwarded:
+        return forwarded
+    real_ip = headers.get('x-real-ip', '').strip()
+    if real_ip:
+        return real_ip
     client = scope.get('client') or ('unknown', 0)
     return str(client[0])
 
@@ -278,9 +376,12 @@ def add_gate_routes(app: FastAPI, config: GateConfig) -> None:
 
     @app.post('/api/entrance/logout')
     @app.get('/api/entrance/logout')
-    def logout():
+    def logout(request: Request):
         if not config.enabled:
             raise HTTPException(404, 'Gate is not configured')
+        # HA-021: revoke the session server-side first — clearing only the
+        # cookie left stolen cookies valid for the whole session window.
+        config.revoke_token(_cookie_token(request.scope))
         # Clear the gate cookie: *** + the shortest possible expiry so
         # every browser honours it. The next request is unauthenticated again.
         cookie = f'{COOKIE_NAME}=; Path=/; Max-Age=0; Expires=Thu, 01 Jan 1970 00:00:00 GMT; HttpOnly; SameSite=Lax'

@@ -19,6 +19,38 @@ def compact(text):return ' '.join(str(text).split())
 def similarity(a,b):
     return SequenceMatcher(None,compact(a).casefold(),compact(b).casefold()).ratio()
 
+# Quote typography only: a quote wrapped in quotation marks or typed with curly quotes is still a
+# verbatim quote. Wording changes are never normalised away — those are paraphrases.
+TYPOGRAPHIC = {'\u201c':'"','\u201d':'"','\u2018':"'",'’':"'",'–':'-','—':'-'}
+
+def _fold(text):
+    """Comparison form: typographic quotes/dashes to ASCII, whitespace collapsed, case ignored."""
+    for wrong,right in TYPOGRAPHIC.items():text=text.replace(wrong,right)
+    return compact(text).casefold()
+
+def _unquote(text):
+    """Strip one layer of wrapping quotes/backticks a model may add around its quote."""
+    text=compact(text)
+    for left,right in (('"','"'),("'",'\''),('`','`'),('\u201c','\u201d'),('\u2018','\u2019'),('«','»')):
+        if len(text)>len(left)+len(right) and text.startswith(left) and text.endswith(right):
+            return compact(text[len(left):-len(right)])
+    return text
+
+def evidence_confidence(origin,quote,content):
+    """How far the validated evidence supports the stored statement (HA-030).
+
+    A fixed, mechanical heuristic over what the validator already checked — never a per-case
+    guess: 0.50 base for a model proposal that passed every check; +0.25 when the user stated
+    it in their own words (origin 'explicit'); +0.15 when the verbatim quote is long enough to
+    stand on its own (>=80 chars), else +0.05. An inference is capped at 0.70 — a derivation
+    never becomes a statement by being stored — and the result is clamped to [0.30, 0.95]:
+    never certain (the extractor is a model), never below 0.30 (it did pass every validator).
+    """
+    score=0.50+(0.25 if origin=='explicit' else 0.0)
+    score+=0.15 if len(compact(quote))>=80 else 0.05
+    if origin!='explicit':score=min(score,0.70)
+    return round(min(max(score,0.30),0.95),2)
+
 def parse_json(text):
     text=text.strip()
     if text.startswith('```'):
@@ -249,13 +281,21 @@ class VaultMemory:
                 if kind not in FOLDERS:
                     counts['reject_invalid_kind'] += 1
                     continue
-                if not 15<=len(content)<=600 or not 12<=len(quote)<=500:
+                if not 12<=len(content)<=1000 or not 8<=len(quote)<=600:
+                    # HA-030: the live rejection breakdown (24 invalid_lengths against stored
+                    # content reaching 570 chars and quotes sitting on the old 12-char floor)
+                    # showed the old bounds clipped reasonable material. These still bound the
+                    # shape Recall itself enforces (4-1600); they no longer reject on taste.
                     counts['reject_invalid_lengths'] += 1
                     continue
                 if PRIVATE.search(content):
                     counts['reject_private_content'] += 1
                     continue
-                if quote.casefold() not in compact(user).casefold():
+                # Verbatim means word-for-word in the user text — case, whitespace and quote
+                # typography aside. Wrapped or curly-quoted quotes (the bulk of the 50 live
+                # evidence_not_verbatim rejections) are decoration, not paraphrase; rewording
+                # still fails here.
+                if _fold(_unquote(quote)) not in _fold(user) and _fold(quote) not in _fold(user):
                     counts['reject_evidence_not_verbatim'] += 1
                     continue
                 # HL-PERS-001 §5B/§5D: keep the verbatim quote that was just validated, and record
@@ -284,7 +324,8 @@ class VaultMemory:
                     counts['reviews'] += 1
                     continue
                 entry=self.recall.remember(content,kind,conversation_id,row['id'],
-                                           evidence_excerpt=quote,origin=origin)
+                                           evidence_excerpt=quote,origin=origin,
+                                           confidence=evidence_confidence(origin,quote,content))
                 entry.update(source_conversation_id=conversation_id,source_turn_id=row['id'])
                 existing.append(entry);made+=1
                 counts['stored'] += 1
@@ -293,7 +334,13 @@ class VaultMemory:
             lesson=proposed.get('task_lesson') if isinstance(proposed,dict) else None
             if isinstance(lesson,dict):
                 summary=compact(lesson.get('summary',''));quote=compact(lesson.get('evidence',''))
-                if 20<=len(summary)<=650 and len(quote)>=15 and quote.casefold() in compact(answer).casefold():
+                # HA-030: 51 live task-lesson rejections against 24 accepted reviews — the old
+                # bounds and the raw substring check rejected short but real outcomes and any
+                # quote the model decorated. The quote must still appear word-for-word in the
+                # assistant outcome; a paraphrased outcome is still no evidence.
+                lesson_ok = 12<=len(summary)<=800 and len(quote)>=10 \
+                    and (_fold(_unquote(quote)) in _fold(answer) or _fold(quote) in _fold(answer))
+                if lesson_ok:
                     self._review(task_id,summary,None,'task lesson awaiting verification',
                                  evidence_excerpt=quote)
                     counts['reviews'] += 1

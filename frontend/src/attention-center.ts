@@ -301,8 +301,17 @@ function init(): void {
     if (wired) return;
     wired = true;
     void refreshAttention(true);
-    window.addEventListener('hermes:event', () => {
-        void refreshAttention().then(() => { if ($('workspace-attention')?.hidden === false) renderList(); });
+    // HA-046: decision/resolution events clear the badge IMMEDIATELY — the
+    // 15s throttle would otherwise show already-resolved items as pending.
+    const RESOLUTION_EVENTS = new Set([
+        'implementation.review_decided', 'investigation.plan_approved',
+        'memory.review_resolved', 'proposal.approved', 'proposal.created',
+        'discovery.approved',
+    ]);
+    window.addEventListener('hermes:event', (ev) => {
+        const type = (ev as CustomEvent<{ type?: string }>).detail?.type;
+        const force = !!type && RESOLUTION_EVENTS.has(type);
+        void refreshAttention(force).then(() => { if ($('workspace-attention')?.hidden === false) renderList(); });
     });
     window.setInterval(() => { void refreshAttention(); }, 60000);
     document.getElementById('attention-badge')?.addEventListener('click', () => { void refreshAttention(true); });

@@ -25,8 +25,10 @@
  */
 import * as THREE from 'three';
 
+import { DEFAULT_FOV } from '../town-camera';
 import type { Role } from '../town-model';
 import { createFace, type Face } from './faces';
+import type { Track } from './palette';
 import type { Builders } from './props';
 import { group, put } from './props';
 
@@ -492,4 +494,56 @@ export function buildResident(b: Builders, role: Role): ResidentParts {
     face,
     hipHeight: ANATOMY.hip * char.height,
   };
+}
+
+// ---------------------------------------------------------------------------- name plates
+
+/** The share of the viewport height a name plate covers, at any camera distance. */
+const NAME_PLATE_SCREEN = 0.062;
+
+/**
+ * HA-035: a resident's name plate, floating above the head in SCREEN SPACE.
+ *
+ * The world-size nametags shrank with the camera, so at the overview zoom no two residents could
+ * be told apart. `sizeAttenuation: false` makes the sprite shader scale the quad by the view
+ * distance, so `scale` is a fraction of the VIEWPORT rather than of the world: the plate keeps
+ * one constant size at every zoom and stays legible in the widest shot.
+ *
+ * `parentScale` is the scale of the group the plate mounts under (a figure is built at scale 1
+ * and its renderer may scale it up); the sprite is pre-divided so the screen share is exact
+ * either way. Cheap: one 256x96 canvas and one sprite per resident, both released by `track`.
+ */
+export function namePlate(track: Track, text: string, parentScale = 1): THREE.Sprite {
+  const canvas = document.createElement('canvas');
+  canvas.width = 256;
+  canvas.height = 96;
+  const context = canvas.getContext('2d');
+  if (context) {
+    context.clearRect(0, 0, 256, 96);
+    context.beginPath();
+    context.roundRect(8, 10, 240, 76, 38);
+    context.fillStyle = 'rgba(10,14,18,0.9)';
+    context.fill();
+    context.lineWidth = 4;
+    context.strokeStyle = '#ff9a5c';
+    context.stroke();
+    context.font = '600 34px system-ui, "Segoe UI", Inter, sans-serif';
+    context.textAlign = 'center';
+    context.textBaseline = 'middle';
+    context.fillStyle = '#ffffff';
+    context.fillText(text, 128, 50);
+  }
+  const texture = track(new THREE.CanvasTexture(canvas));
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.anisotropy = 8;
+  const material = track(new THREE.SpriteMaterial({
+    map: texture, transparent: true, depthWrite: false, toneMapped: false, sizeAttenuation: false,
+  }));
+  const sprite = new THREE.Sprite(material);
+  // With size attenuation off, the shader multiplies the quad by the view distance, so the ndc
+  // height is scale / tan(fov/2) and the screen share is that over 2: scale = 2 * share * tan(fov/2).
+  const scale = (2 * NAME_PLATE_SCREEN * Math.tan(DEFAULT_FOV * Math.PI / 360)) / parentScale;
+  sprite.scale.set(scale * canvas.width / canvas.height, scale, 1);
+  sprite.renderOrder = 3;
+  return sprite;
 }

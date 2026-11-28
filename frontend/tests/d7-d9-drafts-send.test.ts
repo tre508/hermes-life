@@ -44,7 +44,9 @@ test('the draft clears only after the backend acknowledges the send', () => {
 
 test('file references reach the composer as chips and never auto-send', () => {
     assert.match(attach, /export function addExternalRef\(value:string\)/, 'the chat-attach entry point');
-    assert.match(ui, /addExternalRef\(path\)/, 'Projects calls it from the context menu');
+    // HA-045 resolves the tree path to an absolute host path first (variable
+    // renamed path→abs) — the chip still comes from the context menu.
+    assert.match(ui, /addExternalRef\((path|abs)\)/, 'Projects calls it from the context menu');
     assert.match(ui, /'Send file reference to chat'/, 'the menu item exists');
 });
 

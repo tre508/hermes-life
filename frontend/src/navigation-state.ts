@@ -19,12 +19,12 @@
  *     same-URL navigation) so back/forward stay deterministic
  */
 
-export type Workspace = 'world' | 'home' | 'conversations' | 'projects' | 'attention' | 'work' | 'activity' | 'results' | 'system' | 'knowledge' | 'research';
+export type Workspace = 'home' | 'conversations' | 'projects' | 'attention' | 'work' | 'activity' | 'results' | 'system' | 'knowledge' | 'research' | 'settings';
 export type WorkView = 'overview' | 'discoveries' | 'goals' | 'plans' | 'tasks' | 'builds' | 'reviews' | 'results';
 export type TaskView = 'overview' | 'investigation' | 'plan' | 'changes' | 'tests' | 'evidence';
 export type ActivityFilter = 'selected' | 'all';
 
-export const WORKSPACES: readonly Workspace[] = ['world', 'home', 'conversations', 'projects', 'attention', 'work', 'activity', 'results', 'system', 'knowledge', 'research'] as const;
+export const WORKSPACES: readonly Workspace[] = ['home', 'conversations', 'projects', 'attention', 'work', 'activity', 'results', 'system', 'knowledge', 'research', 'settings'] as const;
 export const WORK_VIEWS: readonly WorkView[] = ['overview', 'discoveries', 'goals', 'plans', 'tasks', 'builds', 'reviews', 'results'] as const;
 export const TASK_VIEWS: readonly TaskView[] = ['overview', 'investigation', 'plan', 'changes', 'tests', 'evidence'] as const;
 
@@ -40,7 +40,7 @@ export interface NavigationState {
 }
 
 const DEFAULT_NAV: NavigationState = {
-    workspace: 'world',
+    workspace: 'home',
     workView: 'tasks',
     selectedTaskId: null,
     taskView: 'overview',
@@ -207,7 +207,9 @@ export function parseNavQuery(query: string): Partial<NavigationState> {
     const params = new URLSearchParams(query);
     const partial: Partial<NavigationState> = {};
 
-    const view = params.get('view');
+    // G5 merge: World and Home are one destination; old ?view=world links land on Home.
+    const rawView = params.get('view');
+    const view = rawView === 'world' ? 'home' : rawView;
     let forcedWorkView: WorkView | undefined;
     if (isWorkspace(view)) {
         // Memory folded into Knowledge (nav regroup): old deep links follow.
@@ -442,7 +444,7 @@ export function openActivityAll(opts?: { replace?: boolean }) {
  */
 export function selectRoom(roomKey: string, opts?: { push?: boolean }) {
     window.dispatchEvent(new CustomEvent('hermesha:room:select', { detail: { room: roomKey } }));
-    if (opts?.push && state.workspace === 'world') {
+    if (opts?.push && state.workspace === 'home') {
         // Rooms are part of the World view, encoded as a room param.
         const params = new URLSearchParams(serializeNavQuery(state));
         params.set('room', roomKey);

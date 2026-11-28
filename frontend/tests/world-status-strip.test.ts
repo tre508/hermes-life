@@ -25,7 +25,7 @@ test('the status strip carries a dedicated world-status region', () => {
 });
 
 test('the World no longer stacks its own status bar or trailing hint', () => {
-    const world = html.slice(html.indexOf('id="workspace-world"'), html.indexOf('id="workspace-home"'));
+    const world = html.slice(html.indexOf('id="workspace-home"'), html.indexOf('id="workspace-work"'));
     assert.ok(!/home-status-strip/.test(world), 'the in-World status bar is gone');
     assert.ok(!/id="studio-status"/.test(world), 'studio-status moved out of the World');
     assert.ok(!/Movement follows real backend records/.test(world), 'the trailing hint is gone');

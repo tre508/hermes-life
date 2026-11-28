@@ -5,8 +5,9 @@
  * a near top-down honeycomb floor plan, dark gunmetal plates, warm-orange
  * trim outlining every wall and corridor, cyan screens, flat label plates at
  * the bottom edge of each room, and a circular command hub with a glowing
- * holo stage and the HERMES wordmark. One file, no dependency on
- * town-world/*: layout, props and labels are all defined here.
+ * holo stage and the HERMES wordmark. One file — layout, props and labels are
+ * all defined here; the only shared piece is the residents' screen-space name
+ * plate (HA-035), which belongs to the character system in town-world/residents.ts.
  *
  * It satisfies the TownRenderer seam (town-renderer.ts), so picking, deep
  * links, popovers and tests keep working unchanged. Events emitted:
@@ -20,9 +21,11 @@ import { DESIGN, mountInto, stateWordFor } from './town-renderer';
 import { locationLabel } from './town-vocabulary';
 import {
   frameBounds, roomBounds, lerpPose,
-  OVERVIEW_ELEVATION, OVERVIEW_AZIMUTH, FOCUS_ELEVATION, FOCUS_AZIMUTH, DEFAULT_FOV,
+  OVERVIEW_ELEVATION, GRID_AZIMUTH, FOCUS_ELEVATION, FOCUS_AZIMUTH,
+  OVERVIEW_MARGIN, DEFAULT_FOV,
   type Bounds, type CameraPose,
 } from './town-camera';
+import { namePlate } from './town-world/residents';
 
 // --------------------------------------------------------------------- layout
 
@@ -55,6 +58,26 @@ export const ROOMS: readonly Room[] = [
   { id: 'archive', label: 'ARCHIVE', location: null, role: 'archivist', x: -16.5, z: 9.5, w: 10, d: 7, tall: ROOM_TALL, low: ROOM_LOW },
   { id: 'break_room', label: 'BREAK ROOM', location: null, role: null, x: 16.5, z: 9.5, w: 10, d: 7, tall: ROOM_TALL, low: ROOM_LOW },
 ] as const;
+
+/**
+ * The whole facility's world box — what the overview camera frames and what the
+ * HA-017 fill probe (tests/world-framing.test.ts) measures. The padding is real
+ * visual extent, not air: side reach of the floor label plates, their z headroom,
+ * and the residents above their heads (figure, badge, name plate).
+ */
+export function facilityBounds(rooms: readonly { x: number; z: number; w: number; d: number }[]): Bounds {
+  let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
+  for (const room of rooms) {
+    minX = Math.min(minX, room.x - room.w / 2 - 1.2);
+    maxX = Math.max(maxX, room.x + room.w / 2 + 1.2);
+    minZ = Math.min(minZ, room.z - room.d / 2 - 0.8);
+    maxZ = Math.max(maxZ, room.z + room.d / 2 + 2.6); // headroom for label plates
+  }
+  // maxY covers the residents: a 1.7-unit figure at 2x scale (≈3.4 world), its
+  // state badge at y=1.9 local (≈3.8) and the HA-035 name plate above it (≈4.7)
+  // — the old 2.4 clipped heads, and 3.9 would clip the plates.
+  return { minX, maxX, minY: 0, maxY: 4.9, minZ, maxZ };
+}
 
 /**
  * Corridor graph between rooms. Only pairs whose room edges actually face each
@@ -484,6 +507,8 @@ interface Figure {
   to: { x: number; z: number; yaw: number };
   t: number;
   badges: Record<BadgeKind, THREE.Mesh>;
+  /** HA-035: the screen-space name plate above the figure, toggled from the HUD. */
+  plate: THREE.Sprite;
   /** One-shot completion acknowledgement, keyed by clock time. */
   flashUntil: number;
   /** True while working at the home room's own desk: takes the seated pose. */
@@ -865,23 +890,12 @@ export function createV2Renderer(host: HTMLElement, opts: { motion: boolean }): 
   scene.fog = new THREE.Fog(0x0a1220, 120, 320);
 
   // Perspective "operations-centre" eye (spec §11, decided 2026-11-23): a raised
-  // three-quarter view, not the old top-down floor plan. Framing is a
-  // bounding-sphere fit (town-camera.ts) so the facility fills the stage and
-  // nothing is clipped; the pose is driven by mode (overview | focus).
+  // view of the facility, not the old top-down floor plan. Framing is a
+  // corner fit (town-camera.ts) so the facility fills the stage and nothing is
+  // cropped; the pose is driven by mode (overview | focus).
   const camera = new THREE.PerspectiveCamera(DEFAULT_FOV, 1, 0.1, 600);
 
-  const FACILITY: Bounds = (() => {
-    let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
-    for (const room of ROOMS) {
-      minX = Math.min(minX, room.x - room.w / 2 - 1.2);
-      maxX = Math.max(maxX, room.x + room.w / 2 + 1.2);
-      minZ = Math.min(minZ, room.z - room.d / 2 - 0.8);
-      maxZ = Math.max(maxZ, room.z + room.d / 2 + 2.6); // headroom for label plates
-    }
-    // maxY covers the residents: a 1.7-unit figure at 2x scale, plus its state
-    // badge at y=1.9 local, reaches ~3.8 world units — the old 2.4 clipped heads.
-    return { minX, maxX, minY: 0, maxY: 3.9, minZ, maxZ };
-  })();
+  const FACILITY = facilityBounds(ROOMS);
 
   type CamMode = 'overview' | 'focus';
   let camMode: CamMode = 'overview';
@@ -910,7 +924,7 @@ export function createV2Renderer(host: HTMLElement, opts: { motion: boolean }): 
       }
     }
     return frameBounds(FACILITY, {
-      aspect, margin: 1.03, elevationDeg: OVERVIEW_ELEVATION, azimuthDeg: OVERVIEW_AZIMUTH,
+      aspect, margin: OVERVIEW_MARGIN, elevationDeg: OVERVIEW_ELEVATION, azimuthDeg: GRID_AZIMUTH,
     });
   };
 
@@ -957,8 +971,10 @@ export function createV2Renderer(host: HTMLElement, opts: { motion: boolean }): 
     buildRoom(world, m, room, textureCache, track);
   }
 
-  // Central deck slab under everything, sized to the honeycomb.
-  box(world, m.deck, 43, 0.12, 31, 0, -0.08, 0.5);
+  // Central deck slab under everything, sized to the honeycomb — and kept
+  // inside facilityBounds (z −13.6…15.0) so the slab edge is never cropped
+  // by the tight HA-017 framing.
+  box(world, m.deck, 43, 0.12, 28.6, 0, -0.08, 0.7);
 
   // The hub wordmark lies on the hub floor, above the stage ring.
   const wordmark = hubWordmark(track, textureCache);
@@ -981,6 +997,10 @@ export function createV2Renderer(host: HTMLElement, opts: { motion: boolean }): 
   track(focusRing.material as THREE.Material);
 
   // --- residents ----------------------------------------------------------------
+  // 2x: at the perspective operations-centre eye a 1.7-unit figure still reads
+  // small on a wide stage; scaling the whole figure (body, pill, badges) keeps
+  // proportions and keeps residents legible without a floor-plan zoom.
+  const FIGURE_SCALE = 2.0;
   const figures: Figure[] = ROLES.map(role => {
     const room = roomForRole(role);
     const pill = namePill(track, textureCache, ROSTER[role].name);
@@ -989,6 +1009,11 @@ export function createV2Renderer(host: HTMLElement, opts: { motion: boolean }): 
     group.add(pill);
     scene.add(group);
     const parts = buildResident(group, m, role);
+    // HA-035: the screen-space name plate above the figure — constant size at
+    // any zoom, so identity stays legible from the overview framing.
+    const plate = namePlate(track, ROSTER[role].name, FIGURE_SCALE);
+    plate.position.set(0, 2.35, 0);
+    group.add(plate);
     // Shape-distinct state badges (UI-VIS-003 milestone 3): shape alone tells
     // queued / waiting / alert / unknown apart, colour is never the only cue.
     const badgeMaterials = {
@@ -1015,7 +1040,7 @@ export function createV2Renderer(host: HTMLElement, opts: { motion: boolean }): 
       track(badgeMaterials[kind]);
     }
     const figure: Figure = {
-      role, group, parts, badges,
+      role, group, parts, badges, plate,
       from: { x: 0, z: 0, yaw: 0 }, to: { x: 0, z: 0, yaw: 0 }, t: 1, flashUntil: 0, seated: false,
     };
     const spot = spotIn(room, role);
@@ -1023,12 +1048,40 @@ export function createV2Renderer(host: HTMLElement, opts: { motion: boolean }): 
     figure.to = { ...spot };
     figure.group.position.set(spot.x, 0, spot.z);
     figure.group.rotation.y = spot.yaw;
-    // 2x: at the perspective operations-centre eye a 1.7-unit figure still reads
-    // small on a wide stage; scaling the whole figure (body, pill, badges) keeps
-    // proportions and keeps residents legible without a floor-plan zoom.
-    figure.group.scale.setScalar(2.0);
+    figure.group.scale.setScalar(FIGURE_SCALE);
     return figure;
   });
+
+  // --- name plates (HA-035) -----------------------------------------------------
+  // Toggled from the HUD the town view already owns, next to its Motion button.
+  // That HUD's stylesheet lives elsewhere, so the button borrows the motion
+  // button's metrics inline and the choice persists the same way.
+  const LABELS_KEY = 'hermes-life-town-labels';
+  let platesVisible = window.localStorage.getItem(LABELS_KEY) !== 'off';
+  let labelsButton: HTMLButtonElement | null = null;
+  const applyPlates = () => {
+    for (const figure of figures) figure.plate.visible = platesVisible;
+    if (labelsButton) {
+      labelsButton.textContent = `Labels: ${platesVisible ? 'on' : 'off'}`;
+      labelsButton.setAttribute('aria-pressed', String(platesVisible));
+    }
+  };
+  const hud = document.querySelector<HTMLElement>('.town-hud');
+  if (hud) {
+    labelsButton = document.createElement('button');
+    labelsButton.id = 'town-labels';
+    labelsButton.type = 'button';
+    labelsButton.style.cssText = 'margin:0;font-size:10.5px;padding:4px 9px;background:#22424b;'
+      + 'color:#d6ece5;border:1px solid #436672;border-radius:6px;white-space:nowrap;flex:0 0 auto';
+    labelsButton.addEventListener('click', () => {
+      platesVisible = !platesVisible;
+      window.localStorage.setItem(LABELS_KEY, platesVisible ? 'on' : 'off');
+      applyPlates();
+      if (!motion) draw();
+    });
+    hud.append(labelsButton);
+  }
+  applyPlates();
 
   // --- picking ------------------------------------------------------------------
   const raycaster = new THREE.Raycaster();
@@ -1147,13 +1200,12 @@ export function createV2Renderer(host: HTMLElement, opts: { motion: boolean }): 
     const width = Math.round(rect.width);
     const height = Math.round(rect.height);
     if (width < 2 || height < 2) return;
-    // The world fills the canvas it actually gets. Only a truly extreme host box
-    // is capped; the facility is wide, so a tight cap just leaves dark side bands.
-    const MAX_ASPECT = 2.6;
-    const drawW = width > height * MAX_ASPECT ? Math.round(height * MAX_ASPECT) : width;
-    canvas.style.width = `${drawW}px`;
+    // HA-017: the world fills the whole host box. The old MAX_ASPECT=2.6
+    // draw-width cap letterboxed wide viewports — half of why the facility sat
+    // small in a dark void — so the canvas now takes every pixel it is offered.
+    canvas.style.width = `${width}px`;
     canvas.style.height = `${height}px`;
-    const aspect = drawW / height;
+    const aspect = width / height;
     camera.aspect = aspect;
     camera.updateProjectionMatrix();
     // Re-fit the CURRENT mode for the new aspect, immediately: a panel opening is
@@ -1163,7 +1215,7 @@ export function createV2Renderer(host: HTMLElement, opts: { motion: boolean }): 
     poseFrom = null; poseTo = null; poseT = 1;
     applyPose(next);
     renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.5));
-    renderer.setSize(drawW, height, true);
+    renderer.setSize(width, height, true);
     if (!motion) draw();
   };
 
@@ -1425,6 +1477,7 @@ export function createV2Renderer(host: HTMLElement, opts: { motion: boolean }): 
       canvas.removeEventListener('click', onClick);
       tooltip.remove();
       access.remove();
+      labelsButton?.remove();
       for (const resource of disposables) resource.dispose();
       textureCache.clear();
       pickTargets.length = 0;

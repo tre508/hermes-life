@@ -35,7 +35,10 @@ RUN_STATES = {
 }
 
 REVIEW_DECISIONS = {
-    'accepted': ('history', 'Completed', 'none'),
+    # HA-012: an accepted candidate is NOT an applied host change (spec §4.4).
+    # 'Completed'/'integrated' are reserved for runs that actually reached the
+    # host — state='applied' (see the review branch of _derive).
+    'accepted': ('history', 'Accepted — not yet applied to host', 'open_apply'),
     'rejected': ('history', 'Rejected', 'none'),
     'revision_requested': ('build', 'Revision in progress', 'await'),
 }
@@ -158,6 +161,10 @@ class WorkflowStatus:
         if review:
             stage, status, action = REVIEW_DECISIONS.get(
                 review['decision'], ('history', str(review['decision']).capitalize(), 'none'))
+            if (review['decision'] == 'accepted' and run is not None
+                    and (run.get('state') == 'applied' or run.get('applied_at'))):
+                # HA-012: completed only once the host actually has the changes.
+                stage, status, action = ('history', 'Completed', 'none')
             return {**chain, 'stage': stage, 'status': status,
                     'reason': 'review decision recorded: ' + str(review['decision']),
                     'next_action': action, 'verification': chain['verification']}

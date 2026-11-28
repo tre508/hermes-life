@@ -386,6 +386,20 @@ test('the persistent resource toolbar shares the action row with the model selec
     assert.match(chat, /usageChip\.onclick=/);
 });
 
+test('G2: the action row carries a Tools menu and a Mic control, keeping the model selector + usage metrics', () => {
+    // New controls on the action row (G2, per the user's "go with your recommendations").
+    assert.match(chat, /id="hc-tools-button"/, 'Tools menu button present');
+    assert.match(chat, /id="hc-mic"/, 'Mic control present');
+    assert.match(chat, /id="hc-tools-popover"/, 'Tools menu popover present');
+    // G2 decision: the model selector AND the inline usage metrics stay.
+    assert.match(chat, /id="hc-model-button"/);
+    assert.match(chat, /id="hc-usage-chip"/);
+    // Mic is real voice dictation (Web Speech) with graceful disable where unsupported.
+    assert.match(chat, /SpeechRecognition/, 'Web Speech dictation wired');
+    // The Tools popover is hidden-attribute toggled with a real guard (the [hidden] trap).
+    assert.match(chatCss, /#hc-tools-popover\[hidden\]\{display:none!important\}/);
+});
+
 test('the model popover shows CLI-style price columns and never throws on a null price', () => {
     // Column headers exist (USD per million tokens, like the CLI's $/Mtok).
     assert.match(chat, /In \$\/M/);

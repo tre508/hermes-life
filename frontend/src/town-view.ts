@@ -4,7 +4,8 @@
  * Responsibilities, all of them read-only:
  *  - one bounded snapshot poll of existing endpoints (records are the authority for the baseline)
  *  - one subscription to the app's existing event stream (the live overlay)
- *  - a connection banner, a bounded summary, a resident popover and a static fallback
+ *  - a connection banner, a bounded summary and a static fallback
+ *  (the resident card renders in the contextual inspector — HA-032)
  *
  * It never writes to the backend, never persists avatar positions, and never invents activity:
  * a role is drawn as working only while an authoritative record or event says so.
@@ -45,7 +46,6 @@ interface Ui {
   board: HTMLDetailsElement;
   rows: HTMLElement;
   motion: HTMLButtonElement;
-  selection: HTMLElement;
   /** §11: recent bubble activity viewer (presentation cache). */
   bubbleHistory: HTMLDetailsElement;
   bubbleHistoryList: HTMLElement;
@@ -188,10 +188,11 @@ export function installTown(): void {
     document.getElementById('game')?.classList.toggle('town-still', !motion);
     renderUi();
   });
-  // Room/resident popovers are dismissible: the ×, Escape, and leaving the room
-  // all close them. Real rooms render in the contextual inspector; the floating
+  // Room/resident cards are dismissible: the ×, Escape, and leaving the room
+  // all close them. Real rooms and residents render in the contextual inspector
+  // (HA-032 retired the floating #town-selection popover); the floating
   // #world-room-panel is the presentation-only Break Room surface.
-  const hideResidentCard = () => { if (ui) { ui.selection.replaceChildren(); ui.selection.hidden = true; } };
+  const hideResidentCard = () => setInspectorSelection(null);
   const hideRoomPanel = () => {
     const panel = document.getElementById('world-room-panel');
     if (panel) panel.hidden = true;
@@ -271,7 +272,6 @@ export function installTown(): void {
     // The live-status banner belongs to another phase: put it back before dropping the HUD block.
     if (ui?.banner && ui.bannerHome) ui.bannerHome.append(ui.banner);
     ui?.wrap.remove();
-    ui?.selection.remove();
     ui = null;
     document.getElementById('game')?.classList.remove('town', 'town-still');
     delete (window as unknown as { __hermesTown?: unknown }).__hermesTown;
@@ -313,13 +313,6 @@ function buildUi(host: HTMLElement): Ui {
   const bannerHome = banner?.parentElement ?? null;
   if (banner) wrap.prepend(banner);
   stage.append(wrap);
-  const selection = document.createElement('aside');
-  selection.id = 'town-selection';
-  selection.className = 'town-selection';
-  selection.hidden = true;
-  selection.setAttribute('role', 'dialog');
-  selection.setAttribute('aria-label', 'Role detail');
-  host.append(selection);
   return {
     connection: wrap.querySelector('#town-connection')!,
     summary: wrap.querySelector('#town-summary')!,
@@ -327,7 +320,6 @@ function buildUi(host: HTMLElement): Ui {
     board: wrap.querySelector('#town-board')!,
     rows: wrap.querySelector('#town-rows')!,
     motion: wrap.querySelector('#town-motion')!,
-    selection,
     bubbleHistory: wrap.querySelector('#town-bubble-history')!,
     bubbleHistoryList: wrap.querySelector('#town-bubble-history-list')!,
     wrap, banner, bannerHome,
@@ -401,6 +393,7 @@ export async function refresh(force = false): Promise<TownState> {
       }
       town = setConnection(town, lostAt ? 'reconnecting' : 'live');
       town = withBaseline({ ...town }, signals);
+      noteRecentEvents(null);
     } else if (town.connection === 'live') {
       lostAt = Date.now();
       town = setConnection(town, 'reconnecting');
@@ -425,12 +418,27 @@ interface BackendEvent {
   historical?: boolean;
 }
 
+/** Event bursts from a run arrive many times a second. Rebuilding the activity rows and
+ *  the inspector body on each one churns the DOM under the cursor (the constant flicker).
+ *  Coalesce them into one update per frame; the data is unchanged, only the rebuilds drop. */
+let uiFrame = 0;
+function scheduleRenderUi(): void {
+  if (uiFrame) return;
+  uiFrame = window.requestAnimationFrame(() => {
+    uiFrame = 0;
+    renderUi();
+  });
+}
+
 function onEvent(event: BackendEvent | undefined): void {
   if (!event || typeof event.type !== 'string') return;
   const autonomous = isAutonomousTask(event.task_id);
   town = applyEvent(town, event as never, autonomous);
+  // HA-032: the resident card's "relevant events" — note the change with the
+  // wire timestamp when the event carried one.
+  noteRecentEvents(typeof event.timestamp === 'string' ? event.timestamp : null);
   renderer?.applyState(town);
-  renderUi();
+  scheduleRenderUi();
 
   // Process event through bubble controller (UI-VIS-007). Historic replays
   // carry the flag so the controller advances its watermark without
@@ -464,8 +472,11 @@ function isAutonomousTask(taskId: string | null | undefined): boolean {
 
 function renderUi(): void {
   // P2: keep the room card in the contextual inspector honest while the
-  // snapshot/event data changes under a persisted home selection.
-  rerenderInspector();
+  // snapshot/event data changes under a persisted home selection. HA-032: a
+  // resident selection re-reads its record so the card cannot go stale.
+  const sel = getInspectorSelection();
+  if (sel?.kind === 'resident') setInspectorSelection({ ...sel, record: residentRecord(sel.id as Role) });
+  else rerenderInspector();
   if (!ui) return;
   const connectionText: Record<Connection, string> = {
     live: '● Live', reconnecting: '● Reconnecting', disconnected: '● Disconnected',
@@ -548,34 +559,36 @@ function clock(timestamp: number): string {
 
 // --------------------------------------------------------------------------- interaction
 
-import { openWorkspace, openWorkView, openTask, openActivityForTask, setSelection, type WorkView } from './navigation-state.ts';
-import { registerKindRenderer, rerenderInspector, KIND_LABEL } from './context-inspector';
+import { openWorkspace, openWorkView, openTask, setSelection, type WorkView, type Workspace } from './navigation-state.ts';
+import { registerKindRenderer, rerenderInspector, setInspectorSelection, getInspectorSelection, KIND_LABEL, type ResidentRecord, type ResidentEventLine } from './context-inspector';
 
-function openView(view: string): void {
-  // Canonical navigation intents replace synthetic .click() chains.
+/** Where an existing dashboard view opens — no new destination is invented. */
+function resolveView(view: string): { workspace?: Workspace; workView?: WorkView } {
   // Regroup: memory lives in Knowledge now; overview is the Home workspace.
-  const direct: Record<string, string> = {
+  const direct: Record<string, Workspace> = {
     overview: 'home', activity: 'activity', evidence: 'results',
     results: 'results', memory: 'knowledge',
   };
   const root = direct[view];
-  if (root) {
-    openWorkspace(root as 'world' | 'home' | 'activity' | 'results' | 'knowledge');
-    return;
-  }
-  const workview: Record<string, string> = {
+  if (root) return { workspace: root };
+  const workview: Record<string, WorkView> = {
     discovery: 'discoveries', planning: 'plans', build: 'builds',
     goals: 'goals', tasks: 'tasks',
   };
   const subview = workview[view];
-  if (subview) {
-    openWorkView(subview as WorkView);
-  }
+  return subview ? { workView: subview } : {};
+}
+
+function openView(view: string): void {
+  // Canonical navigation intents replace synthetic .click() chains.
+  const dest = resolveView(view);
+  if (dest.workspace) openWorkspace(dest.workspace);
+  else if (dest.workView) openWorkView(dest.workView);
 }
 
 function showBuilding(location: LocationId): void {
   const place = TOWN_LOCATIONS[location];
-  if (!place || !ui) return;
+  if (!place) return;
   // Spec §4: a room pick is a canonical typed selection in the home scope, so the
   // SAME contextual inspector Work uses renders the room card (location, purpose,
   // work origin, linked work, open-workspace action). The floating
@@ -586,24 +599,37 @@ function showBuilding(location: LocationId): void {
   const info = document.getElementById('room-info');
   if (info) info.textContent = `${locationLabel(location)}: ${locationPurpose(location)}`;
   renderer?.focusRoom?.(location);  // spec §2/§11: zoom to the selected room
-  ui.selection.replaceChildren();
-  ui.selection.hidden = true;
+  // HA-032: a room pick replaces any resident card in the inspector.
+  setInspectorSelection(null);
 }
 
-function showResident(role: Role): void {
-  if (!ui || !ROLES.includes(role)) return;
+/** HA-032: recent events per role (newest first) for the inspector's resident card. */
+const recentEvents = new Map<Role, ResidentEventLine[]>();
+const RECENT_EVENT_LIMIT = 5;
+
+function noteRecentEvents(timestamp: string | null): void {
+  for (const role of ROLES) {
+    const res = town.residents[role];
+    if (!res.eventType) continue;
+    const list = recentEvents.get(role) ?? [];
+    const head = list[0];
+    if (head && head.type === res.eventType && head.sequence === res.sequence) continue;
+    list.unshift({ type: res.eventType, sequence: res.sequence,
+      timestamp: timestamp ?? (res.observedAt ? clock(res.observedAt) : null) });
+    if (list.length > RECENT_EVENT_LIMIT) list.length = RECENT_EVENT_LIMIT;
+    recentEvents.set(role, list);
+  }
+}
+
+function recentEventsFor(role: Role): ResidentEventLine[] {
+  if (!recentEvents.has(role)) noteRecentEvents(null);  // seed with the resident's last event
+  return recentEvents.get(role) ?? [];
+}
+
+/** HA-032: the resident record a 'resident' selection carries (spec §3.2). */
+function residentRecord(role: Role): ResidentRecord {
   const resident = town.residents[role];
-  // P2: resident picks select their current room (one ring, room_id keyed).
-  setSelection('home', { kind: 'room', id: resident.location });
   const place = TOWN_LOCATIONS[resident.location];
-  const card = document.createElement('div');
-  card.className = 'town-card';
-  card.dataset.state = resident.state;
-  const heading = document.createElement('strong');
-  heading.textContent = `${resident.name} — ${ROSTER[role].title}`;
-  const state = document.createElement('p');
-  state.textContent = `${ACTIVITY_WORDS[resident.state]} · ${resident.label}`;
-  const facts = document.createElement('ul');
   // Spec §8/§10: the three kinds of work must be distinguishable AND the "why"
   // must name its cause — a task named by a goal shows the goal's title, not
   // just the classification. A task belongs to an investigation when a goal
@@ -616,52 +642,36 @@ function showResident(role: Role): void {
       : 'User-directed — chat or manual goal'],
     ['Project/task', resident.project || resident.taskId || '—'],
     ['Workflow id', resident.workflowId || '—'],
-    ['Last event', resident.eventType ? `${resident.eventType} (#${resident.sequence})` : '—'],
     ['Observed', `records ${clock(resident.observedAt)} · ${resident.source}`],
     ['Backend read', town.observedAt ? clock(town.observedAt) : '—'],
   ];
-  for (const [key, value] of rows) {
-    const item = document.createElement('li');
-    item.textContent = `${key}: ${value}`;
-    facts.append(item);
-  }
-  const actions = document.createElement('div');
-  actions.className = 'town-card-actions';
-  const view = document.createElement('button');
-  view.type = 'button';
-  view.textContent = 'Open ' + place.view;
-  view.addEventListener('click', () => openView(place.view));
-  actions.append(view);
-  if (resident.taskId) {
-    const task = document.createElement('button');
-    task.type = 'button';
-    task.textContent = 'Open task ' + resident.taskId.slice(0, 8);
-    // Canonical intent: open task in Work workspace (Tasks subview)
-    // Single action, single destination — no dual event dispatch
-    task.addEventListener('click', () => {
-      openTask(resident.taskId!, { destination: 'work' });
-    });
-    actions.append(task);
-    // D18 (review.md): the spec's resident focus shows "relevant events,
-    // evidence" — the task's Activity timeline is the durable record, one
-    // filtered click away instead of a manual hunt.
-    const evidence = document.createElement('button');
-    evidence.type = 'button';
-    evidence.textContent = 'Activity / evidence';
-    evidence.addEventListener('click', () => {
-      openActivityForTask(resident.taskId!);
-    });
-    actions.append(evidence);
-  }
-  const close = document.createElement('button');
-  close.type = 'button';
-  close.textContent = 'Close';
-  close.addEventListener('click', () => { ui!.selection.replaceChildren(); ui!.selection.hidden = true; });
-  actions.append(close);
-  card.append(heading, state, facts, actions);
-  ui.selection.replaceChildren(card);
-  ui.selection.hidden = false;
+  return {
+    name: resident.name, title: ROSTER[role].title, state: resident.state,
+    operation: `${ACTIVITY_WORDS[resident.state]} · ${resident.label}`,
+    rows, taskId: resident.taskId, events: recentEventsFor(role),
+    view: place.view, ...resolveView(place.view),
+  };
+}
+
+function showResident(role: Role): void {
+  if (!ROLES.includes(role)) return;
+  const resident = town.residents[role];
+  // P2: resident picks select their current room (one ring, room_id keyed).
+  setSelection('home', { kind: 'room', id: resident.location });
+  // HA-032: the contextual inspector renders the resident card from a typed
+  // 'resident' selection carrying the record; the floating #town-selection
+  // popover is retired in favor of the inspector.
+  setInspectorSelection({ kind: 'resident', id: role, record: residentRecord(role) });
 }
 
 // A resident whose overlay expired while the tab was hidden is corrected on return.
 window.addEventListener('focus', () => { town = expireOverlays(town); renderUi(); });
+
+// HL-UI-PLAN-001 §4.3.2: camera intents from the world controls. Only renderers
+// that implement the optional methods act; the rest ignore the request.
+window.addEventListener('hermes:world-camera', (event: Event) => {
+    const detail = (event as CustomEvent<{ action?: string; room?: string }>).detail;
+    if (detail?.action === 'overview') renderer?.overview?.();
+    else if (detail?.action === 'focus' && detail.room) renderer?.focusRoom?.(detail.room);
+});
+

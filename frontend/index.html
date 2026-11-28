@@ -15,7 +15,6 @@
 
     <!-- ===================== Region A: persistent header ===================== -->
     <header class="topbar">
-        <button id="nav-drawer-toggle" type="button" aria-label="Open navigation" aria-expanded="false" title="Open navigation">☰</button>
         <div class="brand">
             <h1>HERMES LIFE <span class="pill">AI OPERATIONS LAB / 0.4.0</span></h1>
             <p>Single operations facility</p>
@@ -36,18 +35,16 @@
         </div>
     </header>
 
-    <!-- ---------- Region B: primary navigation rail ---------- -->
-    <div id="nav-scrim" hidden></div>
+    <!-- ---------- Region B: primary navigation — one top row (HL-UI-PLAN-001 §4.1) ----------
+         Experience / Operations / Intelligence captions stay as labels. Chat and
+         Projects are PEERS grouped in one segmented control (neither nested in the
+         other). The eight physical rooms fold into a menu; Settings is a destination. -->
     <nav id="primary-nav" aria-label="Command centre navigation">
-        <button id="nav-collapse" type="button" title="Collapse or expand the navigation rail" aria-pressed="false">⇤</button>
-        <!-- Spec §3 navigation groups: Experience / Operations / Intelligence /
-             Global utilities. Legacy labels (Task Board, Goals, Results,
-             Knowledge Deck) remain as redirects into their new workspace with
-             preserved selection — nothing is dropped. -->
         <span class="hc-nav-caption">Experience</span>
-        <button data-workspace="world" class="active" type="button" aria-pressed="true">◈ World</button>
-        <button data-workspace="conversations" type="button" aria-pressed="false">◉ Chat</button>
-        <button data-workspace="projects" type="button" aria-pressed="false">⬒ Projects</button>
+        <div class="hc-segment" role="group" aria-label="Chat and Projects">
+            <button data-workspace="conversations" type="button" aria-pressed="false">◉ Chat</button>
+            <button data-workspace="projects" type="button" aria-pressed="false">⬒ Projects</button>
+        </div>
         <button data-workspace="home" type="button" aria-pressed="false">◇ Home</button>
         <span class="hc-nav-caption">Operations</span>
         <button data-workspace="work" data-hc-workview="tasks" type="button" aria-pressed="false">▤ Work</button>
@@ -55,16 +52,20 @@
         <span class="hc-nav-caption">Intelligence</span>
         <button data-workspace="knowledge" type="button" aria-pressed="false">◈ Knowledge</button>
         <button data-workspace="research" type="button" aria-pressed="false">⚗ Research</button>
-        <span class="nav-sep" aria-hidden="true"></span>
-        <span class="hc-nav-caption hc-nav-room-caption">Eight rooms · shared map</span>
-        <button class="hc-room-link" data-workspace="world" data-hc-room="director" type="button">Director Office</button>
-        <button class="hc-room-link" data-workspace="world" data-hc-room="research" type="button">Research Station</button>
-        <button class="hc-room-link" data-workspace="world" data-hc-room="review" type="button">Review Station</button>
-        <button class="hc-room-link" data-workspace="world" data-hc-room="control" type="button">Control Room</button>
-        <button class="hc-room-link" data-workspace="world" data-hc-room="dev" type="button">Dev Station</button>
-        <button class="hc-room-link" data-workspace="world" data-hc-room="lab" type="button">Lab</button>
-        <button class="hc-room-link" data-workspace="world" data-hc-room="archive" type="button">Archive</button>
-        <button class="hc-room-link" data-workspace="world" data-hc-room="break" type="button">Break Room</button>
+        <details class="hc-rooms-menu">
+            <summary class="hc-rooms-toggle">Eight rooms · shared map ▾</summary>
+            <div class="hc-rooms-list">
+                <button class="hc-room-link" data-workspace="home" data-hc-room="director" type="button">Director Office</button>
+                <button class="hc-room-link" data-workspace="home" data-hc-room="research" type="button">Research Station</button>
+                <button class="hc-room-link" data-workspace="home" data-hc-room="review" type="button">Review Station</button>
+                <button class="hc-room-link" data-workspace="home" data-hc-room="control" type="button">Control Room</button>
+                <button class="hc-room-link" data-workspace="home" data-hc-room="dev" type="button">Dev Station</button>
+                <button class="hc-room-link" data-workspace="home" data-hc-room="lab" type="button">Lab</button>
+                <button class="hc-room-link" data-workspace="home" data-hc-room="archive" type="button">Archive</button>
+                <button class="hc-room-link" data-workspace="home" data-hc-room="break" type="button">Break Room</button>
+            </div>
+        </details>
+        <button data-workspace="settings" type="button" aria-pressed="false">⚙ Settings</button>
     </nav>
 
     <!-- ===================== Region D: authoritative status strip =====================
@@ -104,10 +105,20 @@
     </div>
 
     <!-- ===================== Region C: main workspace ===================== -->
+    <aside id="home-conversation-host" class="home-conversation-host" aria-label="Live conversation" hidden>
+        <header class="home-conversation-head">
+            <strong>Live conversation</strong>
+            <span id="home-conversation-state" class="home-conversation-state">Live</span>
+            <button id="home-conv-minimize" type="button" title="Hide the conversation; the session keeps running">Minimize</button>
+            <button id="home-conv-open-chat" type="button" title="Open this conversation in the Chat workspace">Open in Chat</button>
+            <button id="home-conv-finish" type="button" title="Release the Home slot; the conversation stays in Chat history">Finish</button>
+        </header>
+        <div id="home-conversation-body" class="home-conversation-body"></div>
+    </aside>
     <main id="main-workspace">
 
-        <!-- ---------- WORLD · the AI Operations Lab as the centerpiece ---------- -->
-        <section id="workspace-world" class="workspace-view" data-layout="world">
+        <!-- ---------- HOME · the living command centre (G5: world + overview merged) ---------- -->
+        <section id="workspace-home" class="workspace-view" data-layout="world">
             <header class="workspace-heading">
                 <div>
                     <h2>Hermesha Command Centre <small>Eight shared rooms</small></h2>
@@ -116,6 +127,11 @@
             </header>
             <div class="world-wrap home-world">
                 <div id="game"></div>
+                <div id="world-controls" class="world-controls" role="toolbar" aria-label="World view controls">
+                    <button id="world-overview" type="button" title="Reset the camera to the whole facility">Overview</button>
+                    <button id="world-focus" type="button" disabled title="Select a room first">Focus room</button>
+                    <button id="world-fullscreen" type="button" aria-pressed="false" title="Show the world full screen">Fullscreen</button>
+                </div>
                 <section id="world-room-panel" class="world-room-panel" hidden aria-live="polite">
                     <div class="world-room-heading">
                         <strong id="world-room-title">Room</strong>
@@ -134,34 +150,12 @@
                        aria-label="Ask Hermesha anything" />
                 <button id="world-composer-attach" type="button" title="Attach files in the conversation panel">＋ Attach</button>
                 <button id="world-composer-workspace" type="button" title="Choose the working directory in the conversation panel">Workspace ▾</button>
+                <button id="world-composer-resume" type="button" hidden title="Show the live conversation again">Resume</button>
+                <button id="world-composer-new" type="button" title="Start a new conversation on the next message">＋ New</button>
                 <button id="world-composer-send" type="submit" title="Send to Hermes">Send ➤</button>
+                <button id="world-composer-stop" type="button" hidden title="Stop the running task">■ Stop</button>
             </form>
             <p id="world-composer-status" class="world-composer-status" role="status" aria-live="polite"></p>
-        </section>
-
-        <!-- ---------- HOME · personalized overview: current work, recent, attention ---------- -->
-        <section id="workspace-home" class="workspace-view" data-layout="workspace" hidden>
-            <header class="workspace-heading">
-                <div>
-                    <h2>Home <small>your overview</small></h2>
-                    <p>Current work, recent developments, and anything requiring your decision.</p>
-                </div>
-            </header>
-            <section class="home-recent-strip" aria-label="Recent operation">
-                <div>
-                    <p class="hrs-eyebrow">Recent activity</p>
-                    <div id="home-recent-events" class="hrs-events" aria-live="polite"></div>
-                </div>
-                <div class="hrs-current">
-                    <p class="hrs-eyebrow">Current focus</p>
-                    <div class="kv">Active <strong id="home-current-active">No active task</strong></div>
-                    <div class="kv">Recent task <strong id="home-current-recent">—</strong></div>
-                    <div class="kv">Last outcome <strong id="home-current-outcome">—</strong></div>
-                    <div class="kv">Needs you <strong id="home-current-attention">None</strong></div>
-                    <button id="home-recent-open" type="button" class="hrs-cta">Open in Work →</button>
-                    <button id="home-open-attention" type="button" class="hrs-cta">Needs your input →</button>
-                </div>
-            </section>
         </section>
 
         <!-- ---------- WORK · task-centric lifecycle + management ---------- -->
@@ -412,6 +406,18 @@
         <section id="project-focus-host" class="hc415-project-host" role="region" aria-label="Project workspace"></section>
     </section>
 
+    <!-- ===================== SETTINGS · shell (HL-UI-PLAN-001 G4) =====================
+         Reachable top-level destination. Its contents are scoped in a follow-up;
+         this section says so rather than inventing settings. -->
+    <section id="workspace-settings" class="workspace-view" data-layout="focus" hidden>
+        <header class="workspace-heading">
+            <div>
+                <h2>Settings <small>workspace preferences</small></h2>
+                <p>Settings contents are scoped in a follow-up. Account actions stay in the top bar: Logout and Passkey.</p>
+            </div>
+        </header>
+    </section>
+
     <!-- ===================== RESEARCH · session with sources, findings, questions =====================
          Spec §4 Research: one session surface with thread, sources,
          claims/findings, open questions and note links. Data comes only from
@@ -620,6 +626,23 @@
     <!-- ===================== Region D: contextual panel ===================== -->
     <aside id="contextual-panel">
         <!-- Home context: compact persona + submit a task + current/recent work -->
+        <div id="ctx-overview" class="ctx-block" hidden>
+            <section class="home-recent-strip" aria-label="Recent operation">
+                <div>
+                    <p class="hrs-eyebrow">Recent activity</p>
+                    <div id="home-recent-events" class="hrs-events" aria-live="polite"></div>
+                </div>
+                <div class="hrs-current">
+                    <p class="hrs-eyebrow">Current focus</p>
+                    <div class="kv">Active <strong id="home-current-active">No active task</strong></div>
+                    <div class="kv">Recent task <strong id="home-current-recent">—</strong></div>
+                    <div class="kv">Last outcome <strong id="home-current-outcome">—</strong></div>
+                    <div class="kv">Needs you <strong id="home-current-attention">None</strong></div>
+                    <button id="home-recent-open" type="button" class="hrs-cta">Open in Work →</button>
+                    <button id="home-open-attention" type="button" class="hrs-cta">Needs your input →</button>
+                </div>
+            </section>
+        </div>
         <div id="ctx-home" class="ctx-block">
             <div class="hc-side-title">Hermes / Director</div>
             <div id="hc-room-info" class="hc-room-info" hidden aria-live="polite"><strong data-hc-room-title></strong><span data-hc-room-detail></span><button id="hc-room-info-close" type="button">Close room details</button></div>

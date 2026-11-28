@@ -25,17 +25,23 @@ def test_no_stray_upgrade_functions_beyond_schema_version():
 
 
 def test_missing_upgrade_function_fails_at_registry_build(monkeypatch):
-    # Simulate adding v41 to SCHEMA_VERSION without defining its function.
+    # Simulate adding the next version to SCHEMA_VERSION without defining its
+    # function. The probe name is derived from the live constant (HA-009: the
+    # hard-coded v41 era broke the moment the ladder passed 41).
+    missing = f'_upgrade_to_v{schema.SCHEMA_VERSION + 1}'
     monkeypatch.setattr(schema, 'SCHEMA_VERSION', schema.SCHEMA_VERSION + 1)
-    with pytest.raises(RuntimeError, match='_upgrade_to_v41'):
+    with pytest.raises(RuntimeError, match=missing):
         schema._build_registry()
 
 
 def test_stray_upgrade_function_fails_at_registry_build(monkeypatch):
-    # Simulate defining _upgrade_to_v41 without bumping SCHEMA_VERSION.
-    monkeypatch.setattr(schema, '_upgrade_to_v41', lambda connection: None,
+    # Simulate defining an upgrade BEYOND SCHEMA_VERSION without bumping it.
+    # The probe must sit past the live constant (HA-009: v41 became a real
+    # upgrade when the ladder passed 41, so the old probe stopped being stray).
+    stray = f'_upgrade_to_v{schema.SCHEMA_VERSION + 1}'
+    monkeypatch.setattr(schema, stray, lambda connection: None,
                         raising=False)
-    with pytest.raises(RuntimeError, match='_upgrade_to_v41'):
+    with pytest.raises(RuntimeError, match=stray):
         schema._build_registry()
 
 

@@ -47,7 +47,7 @@ test('the World composer reports what happened (a send is never a silent no-op)'
     assert.ok(html.includes('id="world-composer-status"'), 'index.html must declare #world-composer-status');
     assert.match(html, /id="world-composer-status"[^>]*role="status"|role="status"[^>]*id="world-composer-status"/);
     assert.match(src, /world-composer-status/);
-    assert.match(src, /Sent to Hermes/);
+    assert.match(src, /Sent — the reply streams into the live conversation/);
 });
 
 test('the chat honours the submit flag through its own form', () => {

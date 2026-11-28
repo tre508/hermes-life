@@ -2,15 +2,62 @@
  * Never assigns model output to innerHTML, and never executes HTML from model text.
  * Streaming may contain incomplete fences/markup; re-rendering is idempotent.
  */
+/** HA-014: image sources render only from inert schemes (http(s), data:image).
+ *  Anything else degrades honestly — a reference chip or alt text — never a live
+ *  URL we cannot vouch for. Pure: covered headless in chat-markdown-images.test. */
+export function safeImageSrc(src: string): string | null {
+  const s = (src || '').trim();
+  if (/^https?:\/\//i.test(s)) return s;
+  if (/^data:image\//i.test(s)) return s;
+  return null;
+}
+
+/** HA-014: a host path in an answer is a reference chip that opens the actual
+ *  resource in Projects (the hermes:projects:open-file handler resolves it). */
+function fileRefChip(path: string): HTMLElement {
+  const b = document.createElement('button');
+  b.type = 'button'; b.className = 'hc-file-ref'; b.textContent = path;
+  b.title = 'Open in Projects';
+  b.addEventListener('click', () =>
+    window.dispatchEvent(new CustomEvent('hermes:projects:open-file', { detail: { path } })));
+  return b;
+}
+
 function inline(parent: HTMLElement, text: string): void {
-  const pattern = /(`[^`\n]+`|\*\*[^*\n]+\*\*|\*[^*\n]+\*|\[[^\]]+\]\(https?:\/\/[^\s)]+\))/g;
-  let last = 0; let match: RegExpExecArray | null;
+  const pattern = /(`[^`\n]+`|\*\*[^*\n]+\*\*|\*[^*\n]+\*|!\[[^\]]*\]\([^)\s]+\)|\[[^\]]+\]\(https?:\/\/[^)\s]+\)|\/(?:home|run|tmp|var|opt|mnt|media|srv|root)\/[\w.@+\-\/]+)/g;
+  let last = 0; let match: RegExpExecArray | null; let trailing = '';
   while ((match = pattern.exec(text))) {
     parent.append(document.createTextNode(text.slice(last, match.index)));
     const token = match[0]; let element: HTMLElement;
     if (token.startsWith('`')) { element = document.createElement('code'); element.textContent = token.slice(1, -1); }
     else if (token.startsWith('**')) { element = document.createElement('strong'); element.textContent = token.slice(2, -2); }
+    else if (token.startsWith('![')) {
+      const m = /^!\[([^\]]*)\]\(([^)\s]+)\)$/.exec(token);
+      const src = safeImageSrc(m?.[2] ?? '');
+      if (src) {
+        const img = document.createElement('img');
+        img.className = 'hc-md-image';
+        (img as HTMLImageElement).src = src;
+        (img as HTMLImageElement).alt = m?.[1] || 'image';
+        (img as HTMLImageElement).loading = 'lazy';
+        (img as HTMLImageElement).referrerPolicy = 'no-referrer';
+        element = img;
+      } else if (m?.[2] && m[2].startsWith('/')) {
+        // Host-path image: no browser-renderable source we can vouch for —
+        // show a reference chip instead of a broken <img>.
+        element = fileRefChip(m[2]);
+      } else {
+        element = document.createElement('span'); element.textContent = m?.[1] || token;
+      }
+    }
     else if (token.startsWith('*')) { element = document.createElement('em'); element.textContent = token.slice(1, -1); }
+    else if (token.startsWith('/')) {
+      // HA-014: host-path reference chip; trailing punctuation is re-rendered
+      // as text (the regex is greedy over path-safe chars, including dots).
+      const trimmed = token.replace(/[.,;:]+$/, '');
+      element = fileRefChip(trimmed);
+      trailing = token.slice(trimmed.length);
+    }
     else {
       const parts = /^\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)$/.exec(token);
       element = document.createElement('a'); element.textContent = parts?.[1] ?? token;
@@ -18,7 +65,9 @@ function inline(parent: HTMLElement, text: string): void {
       (element as HTMLAnchorElement).target = '_blank';
       (element as HTMLAnchorElement).rel = 'noopener noreferrer';
     }
-    parent.append(element); last = pattern.lastIndex;
+    parent.append(element);
+    if (trailing) { parent.append(document.createTextNode(trailing)); trailing = ''; }
+    last = pattern.lastIndex;
   }
   parent.append(document.createTextNode(text.slice(last)));
 }

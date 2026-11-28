@@ -1,6 +1,6 @@
 /* HL-CHAT-002B: high-contrast, differentiated readable output. */
 #hc-panel .hc-bubble.assistant { max-width:100%; width:100%; align-self:stretch; }
-#hc-panel .hc-bubble.assistant .hc-body { font-family:Inter,ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif; font-size:17px; line-height:1.76; letter-spacing:.004em; color:#eff9ff; max-width:76ch; padding:12px 16px; background:rgba(16,39,53,.54); border:1px solid rgba(115,173,190,.20); border-radius:11px; overflow-wrap:break-word; }
+#hc-panel .hc-bubble.assistant .hc-body { font-family:Inter,ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif; font-size:17px; line-height:1.76; letter-spacing:.004em; color:#EFFEFF; max-width:76ch; padding:12px 16px; background:rgba(16, 50, 53, .54); border:1px solid rgba(115,173,190,.20); border-radius:11px; overflow-wrap:break-word; }
 /* Chat audit §1: 76ch is the right measure for prose and the wrong one for
    technical output. Code, diffs, tables and logs break out of it — the whole
    point of a wide workspace is not having to scroll a diff sideways. */
@@ -10,18 +10,18 @@
 #hc-panel .hc-bubble .hc-body pre { max-width:100%; overflow-x:auto; }
 #hc-panel .hc-message-role { display:flex; align-items:center; gap:9px; margin:19px 0 6px; font-family:Inter,ui-sans-serif,system-ui,sans-serif; font-size:15px; font-weight:750; letter-spacing:.02em; }
 #hc-panel .hc-message-role--response { color:#82F0D0; }
-#hc-panel .hc-message-role--thought { color:#C4A7FF; }
-#hc-panel .hc-bubble.hc-thought .hc-body { font-size:15.5px; font-style:italic; line-height:1.65; color:#C9B8E8; background:rgba(62,39,86,.21); border-left:3px solid #bb91f2; max-width:76ch; }
+#hc-panel .hc-message-role--thought { color:#A7E2FF; }
+#hc-panel .hc-bubble.hc-thought .hc-body { font-size:15.5px; font-style:italic; line-height:1.65; color:#B8D8E8; background:rgba(39, 68, 86, .21); border-left:3px solid #91CFF2; max-width:76ch; }
 /* HL-CHAT-003 typography variants — thoughts (violet) vs response (mint/cyan). */
-#hc-panel .hc-bubble.hc-thought .hc-body strong { color:#E2D6FF; font-weight:640; }
+#hc-panel .hc-bubble.hc-thought .hc-body strong { color:#D6F2FF; font-weight:640; }
 #hc-panel .hc-bubble.assistant:not(.hc-thought) .hc-body strong { color:#fff; }
-#hc-panel .hc-bubble.hc-thought .hc-body a { color:#C4A7FF; }
-#hc-panel .hc-bubble.hc-thought .hc-body :not(pre) > code { color:#dcc8ff; background:#33254d; }
-#hc-panel .hc-bubble.hc-thought .hc-body ul li::marker, #hc-panel .hc-bubble.hc-thought .hc-body ol li::marker { color:#C4A7FF; }
+#hc-panel .hc-bubble.hc-thought .hc-body a { color:#A7E2FF; }
+#hc-panel .hc-bubble.hc-thought .hc-body :not(pre) > code { color:#C8ECFF; background:#253F4D; }
+#hc-panel .hc-bubble.hc-thought .hc-body ul li::marker, #hc-panel .hc-bubble.hc-thought .hc-body ol li::marker { color:#A7E2FF; }
 #hc-panel .hc-bubble.assistant:not(.hc-thought) .hc-body ul li::marker, #hc-panel .hc-bubble.assistant:not(.hc-thought) .hc-body ol li::marker { color:#82F0D0; }
-#hc-panel .hc-bubble.hc-thought .hc-body blockquote { border-left-color:#bb91f2; color:#d3c2ee; background:rgba(62,39,86,.30); }
+#hc-panel .hc-bubble.hc-thought .hc-body blockquote { border-left-color:#91CFF2; color:#C2DFEE; background:rgba(39, 68, 86, .30); }
 #hc-panel .hc-bubble.assistant:not(.hc-thought) .hc-body blockquote { border-left-color:#77d4c6; color:#bed6dc; background:#17323b; }
-#hc-panel .hc-bubble.hc-thought .hc-body h2, #hc-panel .hc-bubble.hc-thought .hc-body h3, #hc-panel .hc-bubble.hc-thought .hc-body h4 { color:#C4A7FF; }
+#hc-panel .hc-bubble.hc-thought .hc-body h2, #hc-panel .hc-bubble.hc-thought .hc-body h3, #hc-panel .hc-bubble.hc-thought .hc-body h4 { color:#A7E2FF; }
 /* V2 audit §3: the model/usage dashboard rows are gone — #hc-model-controls is a
    hidden state holder (selects only); the visible controls are #hc-model-button and
    #hc-usage-chip, and the detail panel is #hc-usage-popover (hermes-chat.css). */
@@ -40,7 +40,21 @@
 #hc-panel .hc-bubble.assistant:not(.hc-thought) .hc-body h2,#hc-panel .hc-bubble.assistant:not(.hc-thought) .hc-body h3,#hc-panel .hc-bubble.assistant:not(.hc-thought) .hc-body h4 { color:#fff; font-weight:750; letter-spacing:-.015em; margin:1.25em 0 .55em; }
 #hc-panel .hc-bubble.assistant .hc-body h2 { font-size:1.32em; } #hc-panel .hc-bubble.assistant .hc-body h3 { font-size:1.18em; }
 #hc-panel .hc-bubble.assistant .hc-body li { margin:.4em 0; }
-#hc-panel .hc-bubble.assistant .hc-body :not(pre)>code { color:#a9e8ee; background:#213e51; font-size:.88em; }
+#hc-panel .hc-bubble.assistant .hc-body :not(pre)>code { color:#a9e8ee; background:#214C51; font-size:.88em; }
 #hc-panel .hc-bubble.user .hc-body { font-size:16px; line-height:1.65; }
 #hc-retry-models { border:1px solid #557986; border-radius:6px; padding:4px 9px; background:#14313f; color:#bde9ed; cursor:pointer; }
 #hc-context-label { white-space:normal !important; }
+
+/* HA-014/HA-037/HA-039 (Phase 3): markdown images, file-reference chips,
+   upload provenance badges, chip preview popover, attachment mode select. */
+.hc-md-image { max-width:min(100%,520px); max-height:380px; border-radius:10px; display:block; margin:8px 0; border:1px solid #2c5560; }
+.hc-file-ref { font:12px ui-monospace,monospace; color:#8fd8c6; background:#0f2b33; border:1px solid #2c5560; border-radius:6px; padding:1px 6px; cursor:pointer; }
+.hc-file-ref:hover { background:#143842; }
+.hc-attach-chip[data-uploaded="true"] .hc-attach-chip-glyph { filter:saturate(1.4); }
+.hc-attach-chip[data-uploaded="true"]::after { content:'uploaded'; font-size:9px; text-transform:uppercase; letter-spacing:.08em; color:#0B2C30; background:#8fd8c6; border-radius:4px; padding:0 4px; margin-left:4px; }
+.hc-chip-preview { position:absolute; z-index:40; max-width:360px; background:#0B2C30; border:1px solid #2c5560; border-radius:10px; padding:10px 12px; box-shadow:0 8px 24px rgba(0,0,0,.45); font-size:12px; color:#dcefe9; }
+.hc-chip-preview-meta { margin:4px 0 8px; opacity:.8; word-break:break-all; font-size:11px; }
+.hc-chip-preview-img { max-width:100%; max-height:200px; border-radius:6px; display:block; }
+.hc-chip-preview pre { max-height:160px; overflow:auto; white-space:pre-wrap; margin:6px 0 0; font-size:11px; }
+.hc-chip-preview button { margin-top:8px; }
+.hc-scope { max-width:170px; font-size:11px; color:#bde9ed; background:#14313f; border:1px solid #557986; border-radius:6px; padding:3px 6px; cursor:pointer; }

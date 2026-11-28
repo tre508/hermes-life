@@ -202,24 +202,37 @@ class AutonomousMemory:
         response = self.adapter.run(prompt, lambda *_: None)
         try:
             obj = _parse_json(response.get('result', ''))
-        except (json.JSONDecodeError, ValueError):
-            return []
+        except (json.JSONDecodeError, ValueError) as exc:
+            # HA-030: an unparsable proposal is a rejection like any other and must show up in
+            # the accounting instead of silently looking like "nothing worth remembering".
+            return [], type(exc).__name__
         if not isinstance(obj, dict):
-            return []
+            return [], 'not_a_json_object'
         items = obj.get('candidates', [])
         if not isinstance(items, list):
-            return []
-        return [item for item in items if isinstance(item, dict)]
+            return [], 'invalid_candidates_container'
+        return [item for item in items if isinstance(item, dict)], None
 
     def _store_episodic(self, candidate, conversation_id, source_turn_id):
-        """Validate and store an episodic candidate. Returns stored id or None."""
+        """Validate and store an episodic candidate.
+
+        Returns (stored id or None, rejection reason or None) — a rejected candidate must say
+        why, so the formation summary can show what the validators actually cost (HA-030).
+        """
         kind = candidate.get('kind', '')
         if kind not in AUTO_EPISODIC_KINDS:
-            return None
+            return None, 'invalid_kind'
         title = _compact(candidate.get('title', ''))[:200]
         summary = _compact(candidate.get('summary', ''))
-        if not title or not (20 <= len(summary) <= 4000):
-            return None
+        if not title:
+            return None, 'missing_title'
+        if not summary:
+            return None, 'missing_summary'
+        # HA-030: an over-long summary is trimmed to the store's ceiling, not discarded — its
+        # length says nothing about whether the memory is grounded in the exchange.
+        summary = summary[:4000].rstrip()
+        if len(summary) < 20:
+            return None, 'short_summary'
         context = _compact(candidate.get('context', ''))[:2000] or None
         significance = _compact(candidate.get('significance', ''))[:1000] or None
         triggers = candidate.get('retrieval_triggers')
@@ -237,9 +250,9 @@ class AutonomousMemory:
                 conversation_id=conversation_id,
                 source_turn_id=source_turn_id,
             )
-            return result['id']
+            return result['id'], None
         except (ValueError, TypeError):
-            return None
+            return None, 'store_rejected'
 
     # ---- relational formation ----
 
@@ -259,24 +272,30 @@ class AutonomousMemory:
         response = self.adapter.run(prompt, lambda *_: None)
         try:
             obj = _parse_json(response.get('result', ''))
-        except (json.JSONDecodeError, ValueError):
-            return []
+        except (json.JSONDecodeError, ValueError) as exc:
+            return [], type(exc).__name__
         if not isinstance(obj, dict):
-            return []
+            return [], 'not_a_json_object'
         items = obj.get('candidates', [])
         if not isinstance(items, list):
-            return []
-        return [item for item in items if isinstance(item, dict)]
+            return [], 'invalid_candidates_container'
+        return [item for item in items if isinstance(item, dict)], None
 
     def _store_relational(self, candidate, conversation_id):
-        """Validate and store a relational candidate, handling reinforce vs new."""
+        """Validate and store a relational candidate, handling reinforce vs new.
+
+        Returns (result dict or None, rejection reason or None) — the same accounting contract
+        as _store_episodic.
+        """
         category = candidate.get('category', '')
         if category not in AUTO_RELATIONAL_CATEGORIES:
-            return None
+            return None, 'invalid_category'
         title = _compact(candidate.get('title', ''))[:200]
         context = _compact(candidate.get('context', ''))
-        if not title or not context or len(context) < 20:
-            return None
+        if not title:
+            return None, 'missing_title'
+        if not context or len(context) < 20:
+            return None, 'short_context'
         significance = _compact(candidate.get('significance', ''))[:1000] or None
         triggers = candidate.get('retrieval_triggers')
         if isinstance(triggers, list):
@@ -291,22 +310,23 @@ class AutonomousMemory:
                 existing = self.relational.get(reinforce_id)
                 if existing and existing['status'] == 'active':
                     self.relational.reinforce(reinforce_id, triggers)
-                    return {'id': reinforce_id, 'action': 'reinforced'}
+                    return {'id': reinforce_id, 'action': 'reinforced'}, None
             except (KeyError, ValueError):
                 pass  # fall through to creating new
 
-        # Check for strong similarity with existing active memories
+        # Check for strong similarity with existing active memories.
+        # `_existing_relational` already selects active rows only — the old `existing['status']`
+        # guard keyed on a column its query never returned and raised KeyError, silently killing
+        # the whole relational batch once one memory existed (HA-030).
         if not reinforce_id:
             for existing in self._existing_relational():
-                if existing['status'] != 'active':
-                    continue
-                e_title = existing.get('title', '').lower()
-                e_context = existing.get('context', '').lower()
+                e_title = (existing.get('title') or '').lower()
+                e_context = (existing.get('context') or '').lower()
                 if (title.lower() == e_title or
                         context.lower()[:100] == e_context[:100]):
                     try:
                         self.relational.reinforce(existing['id'], triggers)
-                        return {'id': existing['id'], 'action': 'reinforced'}
+                        return {'id': existing['id'], 'action': 'reinforced'}, None
                     except (KeyError, ValueError):
                         pass
 
@@ -318,9 +338,9 @@ class AutonomousMemory:
                 retrieval_triggers=triggers,
                 origin_conversation_id=conversation_id,
             )
-            return {'id': result['id'], 'action': 'created'}
+            return {'id': result['id'], 'action': 'created'}, None
         except (ValueError, TypeError):
-            return None
+            return None, 'store_rejected'
 
     # ---- main extract method ----
 
@@ -352,30 +372,56 @@ class AutonomousMemory:
             return 0
 
         formed = 0
+        # HA-030: every candidate outcome is counted and reported, so "the stores stayed empty"
+        # can be told apart from "nothing was proposed" and "the validators said no" — the live
+        # episodic/relational stores had 2/1 rows with no recorded reason for anything else.
+        from collections import Counter
+        layers = {'episodic': Counter(), 'relational': Counter()}
+
+        def layer_summary(layer):
+            counter = layers[layer]
+            return {'candidates': counter['candidates'], 'stored': counter['stored'],
+                    'reinforced': counter['reinforced'],
+                    'rejected': {k[7:]: v for k, v in counter.items() if k.startswith('reject_')}}
 
         # Episodic
         try:
             existing_ep = self._existing_episodic()
-            ep_candidates = self._propose_episodic(user_text, assistant_text, existing_ep)
+            ep_candidates, ep_error = self._propose_episodic(user_text, assistant_text, existing_ep)
+            layers['episodic']['candidates'] = len(ep_candidates)
+            if ep_error:
+                layers['episodic']['reject_' + ep_error] += 1
             for cand in ep_candidates[:3]:
-                result = self._store_episodic(cand, conversation_id, user_row['id'])
+                result, reason = self._store_episodic(cand, conversation_id, user_row['id'])
                 if result:
                     formed += 1
+                    layers['episodic']['stored'] += 1
+                else:
+                    layers['episodic']['reject_' + (reason or 'unclassified')] += 1
         except Exception as exc:
             self.store.emit('autonomous_memory.episodic_failed',
                             {'task_id': task_id, 'error': type(exc).__name__}, task_id)
+            layers['episodic']['reject_internal_error'] += 1
 
         # Relational
         try:
             existing_rel = self._existing_relational()
-            rel_candidates = self._propose_relational(user_text, assistant_text, existing_rel)
+            rel_candidates, rel_error = self._propose_relational(user_text, assistant_text, existing_rel)
+            layers['relational']['candidates'] = len(rel_candidates)
+            if rel_error:
+                layers['relational']['reject_' + rel_error] += 1
             for cand in rel_candidates[:2]:
-                result = self._store_relational(cand, conversation_id)
+                result, reason = self._store_relational(cand, conversation_id)
                 if result:
                     formed += 1
+                    # A reinforce re-bumps an existing row; only 'created' writes a new one.
+                    layers['relational']['reinforced' if result['action'] == 'reinforced' else 'stored'] += 1
+                else:
+                    layers['relational']['reject_' + (reason or 'unclassified')] += 1
         except Exception as exc:
             self.store.emit('autonomous_memory.relational_failed',
                             {'task_id': task_id, 'error': type(exc).__name__}, task_id)
+            layers['relational']['reject_internal_error'] += 1
 
         # Record the run
         self._processed.add(task_id)
@@ -383,6 +429,10 @@ class AutonomousMemory:
         if len(self._processed) > 1000:
             self._processed = set(list(self._processed)[-500:])
 
+        self.store.emit('autonomous_memory.formation_summary',
+                        {'task_id': task_id, 'memories_formed': formed,
+                         'episodic': layer_summary('episodic'),
+                         'relational': layer_summary('relational')}, task_id)
         if formed:
             self.store.emit('autonomous_memory.formation',
                             {'task_id': task_id, 'memories_formed': formed}, task_id)

@@ -27,11 +27,13 @@ test('the workspace subscribes to the existing hermes:event fan-out for file.cha
 
 test('an external change never pulls a file out from under unsaved edits', () => {
     // The conflict branch must come BEFORE the reload branch and never reload.
-    const dirty = ui.indexOf('if(dirtyDocs.has(st.path)){');
-    const reload = ui.indexOf('void openFile(st.path)');
+    // HA-013 generalized the handler from the active doc to every open doc
+    // (variable renamed st→p) — the guarded-reload behavior is unchanged.
+    const dirty = ui.search(/if\(dirtyDocs\.has\((st|p)\.path\)\)\{/);
+    const reload = ui.search(/void openFile\((st|p)\.path\)/);
     assert.ok(dirty >= 0 && reload >= 0, 'both branches exist');
     assert.ok(dirty < reload, 'the dirty check guards the reload');
-    assert.match(ui, /conflictDocs\.add\(st\.path\)/, 'the conflict is marked');
+    assert.match(ui, /conflictDocs\.add\((st|p)\.path\)/, 'the conflict is marked');
     assert.match(css, /hc415-tab\[data-conflict="true"\]/, 'the conflict is visible on the tab');
 });
 
@@ -101,5 +103,5 @@ test('consulted files are buttons that request a Projects open', () => {
 test('the open-file handler resolves absolute paths by registered project prefix', () => {
     assert.match(ui, /path\.startsWith\(root\+'\/'\)/, 'prefix resolution');
     assert.match(ui, /is not inside a registered workspace/, 'unresolvable paths say so honestly');
-    assert.match(ui, /pendingOpen=path/, 'the request outranks tab restore');
+    assert.match(ui, /pendingOpen=(rel|path)/, 'the request outranks tab restore');
 });

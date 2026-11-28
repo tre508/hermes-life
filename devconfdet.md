@@ -181,3 +181,5 @@ Browser → dev.hermeshaplease.com (Cloudflare edge)
 - **Passkey unlock (HL-AUTH-002):** WebAuthn RP ID / origin defaults already match `dev.hermeshaplease.com`; credentials are stored in `/hermes-life/config/gate-passkey.json`, enrolled via the chat header "Passkey" button after unlocking with the password.
 - The entrance image is served by the backend at `/api/entrance/image`.
 - Note: raw `curl` to the backend on `127.0.0.1:8766` returns "Gate locked" — the gate session lives in the browser, so API checks must go through the browser session or the tunnel URL.
+
+password=Gleshen6847453!

@@ -1,7 +1,9 @@
 import sqlite3
 import asyncio
 import os
+import signal
 import threading
+import time
 from pathlib import Path
 from contextlib import asynccontextmanager
 from .schema import migrate, recover_interrupted
@@ -68,6 +70,154 @@ class TaskInput(BaseModel):
     #: attempted when HERMES_LIFE_RESUME_SESSIONS is enabled.
     resume_session_id: str | None = None
 
+#: Environment allowlist for the /ws/terminal PTY shell (HA-002). The uvicorn
+#: process carries keys.env secrets (API keys, gate hash) that must never be
+#: inherited by a shell, authenticated or not: anything not on this list is
+#: dropped from the child environment.
+_TERMINAL_ENV_ALLOW = ('PATH', 'HOME', 'USER', 'SHELL', 'TERM', 'LANG', 'LC_ALL', 'TMPDIR')
+
+
+def terminal_environ(base: dict | None = None) -> dict:
+    src = dict(os.environ if base is None else base)
+    env = {k: v for k, v in src.items() if k in _TERMINAL_ENV_ALLOW}
+    env.setdefault('TERM', 'xterm-256color')
+    env.setdefault('PATH', '/usr/local/bin:/usr/bin:/bin')
+    return env
+
+
+#: HA-028: how many concurrent PTY shells /ws/terminal serves at once. Each
+#: session is a full forked shell; without a cap a client could fork the server
+#: inside out.
+TERMINAL_MAX_SESSIONS = 4
+
+
+def reap_child(pid, grace=1.0):
+    """HA-028: reap a forked PTY shell so a session leaves no zombie behind.
+
+    The caller has already sent SIGTERM. Runs in a daemon thread: poll WNOHANG
+    for `grace` seconds (a shell that exits on its own is collected at once),
+    escalate to SIGKILL if it outlives the grace, then block on waitpid — the
+    child is always reaped and no caller ever waits on it.
+    """
+    deadline = time.monotonic() + grace
+    while True:
+        try:
+            if os.waitpid(pid, os.WNOHANG)[0] == pid:
+                return
+        except ChildProcessError:
+            return  # already reaped elsewhere
+        if time.monotonic() >= deadline:
+            break
+        time.sleep(0.05)
+    try:
+        os.kill(pid, signal.SIGKILL)
+    except (ProcessLookupError, OSError):
+        pass
+    try:
+        os.waitpid(pid, 0)
+    except ChildProcessError:
+        pass
+
+
+class TerminalSessions:
+    """HA-028: the cap on concurrent /ws/terminal shells.
+
+    Excess connections are refused with the same close code (4403) as the
+    disabled path, before anything is forked.
+    """
+
+    def __init__(self, limit=TERMINAL_MAX_SESSIONS):
+        self.limit = limit
+        self._lock = threading.Lock()
+        self._open = 0
+
+    def acquire(self):
+        with self._lock:
+            if self._open >= self.limit:
+                return False
+            self._open += 1
+            return True
+
+    def release(self):
+        with self._lock:
+            self._open = max(0, self._open - 1)
+
+
+def parse_after(value) -> int:
+    """HA-024: the ?after= watermark, parsed defensively.
+
+    A client can put anything in the query string; the old int() raised
+    ValueError straight out of the socket handler and killed the connection.
+    Bad input gets 0 — the same watermark a missing ?after gets.
+    """
+    try:
+        return max(0, int(value))
+    except (TypeError, ValueError):
+        return 0
+
+
+class EventStream:
+    """HA-024: one poller feeding every /ws/events connection.
+
+    Each connection used to run its own 0.4s loop that called sync_world (a DB
+    write with a commit) and a full event query per tick — N connections meant N
+    writes and N queries per tick under the global store lock. One shared poller
+    does a single batch fetch per tick and fans it out over per-socket
+    watermarks. The wire contract is unchanged: one event record JSON per
+    message, and ?after= still means "only events after this sequence".
+    """
+
+    def __init__(self, store, interval=0.4):
+        self.store = store
+        self.interval = interval
+        self._guard = threading.Lock()
+        self._sockets = {}  # websocket -> per-socket ?after= watermark
+        self._pump = None
+
+    def join(self, websocket, after):
+        """Register a socket at its watermark, starting the poller on first join."""
+        with self._guard:
+            self._sockets[websocket] = after
+            if self._pump is None or self._pump.done():
+                self._pump = asyncio.create_task(self._run())
+
+    def leave(self, websocket):
+        with self._guard:
+            self._sockets.pop(websocket, None)
+
+    async def _run(self):
+        try:
+            while True:
+                with self._guard:
+                    if not self._sockets:
+                        return
+                    marks = dict(self._sockets)
+                try:
+                    batch = self.store.events(min(marks.values()))
+                except Exception:
+                    batch = []  # a transient read error must not kill every stream
+                for websocket, mark in marks.items():
+                    gone = False
+                    for event in batch:
+                        if event['sequence'] <= mark:
+                            continue
+                        try:
+                            await websocket.send_json(event)
+                        except Exception:
+                            self.leave(websocket)  # a dead socket drops out here
+                            gone = True
+                            break
+                        mark = event['sequence']
+                    if not gone:
+                        with self._guard:
+                            if websocket in self._sockets:
+                                self._sockets[websocket] = mark
+                await asyncio.sleep(self.interval)
+        finally:
+            with self._guard:
+                self._pump = None
+
+
 class Runtime:
     def __init__(self, database, adapter=None):
         self.store = Store(database)
@@ -91,6 +241,19 @@ class Runtime:
         # investigation cannot reach the interactive toolset.
         self.delegates = {profile: (adapter if adapter is not None else HermesAdapter(
             timeout_seconds=timeout, profile=profile)) for profile in PROFILES}
+        # Enhanced contextual retrieval pipeline (hermeshaobsidianexpansion.md §6A.7)
+        self.retrieval = RetrievalPipeline(
+            store=self.store,
+            recall=self.recall,
+            episodic_memory=self.episodic_memory,
+            relational_memory=self.relational_memory,
+            vault_memory=self.vault_memory,
+        )
+        # Personality depends on episodic_memory, relational_memory, AND retrieval.
+        # Constructed BEFORE the adapter chains below: PersonalityAdapter receives
+        # it, so first use must never precede assignment (HA-003).
+        self.personality = Personality(self.store, self.episodic_memory,
+                                       self.relational_memory, self.retrieval)
         # HL-PERS-001 §5A/§5C/#11: the user-facing chain carries persona, learned profile, recalled
         # memory, lessons, reflections and library excerpts — all composed by PersonalityAdapter in the
         # one documented order (personality.compose_prompt). The library is a source inside that order,
@@ -110,17 +273,6 @@ class Runtime:
         self.autonomous_memory.adapter = self.analysis_adapter  # extraction answers in JSON, not in persona
         # Memory consolidation service (hermeshaobsidianexpansion.md §6A.6)
         self.consolidation = MemoryConsolidation(self.store)
-        # Enhanced contextual retrieval pipeline (hermeshaobsidianexpansion.md §6A.7)
-        self.retrieval = RetrievalPipeline(
-            store=self.store,
-            recall=self.recall,
-            episodic_memory=self.episodic_memory,
-            relational_memory=self.relational_memory,
-            vault_memory=self.vault_memory,
-        )
-        # Personality depends on episodic_memory, relational_memory, AND retrieval
-        self.personality = Personality(self.store, self.episodic_memory,
-                                       self.relational_memory, self.retrieval)
         #: Task id → explicit CLI session to continue, set by POST /api/tasks
         #: (convo-redesign.md §10). Popped by run_task; never persisted, because
         #: the task row records the session the CLI reports on exit instead.
@@ -233,8 +385,10 @@ class Runtime:
                                      provider=choice['provider'], model=choice['model'], **run_kwargs)
             else:
                 result = adapter.run(recall + context + prompt, on_event, ident, **run_kwargs)
-            self.store.update_task(ident, 'completed', **result)
-            self.record_experience(ident, 'completed', prompt)
+            cancelled = self._is_cancelled(ident)  # HA-022: a cancel settles the task first
+            if not cancelled:
+                self.store.update_task(ident, 'completed', **result)
+                self.record_experience(ident, 'completed', prompt)
             if conversation_id:
                 self.conversations.finish(conversation_id, ident, result)
                 try:
@@ -245,16 +399,29 @@ class Runtime:
                     self.autonomous_memory.extract_completed(conversation_id, ident)
                 except Exception as exc:
                     self.store.emit("autonomous_memory.extraction_failed", {"error":str(exc)[:400]}, ident)
-            self.store.emit('task.completed', {'session_id':result.get('session_id')},ident)
+            if not cancelled:
+                self.store.emit('task.completed', {'session_id':result.get('session_id')},ident)
         except Exception as exc:
-            self.store.update_task(ident, 'failed', error=str(exc))
-            self.record_experience(ident, 'failed', str(exc))
+            cancelled = self._is_cancelled(ident)  # HA-022: a killed task stays cancelled
+            if not cancelled:
+                self.store.update_task(ident, 'failed', error=str(exc))
+                self.record_experience(ident, 'failed', str(exc))
             conversation_id = self.conversations.conversation_for_task(ident)
             if conversation_id: self.conversations.finish(conversation_id, ident, {'error':str(exc)})
-            self.store.emit('task.failed', {'error':str(exc)},ident)
+            if not cancelled:
+                self.store.emit('task.failed', {'error':str(exc)},ident)
         finally:
             self.store.set_agent('idle')
             self.active.release()
+
+    def _is_cancelled(self, ident):
+        """HA-022: did cancel_task settle this task while it was still running?
+
+        adapter.cancel kills the worker, but this run's own completion/failure
+        bookkeeping still unwinds afterwards — left unchecked it would flip a
+        task the API already reported as 'cancelled' to completed/failed.
+        """
+        return (self.store.task(ident) or {}).get('state') == 'cancelled'
 
     def record_experience(self, task_id, state, note=''):
         """One experience per terminal task outcome (HL-PERS-001 §2 layer 2 / §3 Experience collection).
@@ -333,6 +500,9 @@ def create_app(database=None, adapter=None):
             runtime.knowledge_library.migrate()
             recover_interrupted(runtime.store.connection)
         runtime.chat_models.migrate()
+        # HA-024: world state is synced here at startup and on demand by
+        # GET /api/world/state — never per /ws/events connection.
+        sync_world(runtime.store)
         portfolio.reconcile()  # Phase 4: resolve leased milestones against real goal state
         autonomy.start()
         revisions.start()
@@ -1008,10 +1178,21 @@ def create_app(database=None, adapter=None):
 
     @app.get('/health')
     def health():
+        """Liveness only — gate-exempt by design (entrance_gate.py exempts this path).
+
+        HA-019: worker topology used to live here and leaked through the gate;
+        it is now the gated /api/health/detail. The service manager
+        (hermes-life.sh) only checks this endpoint's HTTP code.
+        """
+        return {'status':'ok'}
+
+    @app.get('/api/health/detail')
+    def health_detail():
         """Readiness plus the coding worker this backend is actually driving.
 
         HL-WORKER: after the VM -> Lenovo migration an operator must be able to see *which* machine
         autonomous coding runs on, without reading the environment.
+        HA-019: gated like every /api/* route — this is operator information, not liveness.
         """
         worker = runtime.worker()
         return {'status':'ok','hermes_available':runtime.adapter.available(),'worker':worker}
@@ -1443,9 +1624,12 @@ def create_app(database=None, adapter=None):
             runtime.store.update_task(task_id, 'cancelled', error='Cancelled by user')
             runtime.record_experience(task_id, 'cancelled', 'Cancelled by user')
             runtime.store.emit('task.cancelled', {'task_id': task_id}, task_id)
-            # Release the global lock if we hold it
-            runtime.store.set_agent('idle')
-            runtime.active.release()
+            # HA-022: the global task slot is NOT released here. It is owned by
+            # the run (create_task acquired it; run_task's finally releases it
+            # exactly once) — releasing it from this stale-state path raced that
+            # release (RuntimeError('release unlocked lock')) or handed the slot
+            # to a second task while this one was still running. run_task sees
+            # the 'cancelled' state and skips its own completion bookkeeping.
             return runtime.store.task(task_id)
         else:
             raise HTTPException(409, 'Task not found in active process registry')
@@ -1502,88 +1686,124 @@ def create_app(database=None, adapter=None):
             raise HTTPException(404, 'Event not found')
         return events[0]
 
+    # HA-024: one shared poller feeds every /ws/events connection.
+    event_stream = EventStream(runtime.store)
+
     @app.websocket('/ws/events')
     async def ws_events(websocket: WebSocket):
         await websocket.accept()
-        try:
-            after = max(0,int(websocket.query_params.get('after','0')))
-            while True:
-                sync_world(runtime.store)
-                batch = runtime.store.events(after)
-                for event in batch:
-                    await websocket.send_json(event)
-                    after = event['sequence']
-                await asyncio.sleep(0.4)
-        except (WebSocketDisconnect, RuntimeError):
-            pass
-
-    @app.websocket('/ws/terminal')
-    async def ws_terminal(websocket: WebSocket):
-        """PTY-backed shell over WebSocket — one shell per connection."""
-        import os as _os, pty as _pty, signal as _signal, threading as _threading
-        await websocket.accept()
-        master_fd, slave_fd = _os.openpty()
-        pid = _os.fork()
-        if pid == 0:
-            _os.close(master_fd)
-            _os.setsid()
-            for fd in (0, 1, 2):
-                if fd != slave_fd:
-                    _os.dup2(slave_fd, fd)
-            if slave_fd not in (0, 1, 2):
-                _os.close(slave_fd)
-            environ = dict(_os.environ)
-            environ['TERM'] = 'xterm-256color'
-            try:
-                _os.execve('/bin/bash', ['/bin/bash', '--norc'], environ)
-            except FileNotFoundError:
-                _os.execve('/bin/sh', ['/bin/sh'], environ)
-        _os.close(slave_fd)
-        loop = asyncio.get_running_loop()
-        queue = asyncio.Queue()
-        def _reader():
-            try:
-                while True:
-                    raw = _os.read(master_fd, 8192)
-                    if not raw:
-                        break
-                    asyncio.run_coroutine_threadsafe(queue.put(raw), loop)
-            except OSError:
-                pass
-            finally:
-                asyncio.run_coroutine_threadsafe(queue.put(None), loop)
-        thread = _threading.Thread(target=_reader, daemon=True)
-        thread.start()
-        async def _writer():
-            try:
-                while True:
-                    raw = await websocket.receive_text()
-                    _os.write(master_fd, raw.encode('utf-8', errors='replace'))
-            except (WebSocketDisconnect, RuntimeError):
-                pass
-        writer_task = asyncio.create_task(_writer())
+        # HA-024: a bad ?after= used to raise ValueError out of this handler and
+        # kill the socket; it now degrades to the 0 watermark (full replay).
+        event_stream.join(websocket, parse_after(websocket.query_params.get('after')))
         try:
             while True:
-                raw = await queue.get()
-                if raw is None:
-                    break
-                await websocket.send_text(raw.decode('utf-8', errors='replace'))
+                # Clients send nothing here; receiving is how a disconnect is
+                # noticed so the socket is taken out of the fan-out.
+                await websocket.receive_text()
         except (WebSocketDisconnect, RuntimeError):
             pass
         finally:
-            writer_task.cancel()
-            try:
-                writer_task.result()
-            except (asyncio.CancelledError, RuntimeError):
-                pass
-            try:
+            event_stream.leave(websocket)
+
+    # HA-028: cap concurrent PTY shells per server process.
+    terminal_sessions = TerminalSessions()
+
+    @app.websocket('/ws/terminal')
+    async def ws_terminal(websocket: WebSocket):
+        """PTY-backed shell over WebSocket — one shell per connection.
+
+        HA-002: this is a full server shell. It is opt-in per deployment
+        (HERMES_LIFE_ENABLE_TERMINAL=1) and its environment is an allowlist —
+        the server process must never hand its secrets to a shell.
+        """
+        import os as _os, pty as _pty, signal as _signal, threading as _threading
+        await websocket.accept()
+        if os.getenv('HERMES_LIFE_ENABLE_TERMINAL', '').strip() != '1':
+            await websocket.close(code=4403)
+            return
+        # HA-028: refuse excess sessions with the disabled-path close code,
+        # before anything is forked.
+        if not terminal_sessions.acquire():
+            await websocket.close(code=4403)
+            return
+        try:
+            master_fd, slave_fd = _os.openpty()
+            pid = _os.fork()
+            if pid == 0:
                 _os.close(master_fd)
-            except OSError:
-                pass
+                _os.setsid()
+                for fd in (0, 1, 2):
+                    if fd != slave_fd:
+                        _os.dup2(slave_fd, fd)
+                if slave_fd not in (0, 1, 2):
+                    _os.close(slave_fd)
+                environ = terminal_environ()
+                try:
+                    _os.execve('/bin/bash', ['/bin/bash', '--norc'], environ)
+                except FileNotFoundError:
+                    _os.execve('/bin/sh', ['/bin/sh'], environ)
+            _os.close(slave_fd)
+            loop = asyncio.get_running_loop()
+            queue = asyncio.Queue()
+            def _reader():
+                try:
+                    while True:
+                        raw = _os.read(master_fd, 8192)
+                        if not raw:
+                            break
+                        asyncio.run_coroutine_threadsafe(queue.put(raw), loop)
+                except OSError:
+                    pass
+                finally:
+                    asyncio.run_coroutine_threadsafe(queue.put(None), loop)
+            thread = _threading.Thread(target=_reader, daemon=True)
+            thread.start()
+            async def _writer():
+                try:
+                    while True:
+                        raw = await websocket.receive_text()
+                        _os.write(master_fd, raw.encode('utf-8', errors='replace'))
+                except (WebSocketDisconnect, RuntimeError):
+                    pass
+            writer_task = asyncio.create_task(_writer())
+            # Client-side end of session (disconnect/error) must tear the shell down
+            # too: the main loop waits on the reader's EOF, which only arrives when
+            # the SHELL exits — a closed tab used to leak a live shell. The writer
+            # finishing is the client-gone signal; feed the same None sentinel.
+            writer_task.add_done_callback(lambda _t: queue.put_nowait(None))
             try:
-                _os.kill(pid, _signal.SIGTERM)
-            except (ProcessLookupError, OSError):
+                while True:
+                    raw = await queue.get()
+                    if raw is None:
+                        break
+                    await websocket.send_text(raw.decode('utf-8', errors='replace'))
+            except (WebSocketDisconnect, RuntimeError):
                 pass
+            finally:
+                writer_task.cancel()
+                try:
+                    # Bounded await, not .result() (raised InvalidStateError on a
+                    # pending task and skipped the SIGTERM below — HA-002) and not an
+                    # unbounded await (a wedged writer stalls teardown forever): if
+                    # cancellation does not land within 2s we move on and kill the
+                    # child, which unblocks any stuck read/write.
+                    await asyncio.wait_for(writer_task, timeout=2)
+                except (asyncio.CancelledError, RuntimeError, TimeoutError, OSError):
+                    pass
+                try:
+                    _os.close(master_fd)
+                except OSError:
+                    pass
+                try:
+                    _os.kill(pid, _signal.SIGTERM)
+                except (ProcessLookupError, OSError):
+                    pass
+                # HA-028: reap the shell in the background — SIGTERM alone left a
+                # zombie child of the uvicorn process behind per session.
+                _threading.Thread(target=reap_child, args=(pid,), daemon=True,
+                                  name='terminal-reap').start()
+        finally:
+            terminal_sessions.release()
 
     return app
 

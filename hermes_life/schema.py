@@ -1,7 +1,7 @@
 """Explicit, versioned schema setup and single-owner restart recovery."""
 from .store import now
 
-SCHEMA_VERSION = 42
+SCHEMA_VERSION = 43
 DDL = r'''
 
             CREATE TABLE IF NOT EXISTS tasks (
@@ -941,6 +941,23 @@ def _upgrade_to_v42(connection):
     INSERT OR IGNORE INTO consolidation_settings(id,enabled,interval_seconds)
         VALUES (1,0,21600);
     """)
+    connection.commit()
+
+
+def _upgrade_to_v43(connection):
+    """HA-023: index events.task_id — store.events filters on it and /api/events?task_id=
+    full-scanned the 131k-row table without it.
+
+    No (type, timestamp) index: store.events never filters or scans by those columns
+    (its filters are link-column equality, its scans order by the sequence primary key),
+    so the index would only tax every event insert.
+    """
+    # Synthetic legacy/fixture databases can predate the events table entirely;
+    # the index only applies where the table exists (real databases always have
+    # it — events is part of the v1 DDL).
+    if connection.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='events'").fetchone():
+        connection.execute('CREATE INDEX IF NOT EXISTS idx_events_task_id ON events(task_id)')
     connection.commit()
 
 

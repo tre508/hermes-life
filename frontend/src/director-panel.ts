@@ -14,7 +14,7 @@ const s = (x: unknown): string => (typeof x === 'string' ? x : x == null ? '' : 
 interface Goal { title?: unknown; state?: unknown; created_at?: unknown }
 interface Run { project?: unknown; state?: unknown; created_at?: unknown }
 interface Project { name?: unknown; status?: unknown; updated_at?: unknown; created_at?: unknown }
-interface Experience { summary?: unknown; title?: unknown; prompt?: unknown; task_id?: unknown }
+interface Experience { summary?: unknown; title?: unknown; prompt?: unknown; note?: unknown; task_id?: unknown }
 
 const TERMINAL = new Set(['completed', 'failed', 'cancelled']);
 
@@ -44,7 +44,7 @@ export function summarizeDirector(input: {
 
     const first = input.experiences[0];
     const recent = input.experiences.length
-        ? `${input.experiences.length} outcome(s) · latest: ${s(first?.summary || first?.title || first?.prompt || first?.task_id) || 'recorded'}`
+        ? `${input.experiences.length} outcome(s) · latest: ${s(first?.summary || first?.title || first?.note || first?.prompt || first?.task_id) || 'recorded'}`
         : '—';
 
     return { state, focus, project, recent, pending: input.pending > 0 ? `${input.pending} awaiting you` : 'None' };
@@ -64,7 +64,9 @@ export async function loadDirector(): Promise<void> {
     lastLoad = Date.now();
     const [goals, runs, projects, experiences] = await Promise.all([
         read<Goal[]>('/goals'), read<Run[]>('/implementations'),
-        read<Project[]>('/autonomy/projects'), read<Experience[]>('/personality/experiences'),
+        // /autonomy/projects wraps its list as {projects: [...]}; the others are bare arrays.
+        read<{ projects?: Project[] }>('/autonomy/projects').then(r => r?.projects ?? null),
+        read<Experience[]>('/personality/experiences'),
     ]);
     const badge = $('attention-badge');
     const pending = badge && !badge.hasAttribute('hidden') ? (Number(badge.textContent || '0') || 0) : 0;

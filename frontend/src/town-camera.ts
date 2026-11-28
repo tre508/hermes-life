@@ -2,10 +2,10 @@
  * World camera framing (HERMESHA spec §2/§11) — pure math, no Three.js.
  *
  * The World uses a PERSPECTIVE "operations-centre" eye (decided 2026-11-23),
- * not the old top-down orthographic floor plan. Framing is a bounding-sphere fit
- * so nothing is ever clipped: the camera sits on a fixed elevation/azimuth and
- * backs off just far enough that the whole bounds fits the smaller of the
- * vertical and horizontal field of view.
+ * not the old top-down orthographic floor plan. Framing fits the bounds'
+ * corners so nothing is ever cropped: the camera sits on a fixed
+ * elevation/azimuth and backs off just far enough that every corner fits both
+ * the vertical and the horizontal field of view.
  *
  * Kept dependency-free so the framing can be unit-tested headlessly.
  */
@@ -18,14 +18,32 @@ export interface Bounds {
 }
 export interface CameraPose { position: Vec3; target: Vec3; fov: number }
 
-/** Overview eye: a raised three-quarter view of the whole facility. */
-export const OVERVIEW_ELEVATION = 38;
+/**
+ * The stock frameBounds eye: raised, three-quarter. `frameBounds` falls back to
+ * this pair when a caller passes no angles, and `OVERVIEW_ELEVATION` is the
+ * shared elevation (the world box HERMESHA-WORLD-ASPECT-001 was measured at —
+ * "the 30 degree camera"). The default azimuth stays -22 on purpose.
+ */
+export const OVERVIEW_ELEVATION = 30;
 export const OVERVIEW_AZIMUTH = -22;
-/** Focus eye: a little lower and more head-on for a single room. */
+/**
+ * HA-017: the facility overview looks SQUARE TO THE ROOM GRID. The old -22°
+ * overview azimuth projected the ~45x29-unit grid as a diagonal band whose
+ * silhouette filled only ~47% of the 2.85:1 world canvas; grid-aligned, the
+ * silhouette runs with the rooms and the facility fills the canvas width.
+ */
+export const GRID_AZIMUTH = 0;
+/** Focus eye: a little lower and head-on for a single room, on the same grid. */
 export const FOCUS_ELEVATION = 30;
-export const FOCUS_AZIMUTH = -22;
+export const FOCUS_AZIMUTH = GRID_AZIMUTH;
 
 export const DEFAULT_FOV = 45;
+
+/**
+ * Facility overview margin. Tight — the fit is exact, so 1.02 keeps every
+ * corner inside the frustum while the facility fills the drawing area.
+ */
+export const OVERVIEW_MARGIN = 1.02;
 
 export function boundsCenter(b: Bounds): Vec3 {
     return {

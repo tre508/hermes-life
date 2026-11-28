@@ -27,7 +27,7 @@ const mainV2 = readFileSync(join(frontend, 'src', 'main.v2.ts'), 'utf8');
 
 test('§3: nav rail carries exactly the three-group destinations', () => {
     // Regroup (user-approved): Experience / Operations / Intelligence.
-    for (const ws of ['world', 'conversations', 'home', 'work', 'activity', 'knowledge', 'research']) {
+    for (const ws of ['conversations', 'home', 'work', 'activity', 'knowledge', 'research']) {
         assert.ok(navState.includes(`'${ws}'`), `navigation-state must declare '${ws}'`);
         assert.ok(html.includes(`data-workspace="${ws}"`), `index.html nav must have a button for '${ws}'`);
     }

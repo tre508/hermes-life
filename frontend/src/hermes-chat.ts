@@ -25,17 +25,17 @@ let liveTask='';let liveText='';let liveBubble:HTMLElement|null=null;
 const root=document.createElement('div');root.id='hermes-chat-root';
 root.innerHTML=`<section id="hc-panel" role="region" aria-label="Hermes conversation">
  <aside id="hc-thread-sidebar" aria-label="Conversation history">
-  <div class="hc-thread-head"><strong>Conversations</strong><button id="hc-new" type="button" title="Start a new conversation"><span aria-hidden="true">＋</span> New chat</button></div>
+  <div class="hc-thread-head"><strong>Conversations</strong><button id="hc-sidebar-collapse" type="button" title="Collapse the conversation history" aria-label="Collapse the conversation history" aria-pressed="false"><span aria-hidden="true">⇤</span></button><button id="hc-new" type="button" title="Start a new conversation"><span aria-hidden="true">＋</span> New chat</button></div>
   <input id="hc-thread-filter" type="search" placeholder="Search threads" aria-label="Search conversations" autocomplete="off">
   <nav id="hc-threads" aria-label="Previous conversations"></nav>
  </aside>
  <div class="hc-main">
- <header class="hc-head"><div class="hc-brand"><span class="hc-logo" aria-hidden="true">✦</span><div class="hc-brand-copy"><strong id="hc-thread-title">New conversation</strong><small id="hc-state">Hermesha · connected</small></div></div><span class="hc-actions" aria-hidden="true"></span></header>
+ <header class="hc-head"><button id="hc-sidebar-expand" type="button" title="Show the conversation history" aria-label="Show the conversation history"><span aria-hidden="true">☰</span></button><div class="hc-brand"><span class="hc-logo" aria-hidden="true">✦</span><div class="hc-brand-copy"><strong id="hc-thread-title">New conversation</strong><small id="hc-state">Hermesha · connected</small></div></div><span class="hc-actions" aria-hidden="true"></span></header>
  <main id="hc-messages" aria-live="polite"><div class="hc-empty">Start a conversation with Hermes.<br>Messages and tasks share the same thread.</div><button id="hc-jump-latest" type="button" title="Jump to the latest messages" hidden>↓ Latest</button></main>
  <div id="hc-progress" hidden><span id="hc-progress-label">Hermes is working…</span><button id="hc-details">Activity ▾</button><button id="hc-stop" type="button" title="Stop current task">Stop</button></div>
  <div id="hc-events" hidden></div>
  <div id="hc-feedback" role="status"></div>
- <form id="hc-form"><div class="hc-composer-box"><div id="hc-attach-chips" class="hc-attach-chips" hidden></div><textarea id="hc-input" rows="1" placeholder="Ask Hermesha to build, explain, fix, or research…" aria-label="Message Hermesha"></textarea><div class="hc-composer-tools"><button id="hc-attach" type="button" title="Attach files, folders, images or a URL to this message"><span aria-hidden="true">＋</span> Attach</button></div><div class="hc-composer-actions"><button id="hc-model-button" type="button" aria-haspopup="dialog" aria-expanded="false" title="Change the chat model — provider and catalogue inside"><span id="hc-model-button-label">Worker default</span><span class="hc-caret" aria-hidden="true"> ▾</span></button><button id="hc-usage-chip" type="button" class="hc-metrics-toolbar" aria-haspopup="dialog" aria-expanded="false" title="Live model usage — click for the detail panel"><span class="hc-metric hc-metric-context" id="hc-metric-context">Context: —</span><span class="hc-metric-sep" aria-hidden="true">|</span><span class="hc-metric hc-metric-tokens" id="hc-metric-tokens">Tokens: —</span><span class="hc-metric-sep" aria-hidden="true">|</span><span class="hc-metric hc-metric-cost" id="hc-metric-cost">Cost: —</span><span class="hc-metric-sep" aria-hidden="true">|</span><span class="hc-metric hc-metric-balance" id="hc-metric-balance">Balance: —</span></button><button id="hc-send" type="submit" title="Send message (Enter) · Shift+Enter adds a new line"><span aria-hidden="true">➤</span> Send</button></div></div></form>
+ <form id="hc-form"><div class="hc-composer-box"><div id="hc-attach-chips" class="hc-attach-chips" hidden></div><textarea id="hc-input" rows="1" placeholder="Ask Hermesha to build, explain, fix, or research…" aria-label="Message Hermesha"></textarea><div class="hc-composer-tools"><button id="hc-attach" type="button" title="Attach files, folders, images or a URL to this message"><span aria-hidden="true">＋</span> Attach</button></div><div class="hc-composer-actions"><button id="hc-tools-button" type="button" aria-haspopup="dialog" aria-expanded="false" title="Message tools — file access mode for attachments"><span class="hc-tools-label">Tools</span><span class="hc-caret" aria-hidden="true"> ▾</span></button><button id="hc-model-button" type="button" aria-haspopup="dialog" aria-expanded="false" title="Change the chat model — provider and catalogue inside"><span id="hc-model-button-label">Worker default</span><span class="hc-caret" aria-hidden="true"> ▾</span></button><button id="hc-usage-chip" type="button" class="hc-metrics-toolbar" aria-haspopup="dialog" aria-expanded="false" title="Live model usage — click for the detail panel"><span class="hc-metric hc-metric-context" id="hc-metric-context">Context: —</span><span class="hc-metric-sep" aria-hidden="true">|</span><span class="hc-metric hc-metric-tokens" id="hc-metric-tokens">Tokens: —</span><span class="hc-metric-sep" aria-hidden="true">|</span><span class="hc-metric hc-metric-cost" id="hc-metric-cost">Cost: —</span><span class="hc-metric-sep" aria-hidden="true">|</span><span class="hc-metric hc-metric-balance" id="hc-metric-balance">Balance: —</span></button><button id="hc-mic" type="button" title="Dictate your message with the microphone"><span aria-hidden="true">🎤</span> Mic</button><button id="hc-send" type="submit" title="Send message (Enter) · Shift+Enter adds a new line"><span aria-hidden="true">➤</span> Send</button></div><div id="hc-tools-popover" class="hc-popover" hidden role="dialog" aria-label="Message tools"></div></div></form>
  </div>
 </section>`;
 /* Chat audit §8: the floating assistant is RETIRED. There is exactly ONE chat
@@ -275,6 +275,8 @@ function hydrateTraceNow(taskId:string,force=false,rerender=true):Promise<void>{
    }
    if(!steps.length){restore();return;}
    placeholder.steps=steps;
+   // The 3s poll re-reads the same steps most ticks; a redraw then is pure churn.
+   if(live&&JSON.stringify(live.steps)===JSON.stringify(steps)){placeholder.open=live.open;return;}
    // A live turn redraws its own trace in place (the wrapper sits before the
    // answer bubble); a finished thread is redrawn whole — unless the caller is
    // about to render anyway, in which case a second render here is pure churn.
@@ -498,10 +500,10 @@ function renderModelPopover(){
 }
 // One popover at a time; outside clicks and Escape close both (audit #17's rule —
 // the action row stays a compact strip, not an always-open panel).
-const modelButton=el('hc-model-button'),usageChip=el('hc-usage-chip');
+const modelButton=el('hc-model-button'),usageChip=el('hc-usage-chip'),toolsButton=el('hc-tools-button') as HTMLButtonElement,toolsPopover=el('hc-tools-popover') as HTMLElement;
 function closePopovers(){
- modelPopover.hidden=true;usagePopover.hidden=true;
- modelButton.setAttribute('aria-expanded','false');usageChip.setAttribute('aria-expanded','false');
+ modelPopover.hidden=true;usagePopover.hidden=true;toolsPopover.hidden=true;
+ modelButton.setAttribute('aria-expanded','false');usageChip.setAttribute('aria-expanded','false');toolsButton.setAttribute('aria-expanded','false');
 }
 modelButton.onclick=()=>{
  const wasOpen=!modelPopover.hidden;
@@ -516,12 +518,50 @@ modelButton.onclick=()=>{
  }
 };
 usageChip.onclick=()=>{const wasOpen=!usagePopover.hidden;closePopovers();if(!wasOpen){usagePopover.hidden=false;usageChip.setAttribute('aria-expanded','true');}};
+if(toolsButton&&toolsPopover){toolsButton.onclick=()=>{const wasOpen=!toolsPopover.hidden;closePopovers();if(!wasOpen){toolsPopover.hidden=false;toolsButton.setAttribute('aria-expanded','true');try{renderToolsPopover()}catch(err){console.error('tools popover render failed',err)}}};}
 document.addEventListener('click',(ev)=>{
  const target=ev.target as Node;
  if(!modelPopover.hidden&&!modelPopover.contains(target)&&!modelButton.contains(target))closePopovers();
  else if(!usagePopover.hidden&&!usagePopover.contains(target)&&!usageChip.contains(target))closePopovers();
+ else if(toolsPopover&&!toolsPopover.hidden&&!toolsPopover.contains(target)&&toolsButton&&!toolsButton.contains(target))closePopovers();
 });
 document.addEventListener('keydown',(ev)=>{if(ev.key==='Escape')closePopovers();});
+// ── G2: Tools ▾ menu + Mic (voice dictation) on the composer action row ─────
+// Tools ▾ hosts the REAL file-access mode control, consolidated out of the
+// composer tools row (chat-attach.ts mountAttachMode mounts the #hc-attach-mode
+// select into #hc-tools-popover). Open-then-render keeps the menu reachable even
+// if a render step throws (the model-popover failure mode). Mic uses the Web
+// Speech API where the engine exists and disables itself (with a tooltip) where
+// it does not (e.g. Firefox), so it never presents a dead control.
+function renderToolsPopover(){
+ if(toolsPopover.dataset.built)return;
+ toolsPopover.dataset.built='1';
+ const head=document.createElement('div');head.className='hc-tools-head';head.textContent='Tools';
+ const desc=document.createElement('p');desc.className='hc-tools-desc';
+ desc.textContent='File access mode — how attached file references are composed into your message.';
+ toolsPopover.prepend(head,desc);
+}
+const micBtn=document.getElementById('hc-mic') as HTMLButtonElement|null;
+if(micBtn){
+ const SR=(window as any).SpeechRecognition||(window as any).webkitSpeechRecognition;
+ if(!SR){micBtn.disabled=true;micBtn.title='Voice dictation is not supported in this browser';}
+ else{
+   let recog:any=null,listening=false;
+   const micInput=document.getElementById('hc-input') as HTMLTextAreaElement|null;
+   micBtn.onclick=()=>{
+     if(listening){if(recog){try{recog.stop()}catch{}}return;}
+     try{
+       const r=new SR();recog=r;r.lang='en-US';r.interimResults=true;r.continuous=false;
+       let base=micInput&&micInput.value?micInput.value.replace(/\s+$/,'')+' ':'';
+       r.onstart=()=>{listening=true;micBtn.setAttribute('aria-pressed','true');micBtn.classList.add('hc-rec')};
+       r.onresult=(e2:any)=>{if(!micInput)return;let t='';for(let i=e2.resultIndex;i<e2.results.length;i++)t+=e2.results[i][0].transcript;micInput.value=base+t};
+       const stopRec=()=>{listening=false;micBtn.removeAttribute('aria-pressed');micBtn.classList.remove('hc-rec')};
+       r.onerror=stopRec;r.onend=stopRec;
+       r.start();
+     }catch{listening=false}
+   };
+ }
+}
 async function refreshChatUsage(taskId:string){
  const context=el('hc-context-label'),cost=el('hc-cost-label'),tokens=el('hc-tokens-label'),progress=el('hc-context-bar') as HTMLProgressElement;
  // Persistent toolbar metrics — the inline row inside #hc-usage-chip.
@@ -643,13 +683,20 @@ async function refreshChatBalance(){
 function state(text:string){el('hc-state').textContent=text;}
 /** Audit §9F: the composer must switch Send → Stop while a task is running,
  *  instead of disabling itself and leaving Stop buried in the progress strip. */
+let runningNow:boolean|null=null;
 function setRunning(running:boolean){
+  // The 1.5s poll calls this every tick. Rewriting the button each time is the
+  // flicker, so the DOM is touched only when the state actually changes.
+  if(runningNow===running)return;
+  runningNow=running;
   const send=el('hc-send') as HTMLButtonElement;
   send.disabled=false;
   send.dataset.mode=running?'stop':'send';
   send.innerHTML=running?'<span aria-hidden="true">■</span> Stop':'<span aria-hidden="true">➤</span> Send';
   send.title=running?'Stop the running task':'Send message';
   el('hc-progress').hidden=!running;
+  // Home mirrors the running state and asks Chat to stop (uichange.md State B).
+  window.dispatchEvent(new CustomEvent('hermes:chat-running',{detail:{running}}));
 }
 async function request<T>(path:string,options?:RequestInit):Promise<T>{const res=await fetch(path,options);if(!res.ok){let info='';try{info=JSON.stringify(await res.json())}catch{}throw new Error(`HTTP ${res.status} ${info}`)}return await res.json() as T;}
 function followBottom(){return messages.scrollHeight-messages.scrollTop-messages.clientHeight<110;}
@@ -1000,7 +1047,7 @@ function connect(){
 // with the conversation to continue and optional prefill text. If only
 // a task_id is known, we resolve its conversation via /api/tasks/{id}.
 window.addEventListener('hermes:open-in-chat',(ev:Event)=>{
-  const d=((ev as CustomEvent<{conversation_id?:string;task_id?:string;prefill?:string;submit?:boolean}>).detail||{}) as {conversation_id?:string;task_id?:string;prefill?:string;submit?:boolean};
+  const d=((ev as CustomEvent<{conversation_id?:string;task_id?:string;prefill?:string;submit?:boolean;new_conversation?:boolean}>).detail||{}) as {conversation_id?:string;task_id?:string;prefill?:string;submit?:boolean;new_conversation?:boolean};
   const open=async(convId:string|undefined)=>{
     panel.hidden=false;clearStream();activeTask='';activeState='idle';
     if(convId){switchChatDraft(convId);localStorage.setItem(stored,convId);}
@@ -1010,7 +1057,9 @@ window.addEventListener('hermes:open-in-chat',(ev:Event)=>{
     void refreshChatUsage(d.task_id || '');
     if(d.prefill){const box=el('hc-input') as HTMLTextAreaElement;box.value=d.prefill;saveChatDraft();box.focus();if(d.submit){el('hc-form').dispatchEvent(new Event('submit',{cancelable:true}));}else{feedback.textContent='Draft opened in Chat — review and press Send.';}}
   };
-  void open(d.conversation_id);
+  // Home asked for a new conversation: clear the slot before the open-and-submit.
+  if(d.new_conversation){conversationId='';localStorage.removeItem(stored);switchChatDraft('');}
+  void open(d.new_conversation?undefined:d.conversation_id);
   if(!d.conversation_id&&d.task_id){void request<Task&{conversation_id?:string}>(`/api/tasks/${encodeURIComponent(d.task_id)}`).then(t=>{if(t.conversation_id){switchChatDraft(t.conversation_id);localStorage.setItem(stored,conversationId);clearStream();activeTask='';void render(true);void refreshThreads();}else{feedback.textContent='This task has no conversation thread yet.';}}).catch(e=>{feedback.textContent=String(e)});}
 });
 void initializeChatModels();
@@ -1058,6 +1107,33 @@ function restoreChatDraft(){const box=chatDraftBox();box.value=readDraft(convers
 
 el('hc-new').onclick=()=>{if(activeTask&&['queued','running'].includes(activeState)){feedback.textContent='Finish the active task before starting another conversation.';return;}switchChatDraft('');localStorage.removeItem(stored);activeTask='';pendingRevision=null;void render();state('New conversation')};
 el('hc-thread-filter').addEventListener('input',renderThreadList);
+/* Spec §4.1: the conversation-history sidebar is collapsible. The toggle lives
+   in the thread-list header (the Conversations title area) and ONE class on the
+   chat root collapses the aside — display:none takes it out of the panel's flex
+   row, so the conversation column takes the space back. The header's reopen
+   control (☰) restores it; without it a collapsed sidebar would be a dead end.
+   The DOM survives the round trip, so the search text is still in the input —
+   only the list's scrollTop needs help, because display:none drops it. The
+   state persists next to the thread-selection key so a reload reopens exactly
+   where the user left it. */
+const sidebarCollapsedKey='hermes-life-chat-sidebar-collapsed';
+let sidebarScroll=0;
+function applySidebarCollapsed(collapsed:boolean,persist=true){
+ const threads=el('hc-threads');
+ const filter=el('hc-thread-filter') as HTMLInputElement;
+ const keepQuery=filter.value;
+ if(!root.classList.contains('hc-sidebar-collapsed'))sidebarScroll=threads.scrollTop;
+ root.classList.toggle('hc-sidebar-collapsed',collapsed);
+ const collapseBtn=el('hc-sidebar-collapse') as HTMLButtonElement;
+ collapseBtn.setAttribute('aria-pressed',String(collapsed));
+ collapseBtn.title=collapsed?'Show the conversation history':'Collapse the conversation history';
+ filter.value=keepQuery;
+ if(!collapsed)threads.scrollTop=sidebarScroll;
+ if(persist){try{localStorage.setItem(sidebarCollapsedKey,collapsed?'1':'0')}catch{/* storage unavailable */}}
+}
+applySidebarCollapsed(localStorage.getItem(sidebarCollapsedKey)==='1',false);
+el('hc-sidebar-collapse').onclick=()=>applySidebarCollapsed(!root.classList.contains('hc-sidebar-collapsed'));
+el('hc-sidebar-expand').onclick=()=>applySidebarCollapsed(false);
 // V2 audit #30: while a task streams, scrolling up unpins the follow (followBottom's
 // sticky window); this chip brings you back without hunting for the scrollbar.
 const jumpLatest=el('hc-jump-latest') as HTMLButtonElement;
@@ -1066,6 +1142,7 @@ jumpLatest.onclick=()=>{messages.scrollTo({top:messages.scrollHeight,behavior:'s
 el('hc-details').onclick=()=>el('hc-events').hidden=!el('hc-events').hidden;
 // V2 audit #15/#16: the breakdown table lives inside the usage popover, always shown
 // there — the old meter-click toggle is gone with the dashboard row.
+window.addEventListener('hermes:chat-stop',()=>{el('hc-stop').click()});
 el('hc-stop').onclick=async()=>{
   if(!activeTask)return;
   feedback.textContent='Stopping task…';
@@ -1076,8 +1153,8 @@ el('hc-stop').onclick=async()=>{
     feedback.textContent='Stop failed: '+String(err);
   }
 };
-el('hc-form').addEventListener('submit',async ev=>{ev.preventDefault();const box=el('hc-input') as HTMLTextAreaElement;const typed=box.value.trim();const attachBlock=chatAttachmentBlock();const prompt=attachBlock?attachBlock+'\n\n'+typed:typed;if(!typed&&!attachBlock)return;if(!prompt||activeTask)return;const draftConv=conversationId;feedback.textContent='';setRunning(true);try{const t=await request<Task&{conversation_id:string}>('/api/tasks',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({prompt,conversation_id:conversationId||null,...chatModelSelection(),...(pendingRevision?{revision_of:pendingRevision.id,revision_text:pendingRevision.content}:{})})});conversationId=t.conversation_id;localStorage.setItem(stored,conversationId);clearStream();activeTask=t.id;activeState=t.state;void refreshChatUsage(t.id);box.value='';// D7: the backend acknowledged the send — the draft is spent, under both keys it could live in.
-clearDraft(draftConv||null);clearDraft(t.conversation_id);clearChatAttachments();autogrow();pendingRevision=null;await render();state('Hermes is working');}catch(err){feedback.textContent='Not submitted: '+String(err);setRunning(false)}});
+el('hc-form').addEventListener('submit',async ev=>{ev.preventDefault();const box=el('hc-input') as HTMLTextAreaElement;const typed=box.value.trim();const attachBlock=chatAttachmentBlock();const prompt=attachBlock?attachBlock+'\n\n'+typed:typed;if(!typed&&!attachBlock)return;if(!prompt||activeTask)return;const draftConv=conversationId;feedback.textContent='';setRunning(true);try{const t=await request<Task&{conversation_id:string}>('/api/tasks',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({prompt,conversation_id:conversationId||null,...chatModelSelection(),...(pendingRevision?{revision_of:pendingRevision.id,revision_text:pendingRevision.content}:{})})});conversationId=t.conversation_id;localStorage.setItem(stored,conversationId);window.dispatchEvent(new CustomEvent('hermes:chat-conversation',{detail:{conversation_id:conversationId}}));clearStream();activeTask=t.id;activeState=t.state;void refreshChatUsage(t.id);box.value='';// D7: the backend acknowledged the send — the draft is spent, under both keys it could live in.
+clearDraft(draftConv||null);clearDraft(t.conversation_id);clearChatAttachments();autogrow();pendingRevision=null;await render();state('Hermes is working');}catch(err){feedback.textContent='Not submitted: '+String(err);setRunning(false);window.dispatchEvent(new CustomEvent('hermes:chat-submit-failed',{detail:{message:String(err)}}))}});
 (el('hc-input') as HTMLTextAreaElement).addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();el('hc-form').dispatchEvent(new Event('submit',{cancelable:true}))}});
 /* Audit §9A/§9B: the composer grows with the prompt instead of staying a
    one-line box, capped so a long prompt can never swallow the conversation. */
@@ -1118,3 +1195,13 @@ let traceReadAt=0;
 // report. The read is cheap and the redraw is now once-only (flowSource), so
 // poll it tightly instead.
 setInterval(()=>{if(!activeTask)return;const now=Date.now();if(now-traceReadAt<3000)return;traceReadAt=now;hydrateTrace(activeTask,true);},1000);
+
+/** uichange.md §2: while Home is live, its panel hosts this SAME chat root. `null`
+ *  returns it to the Chat workspace host. The root is never copied, so there is
+ *  one thread, one draft and one conversation id. */
+export function hostChatRootIn(target: HTMLElement | null): void {
+  const dest = target ?? document.getElementById('chat-focus-host') ?? document.body;
+  if (root.parentElement !== dest) dest.append(root);
+  root.classList.toggle('in-focus-host', dest !== document.body);
+}
+

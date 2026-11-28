@@ -27,7 +27,7 @@
 .hl413r-metric-button:focus-visible{outline:2px solid #addcca}
 .hl413-flow-chip-active{border-color:#7fb6c8}
 .hl413-flow-chip-in_progress{border-color:#d8b04a}
-.hl413-flow-chip-planning{border-color:#8ea8e6}
+.hl413-flow-chip-planning{border-color:#8ED7E6}
 .hl413-flow-chip-build{border-color:#d98f4a}
 .hl413-flow-chip-history{border-color:#5f8f7c;color:#bcd8cd}
 .hl413-flow-meta[data-state=error]{color:#ffb9aa}

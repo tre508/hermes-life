@@ -9,14 +9,14 @@
 #hc-panel .hc-body blockquote { border-left: 3px solid #77d4c6; padding: .3em 1em; margin: .8em 0; color: #bed6dc; background: #17323b; border-radius: 0 7px 7px 0; }
 #hc-panel .hc-body :not(pre) > code { font: .91em ui-monospace, SFMono-Regular, Consolas, monospace; padding: .13em .32em; background: #243d49; border-radius: 4px; overflow-wrap: anywhere; }
 #hc-panel .hc-body a { color: #86e1d1; text-decoration: underline; text-underline-offset: 2px; }
-#hc-panel .hc-code { margin: .85em 0 1.05em; border: 1px solid #416274; border-radius: 10px; overflow: hidden; background: #0c1928; }
-#hc-panel .hc-code-head { display: flex; justify-content: space-between; align-items: center; padding: .35rem .75rem; background: #20313e; color: #c3dbe0; font-size: .82rem; }
+#hc-panel .hc-code { margin: .85em 0 1.05em; border: 1px solid #417074; border-radius: 10px; overflow: hidden; background: #0C2428; }
+#hc-panel .hc-code-head { display: flex; justify-content: space-between; align-items: center; padding: .35rem .75rem; background: #203B3E; color: #c3dbe0; font-size: .82rem; }
 #hc-panel .hc-code-head button { background: transparent; border: 1px solid #4a6d77; border-radius: 5px; color: #baf4e4; cursor: pointer; padding: .22em .65em; }
 #hc-panel .hc-code pre { margin: 0; overflow: auto; padding: 1em; font: .88em/1.6 ui-monospace, SFMono-Regular, Consolas, monospace; white-space: pre; tab-size: 2; }
 #hc-panel .hc-table-scroll { overflow-x: auto; margin: 1em 0; }
 #hc-panel .hc-body table { border-collapse: collapse; min-width: 100%; font-size: .9em; }
-#hc-panel .hc-body td, #hc-panel .hc-body th { border: 1px solid #385667; padding: .5em .7em; text-align: left; }
-#hc-panel .hc-body th { background: #243846; }
+#hc-panel .hc-body td, #hc-panel .hc-body th { border: 1px solid #386367; padding: .5em .7em; text-align: left; }
+#hc-panel .hc-body th { background: #244246; }
 /* Lives inside the composer box now — no chrome of its own, the box already frames it. */
 /* The composer's model/usage dashboard rows were removed (V2 audit §3): the selects
    live as hidden state holders inside #hc-model-controls and the visible controls are

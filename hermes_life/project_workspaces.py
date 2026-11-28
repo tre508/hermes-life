@@ -75,6 +75,15 @@ MAX_DEPTH = 12
 #: Writes are bounded separately: an uploaded or edited text file may exceed the
 #: read/attach cap (which exists to protect the model context), but must stay finite.
 MAX_WRITE_BYTES = 1_000_000
+#: HA-027: base64 carries 3 bytes per 4 chars, so an encoded payload longer than
+#: this is provably over MAX_WRITE_BYTES whatever it decodes to — refuse BEFORE
+#: decoding instead of buffering multi-hundred-MB bodies to throw them away. The
+#: post-decode check stays as the belt for payloads that pass this gate.
+MAX_WRITE_B64_CHARS = (MAX_WRITE_BYTES * 4) // 3 + 4
+#: HA-025: window of the per-root git-fact cache (_git_state). The cheap stat()
+#: stamps catch visible changes (.git/HEAD, root dir mtime); the TTL bounds
+#: staleness for nested worktree edits the stamps cannot see.
+GIT_CACHE_TTL = 2.0
 
 
 def workspace_dest(name, commit):
@@ -97,6 +106,10 @@ class ProjectWorkspaces:
             candidate = raw.strip()
             if candidate:
                 self.allowed_roots.append(Path(candidate).expanduser().resolve())
+        # HA-025: per-root cache of the git facts the hot read paths report. Its
+        # own lock: sync() holds self.lock for minutes and must never block reads.
+        self._git_cache = {}
+        self._git_cache_lock = threading.Lock()
         with runtime.store.lock:
             runtime.store.connection.execute('''CREATE TABLE IF NOT EXISTS hl_projects (
                 name TEXT PRIMARY KEY, host_path TEXT NOT NULL, spec_path TEXT,
@@ -184,7 +197,9 @@ class ProjectWorkspaces:
         with self.lock:
             project=self._read(name)
             root=Path(project['host_path'])
-            if not root.is_dir() or root.resolve()!=root or not root.is_relative_to(self.allowed_root):
+            # HA-026: the same any(is_relative_to(allowed)) predicate register()
+            # and _contained() use — a project under an extra allowed root is valid.
+            if not root.is_dir() or root.resolve()!=root or not any(root.is_relative_to(allowed) for allowed in self.allowed_roots):
                 raise WorkspaceError('Registered path no longer valid')
             if not (root/'.git').exists():
                 raise WorkspaceError('No git repository here — sync/review need git. The workspace still works for browsing, reading, and attaching files.')
@@ -233,7 +248,7 @@ class ProjectWorkspaces:
             # read host_path directly; the task path must agree with them.
             root=self._root(name)
             workspace=f'{root} (live host repository)'
-            version=self._host_version(root)
+            version=self._git_state(root)[0]
             base=("Base commit: live host HEAD"
                   +(f" {version['commit']} ({'dirty' if version['dirty'] else 'clean'})" if version else '')+'\n')
         spec=(f"Project requirements: {workspace}/{project['spec_path']}\n" if project['spec_path'] else '')
@@ -277,7 +292,9 @@ class ProjectWorkspaces:
     def _root(self, name):
         project = self._read(name)
         root = Path(project['host_path'])
-        if not root.is_dir() or root.resolve() != root or not root.is_relative_to(self.allowed_root):
+        # HA-026: same any(is_relative_to(allowed)) predicate as _contained() —
+        # registration accepts any configured root, so validation must too.
+        if not root.is_dir() or root.resolve() != root or not any(root.is_relative_to(allowed) for allowed in self.allowed_roots):
             raise WorkspaceError('Registered path no longer valid')
         return root
 
@@ -368,6 +385,10 @@ class ProjectWorkspaces:
             raise WorkspaceError('Invalid upload filename')
         if DENY_FILE.search(name):
             raise WorkspaceError('Refused filename (denylist): ' + name)
+        if content_base64 and len(content_base64) > MAX_WRITE_B64_CHARS:
+            # HA-027: refuse BEFORE decoding — an encoded payload this long is
+            # provably over the limit. The post-decode check below is the belt.
+            raise WorkspaceError(f'File too large to write (encoded payload over the {MAX_WRITE_BYTES} byte limit)')
         try:
             data = base64_module.b64decode(content_base64, validate=True)
         except Exception:
@@ -473,6 +494,42 @@ class ProjectWorkspaces:
                 return True
         return bool(DENY_FILE.search(parts[-1]))
 
+    def _git_state(self, root):
+        """Cached (_host_version, _scm_status) for one workspace root (HA-025).
+
+        file() used to run three git subprocesses per response and tree() four —
+        all blocking the request path. The cache is keyed by the resolved root
+        and revalidated with cheap stat() stamps (.git/HEAD mtime + root dir
+        mtime) plus a short TTL (GIT_CACHE_TTL) so nested worktree edits the
+        stamps cannot see still surface quickly. Host mutations through this
+        manager clear their root outright via _git_state_clear.
+        """
+        key = str(root)
+        try:
+            head_mtime = (root / '.git' / 'HEAD').stat().st_mtime_ns
+        except OSError:
+            head_mtime = None  # no (or unreadable) git metadata yet
+        try:
+            stamp = (head_mtime, root.stat().st_mtime_ns)
+        except OSError:
+            stamp = (head_mtime, None)
+        now = time.monotonic()
+        with self._git_cache_lock:
+            entry = self._git_cache.get(key)
+            if entry and entry['stamp'] == stamp and entry['expires'] > now:
+                return entry['host_version'], entry['scm']
+        host_version = self._host_version(root)
+        scm = self._scm_status(root)
+        with self._git_cache_lock:
+            self._git_cache[key] = {'stamp': stamp, 'expires': now + GIT_CACHE_TTL,
+                                    'host_version': host_version, 'scm': scm}
+        return host_version, scm
+
+    def _git_state_clear(self, root):
+        """Drop a root's cached git facts after a host mutation (HA-025)."""
+        with self._git_cache_lock:
+            self._git_cache.pop(str(root), None)
+
     @staticmethod
     def _host_version(root):
         try:
@@ -543,8 +600,8 @@ class ProjectWorkspaces:
                     break
         return {'project': name, 'root': str(root), 'count': len(entries),
                 'truncated': truncated, 'entries': entries,
-                'scm': self._scm_status(root),
-                'host_version': self._host_version(root)}
+                'scm': self._git_state(root)[1],
+                'host_version': self._git_state(root)[0]}
 
     IMAGE_EXTS = {'.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg', '.bmp', '.ico'}
 
@@ -575,6 +632,7 @@ class ProjectWorkspaces:
             raise WorkspaceError('Not a regular file: ' + rel)
         st = target.stat()
         import stat as stat_module
+        host_version = self._git_state(root)[0]
         if raw and target.suffix.lower() in self.IMAGE_EXTS:
             import base64 as base64_module
             data = target.read_bytes()
@@ -584,21 +642,21 @@ class ProjectWorkspaces:
                     'mode': stat_module.filemode(st.st_mode), 'truncated': False,
                     'binary': True, 'image': True,
                     'content_base64': base64_module.b64encode(data).decode('ascii'),
-                    'content': '', 'host_version': self._host_version(root)}
+                    'content': '', 'host_version': host_version}
         with target.open('rb') as handle:
             head = handle.read(MAX_FILE_BYTES + 1)
         is_binary = b'\x00' in head[:8192]
         if is_binary:
             return {'path': rel, 'size': st.st_size, 'mtime': st.st_mtime,
                     'mode': stat_module.filemode(st.st_mode), 'truncated': False,
-                    'binary': True, 'content': '', 'host_version': self._host_version(root)}
+                    'binary': True, 'content': '', 'host_version': host_version}
         truncated = st.st_size > MAX_FILE_BYTES
         if truncated and not preview:
             raise WorkspaceError(f'File too large to attach ({st.st_size} bytes; limit {MAX_FILE_BYTES})')
         content = head[:MAX_FILE_BYTES].decode('utf-8', errors='replace')
         return {'path': rel, 'size': st.st_size, 'mtime': st.st_mtime,
                 'mode': stat_module.filemode(st.st_mode), 'truncated': truncated,
-                'binary': False, 'content': content, 'host_version': self._host_version(root)}
+                'binary': False, 'content': content, 'host_version': host_version}
 
     def _resolve_writable(self, name, relpath):
         """The same containment and denylist rules the reader applies, for writes."""
@@ -635,8 +693,43 @@ class ProjectWorkspaces:
             stamp = f'.{int(time.time() * 1000)}'
             dest = dest.with_name(dest.name + stamp)
         os_module.replace(target, dest)
+        self._git_state_clear(root)  # HA-025: the worktree just changed
         self._emit_file_change('deleted', name, rel, trash=dest.relative_to(root).as_posix())
         return {'deleted': rel, 'trash': dest.relative_to(root).as_posix()}
+
+    def emit_applied_changes(self, name, host_path):
+        """HA-006: host-apply paths must feed the shared file-change events.
+
+        project_approvals.apply and implementation.apply_to_host run `git apply`
+        on a tree they verified CLEAN first, so every `git status` entry after
+        the apply is the applied change itself. One file.changed per changed
+        file (change mirrors the manual writers: written/created/deleted); a
+        project-level event when the listing comes back empty. Emission must
+        never fail the operation — same contract as _emit_file_change.
+        """
+        try:
+            self._git_state_clear(host_path)  # HA-025: the applied patch changed the tree
+            out = subprocess.run(['git', 'status', '--porcelain', '--untracked-files=all'],
+                                 cwd=str(host_path), text=True,
+                                 capture_output=True, timeout=20)
+            entries = []
+            for line in out.stdout.splitlines():
+                if len(line) < 4:
+                    continue
+                code, rel = line[:2], line[3:].strip()
+                if ' -> ' in rel:
+                    rel = rel.split(' -> ', 1)[1]
+                if rel.startswith('"') and rel.endswith('"'):
+                    rel = rel[1:-1]
+                change = 'deleted' if 'D' in code else ('created' if code == '??' else 'written')
+                entries.append((change, rel))
+            if not entries:
+                self._emit_file_change('written', name, '')
+                return
+            for change, rel in entries:
+                self._emit_file_change(change, name, rel)
+        except Exception:
+            pass
 
     def make_dir(self, name, relpath):
         """D2: create a directory inside the workspace (IDE 'New Folder')."""
@@ -649,6 +742,9 @@ class ProjectWorkspaces:
         if target.exists():
             raise WorkspaceError('Already exists in the project: ' + rel)
         target.mkdir(parents=True, exist_ok=False)
+        self._git_state_clear(root)  # HA-025: the worktree just changed
+        # HA-006: every host-side mutation feeds the shared file-change events.
+        self._emit_file_change('created', name, rel)
         return {'created': rel}
 
     def move_entry(self, name, source, target_rel):
@@ -672,6 +768,7 @@ class ProjectWorkspaces:
             parent_rel = dst_rel.rsplit('/', 1)[0] if '/' in dst_rel else '.'
             raise WorkspaceError('Parent directory does not exist in the project: ' + parent_rel)
         os.rename(src, dst)
+        self._git_state_clear(root)  # HA-025: the worktree just changed
         self._emit_file_change('moved', name, dst_rel, source=src_rel)
         return {'moved': src_rel, 'to': dst_rel}
 
@@ -697,7 +794,7 @@ class ProjectWorkspaces:
                 seen.add(str(path))
                 out.append({'name': path.name, 'path': str(path), 'registered': str(path) in registered,
                             'git': (path / '.git').exists(),
-                            'version': self._host_version(path)})
+                            'version': self._git_state(path)[0]})
         return out
 
     def write_file(self, name, relpath, content, expected_mtime=None, content_base64=None):
@@ -715,6 +812,10 @@ class ProjectWorkspaces:
         root, target, rel = self._resolve_writable(name, relpath)
         if content_base64 is not None:
             import base64 as base64_module
+            if len(content_base64) > MAX_WRITE_B64_CHARS:
+                # HA-027: refuse BEFORE decoding — an encoded payload this long
+                # is provably over the limit. The post-decode check is the belt.
+                raise WorkspaceError(f'File too large to write (encoded payload over the {MAX_WRITE_BYTES} byte limit)')
             try:
                 data = base64_module.b64decode(content_base64, validate=True)
             except Exception:
@@ -757,11 +858,12 @@ class ProjectWorkspaces:
         except BaseException:
             tmp.unlink(missing_ok=True)
             raise
+        self._git_state_clear(root)  # HA-025: the worktree just changed
         st = target.stat()
         self._emit_file_change('written', name, rel, mtime=st.st_mtime, size=st.st_size,
                                created=created)
         return {'path': rel, 'size': st.st_size, 'mtime': st.st_mtime, 'created': created,
-                'host_version': self._host_version(root)}
+                'host_version': self._git_state(root)[0]}
 
 
 def add_project_routes(app, runtime, manager):
@@ -783,7 +885,13 @@ def add_project_routes(app, runtime, manager):
                         'allowed_roots':[str(r) for r in manager.allowed_roots],
                         'roots':manager.roots()}
     @router.post('/{name}/sync')
-    def sync(name:str):return handle(manager.sync,name)
+    def sync(name:str):
+        result=handle(manager.sync,name)
+        # HA-006: sync moves the project's synchronized base — tree/SCM views
+        # change; feed the shared file-change channel (project-level event).
+        try:manager._emit_file_change('synced',name,'')
+        except Exception:pass
+        return result
     @router.get('/{name}/changes')
     def changes(name:str):return handle(manager.changes,name)
     # HL-CHAT-006: file-context manager endpoints (host paths, read-only).

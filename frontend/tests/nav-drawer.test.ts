@@ -1,8 +1,8 @@
 /**
- * HERMESHA §2/§9 — narrow-screen drawer nav + honest attention deferral.
- *
- * Structural checks over the shipped shell/CSS plus the deliberate omission of
- * a data source that does not exist.
+ * HERMESHA §2/§9 — navigation contract after the top-bar restructure
+ * (HL-UI-PLAN-001 §4.1). The left rail and its narrow-screen drawer are retired:
+ * primary navigation is one horizontal row that scrolls on narrow screens, so no
+ * destination is hidden behind a toggle. Also keeps the honest attention deferral.
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -17,28 +17,16 @@ const css = readFileSync(join(frontend, 'src', 'unified-layout.css'), 'utf8');
 const mainV2 = readFileSync(join(frontend, 'src', 'main.v2.ts'), 'utf8');
 const attention = readFileSync(join(frontend, 'src', 'attention-center.ts'), 'utf8');
 
-test('the shell declares a drawer toggle and a scrim', () => {
-    assert.match(html, /id="nav-drawer-toggle"/);
-    assert.match(html, /id="nav-scrim"/);
+test('the drawer toggle and scrim are retired with the rail', () => {
+    assert.ok(!/id="nav-drawer-toggle"/.test(html), 'no drawer toggle in the shell');
+    assert.ok(!/id="nav-scrim"/.test(html), 'no drawer scrim in the shell');
+    assert.ok(!/setNavDrawer|nav-drawer-open/.test(mainV2), 'no drawer wiring left in main.v2');
+    assert.ok(!/nav-drawer/.test(css), 'no drawer CSS left');
 });
 
-test('the drawer is wired: toggle, scrim, Escape, and destination-close', () => {
-    assert.match(mainV2, /nav-drawer-open/);
-    assert.match(mainV2, /setNavDrawer/);
-    assert.match(mainV2, /nav-scrim/);
-    assert.match(mainV2, /e\.key === 'Escape'/);
-});
-
-test('the rail becomes an off-canvas overlay below the breakpoint', () => {
-    const mq = css.slice(css.indexOf('Narrow-screen navigation drawer'));
-    assert.ok(mq.length > 0, 'drawer CSS present');
-    assert.match(mq, /@media \(max-width: 1080px\)/);
-    assert.match(mq, /translateX\(-100%\)/);
-    assert.match(mq, /#app\.nav-drawer-open #primary-nav/);
-});
-
-test('the toggle is hidden on desktop', () => {
-    assert.match(css, /#app #nav-drawer-toggle \{ display: none; \}/);
+test('primary navigation is a single horizontal row that scrolls on narrow screens', () => {
+    assert.match(css, /#app #primary-nav \{[^}]*display: flex;[^}]*overflow-x: auto;/);
+    assert.ok(!/translateX\(-100%\)/.test(css), 'no off-canvas rail transform');
 });
 
 test('permission requests are documented as deferred, never faked', () => {

@@ -61,7 +61,7 @@ def _seed(lib, url='https://example.com/doc.pdf', pages=None):
 def test_fresh_database_migrates_to_current_version_with_embedding_columns(tmp_path):
     conn = sqlite3.connect(tmp_path / 'fresh.db')
     migrate(conn)
-    assert conn.execute('PRAGMA user_version').fetchone()[0] == SCHEMA_VERSION == 40
+    assert conn.execute('PRAGMA user_version').fetchone()[0] == SCHEMA_VERSION
     cols = {r[1] for r in conn.execute('PRAGMA table_info(library_chunks)')}
     assert {'embedding', 'embed_model'} <= cols
     # Re-running migration (lifespan re-invokes) must be idempotent.
@@ -82,21 +82,27 @@ def test_legacy_v38_database_migrates_with_data_preserved(tmp_path, fake_embedde
     # function entirely (as a real v38-era codebase would), rebuild the registry
     # for 2..38, and let the normal ladder run. No neutered or hand-faked state.
     real_version = schema_module.SCHEMA_VERSION
-    real_v39 = schema_module._upgrade_to_v39
-    real_v40 = schema_module._upgrade_to_v40
+    cap = 38
+    # Remove EVERY upgrade above the cap dynamically (HA-009: the v40-era code
+    # deleted only v39/v40, so any later addition to the ladder — v41, v42, … —
+    # became a 'stray' and _build_registry() refused to build).
+    removed: dict[str, object] = {}
     try:
         # Everything that mutates the module sits inside try/finally: a raise
         # before the del/after it must never leak SCHEMA_VERSION=38 into later
         # tests (that leak is what silently corrupted the ladder mid-suite).
-        schema_module.SCHEMA_VERSION = 38
-        del schema_module._upgrade_to_v39
-        del schema_module._upgrade_to_v40
+        schema_module.SCHEMA_VERSION = cap
+        for name, fn in list(vars(schema_module).items()):
+            suffix = name[len('_upgrade_to_v'):]
+            if name.startswith('_upgrade_to_v') and suffix.isdigit() and int(suffix) > cap:
+                removed[name] = fn
+                delattr(schema_module, name)
         schema_module._MIGRATIONS = schema_module._build_registry()
         migrate(conn)
     finally:
         schema_module.SCHEMA_VERSION = real_version
-        schema_module._upgrade_to_v39 = real_v39
-        schema_module._upgrade_to_v40 = real_v40
+        for name, fn in removed.items():
+            setattr(schema_module, name, fn)
         schema_module._MIGRATIONS = schema_module._build_registry()
     assert conn.execute('PRAGMA user_version').fetchone()[0] == 38
     assert 'embedding' not in {r[1] for r in conn.execute('PRAGMA table_info(library_chunks)')}

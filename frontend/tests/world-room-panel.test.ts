@@ -32,7 +32,10 @@ test('Escape dismisses whichever World popover is open', () => {
 });
 
 test('the resident card Close actually hides it (not just empties it)', () => {
-    assert.match(townView, /ui!\.selection\.hidden = true/);
+    // HA-032: the card moved into the contextual Inspector and the floating
+    // popover is retired — dismissal now clears the inspector selection (the
+    // same behavior: the card is GONE, not emptied).
+    assert.match(townView, /hideResidentCard = \(\) => setInspectorSelection\(null\)/);
 });
 
 test('a real room pick does NOT open the floating panel (one room surface)', () => {
@@ -52,7 +55,7 @@ test('the inspector room card carries the open-workspace action', () => {
 
 test('leaving the World dismisses the room popover', () => {
     assert.match(mainV2, /world-room-panel/);
-    assert.match(mainV2, /id !== 'world'/);
+    assert.match(mainV2, /id !== 'home'/);
 });
 
 test('Home/World shows one contextual surface: a room selection replaces ctx-home', () => {

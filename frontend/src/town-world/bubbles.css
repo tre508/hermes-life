@@ -231,7 +231,9 @@
   }
 }
 
-/* Hover state */
+/* Hover state (HA-034, §9 "hover OR click exposes details"): the glow is
+   immediate; the JS adds the same `expanded` state after a short delay so
+   hover reveals the identical detail block click shows (`.expanded` below). */
 .town-bubble.hovered {
   box-shadow:
     0 6px 24px rgba(0, 0, 0, 0.5),

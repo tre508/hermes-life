@@ -74,7 +74,10 @@ printf '%s\\n' __HERMES_PATCH_END__
             if p['commit_hash'] != rec['base'] or hashlib.sha256(diff.encode()).hexdigest() != rec['digest']:
                 raise WorkspaceError('Work-machine content or synchronized base changed. Review again')
             host = Path(p['host_path']).resolve(strict=True)
-            if not host.is_relative_to(self.manager.allowed_root):
+            # HA-026 residual: accept ANY configured root (primary + extras),
+            # matching _contained()/register() — primary-only re-validation
+            # wrongly refused every extra-root project at apply time.
+            if not any(host.is_relative_to(a) for a in self.manager.allowed_roots):
                 raise WorkspaceError('Registered host path is no longer permitted')
             if self.manager._git(['rev-parse','HEAD'],host).strip() != rec['base']:
                 raise WorkspaceError('Host commit has changed. Synchronize and review again')
@@ -85,6 +88,9 @@ printf '%s\\n' __HERMES_PATCH_END__
                 proc = subprocess.run(args, cwd=host, input=payload, capture_output=True, timeout=40)
                 if proc.returncode:
                     raise WorkspaceError('Could not apply reviewed changes: '+proc.stderr.decode(errors='replace')[-700:])
+            # HA-006: the host tree just changed — shared file-change events so
+            # Projects/Chat see the applied files without a reload (spec §4.4).
+            self.manager.emit_applied_changes(name, host)
             return {'status':'applied', 'project':name, 'base_commit':rec['base'],
                     'sha256':rec['digest'], 'host_path':str(host),
                     'note':'Files changed in host working tree; changes were not committed or deployed'}

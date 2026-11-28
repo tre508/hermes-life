@@ -16,6 +16,20 @@
 // HL-AUTH-001: gate.ts boots first; while the gate is locked the app stays hidden
 // under the opaque entrance overlay, so it can render underneath harmlessly.
 import { gateLogout } from './gate';
+
+// HA-044: ONE canonical conversation key across the Home composer and the Chat
+// tab (they used separate keys and could diverge silently). The legacy key
+// remains a read fallback, then is retired on write. Module scope: every task
+// submission path shares these.
+const CONV_KEY = 'hermes-life-chat-conversation';
+const LEGACY_CONV_KEY = 'hermes-life-conversation-id';
+function currentConversationId(): string {
+    return localStorage.getItem(CONV_KEY) || localStorage.getItem(LEGACY_CONV_KEY) || '';
+}
+function rememberConversationId(id: string): void {
+    localStorage.setItem(CONV_KEY, id);
+    try { localStorage.removeItem(LEGACY_CONV_KEY); } catch { /* storage unavailable */ }
+}
 import './hermes-chat';
 import './phase412-project-ui';
 import './phase41301-rework';
@@ -31,6 +45,8 @@ import './research-workspace';
 import './global-search';
 import './director-panel';
 import './world-composer';
+import './world-controls';
+import './home-conversation';
 import './work-reviews';
 // Chat audit §8: the old overlay stylesheet held the floating/docked/fullscreen
 // presentations. With one presentation it has been deleted outright.
@@ -46,7 +62,7 @@ if (versionPill) versionPill.textContent = 'HERMESHA / 0.4.0';
 
 // ============================= workspace & layout =============================
 const app = $('app')!;
-const workspaces = ['world', 'home', 'conversations', 'projects', 'attention', 'work', 'activity', 'results', 'system', 'knowledge', 'research'];
+const workspaces = ['home', 'conversations', 'projects', 'attention', 'work', 'activity', 'results', 'system', 'knowledge', 'research', 'settings'];
 
 // Single source of truth for workspace/layout — driven by navigation-state
 function setLayout(layout: 'world' | 'workspace' | 'focus') {
@@ -68,11 +84,11 @@ onNavigationChange((nav) => {
     });
     // Regroup: world is the immersive environment; home is the overview
     // workspace; everything else keeps its previous presentation.
-    setLayout(id === 'world' ? 'world' : (id === 'work' || id === 'home') ? 'workspace' : 'focus');
+    setLayout(id === 'home' ? 'world' : id === 'work' ? 'workspace' : 'focus');
     // #ctx-home / #ctx-inspector visibility is owned by context-inspector
     // (one contextual surface at a time).
     // A room popover belongs to the World: leaving it dismisses the surface.
-    if (id !== 'world') { const roomPanel = $('world-room-panel'); if (roomPanel) roomPanel.hidden = true; }
+    if (id !== 'home') { const roomPanel = $('world-room-panel'); if (roomPanel) roomPanel.hidden = true; }
     // #ctx-inspector visibility/render is owned by context-inspector.
     if (id !== 'activity') setActivityTaskFilter(null);
     // Conversations is a chat PRESENTATION state, not a second chat system:
@@ -140,7 +156,7 @@ async function refetchActivityForTask(taskId: string) {
 document.querySelectorAll<HTMLButtonElement>('#primary-nav button').forEach(btn => {
     btn.addEventListener('click', () => {
         const ws = btn.dataset.workspace;
-        if (ws) openWorkspace(ws as 'world' | 'home' | 'conversations' | 'attention' | 'work' | 'activity' | 'results' | 'system' | 'knowledge' | 'research');
+        if (ws) openWorkspace(ws as 'home' | 'conversations' | 'projects' | 'attention' | 'work' | 'activity' | 'results' | 'system' | 'knowledge' | 'research' | 'settings');
     });
 });
 // Any activation of a Work sub-view (phase deep links included) brings the user to Work.
@@ -164,42 +180,13 @@ window.addEventListener('hermes:workview', ((ev: Event) => {
 // HL-AUTH-001: topbar logout — clear the gate session and land on the entrance.
 $('topbar-logout')?.addEventListener('click', () => { void gateLogout(); });
 
-// ---- nav rail expand/collapse (spec §2: 210–240 expanded, 56–64 collapsed) ----
-const NAV_COLLAPSED_KEY = 'hermes-life-nav-collapsed';
-function applyNavCollapse(collapsed: boolean) {
-    app.classList.toggle('nav-collapsed', collapsed);
-    const btn = $('nav-collapse');
-    if (btn) {
-        btn.textContent = collapsed ? '⇥' : '⇤';
-        btn.setAttribute('aria-pressed', String(collapsed));
-        btn.title = collapsed ? 'Expand the navigation rail' : 'Collapse the navigation rail';
-    }
-}
-applyNavCollapse(localStorage.getItem(NAV_COLLAPSED_KEY) === '1');
-$('nav-collapse')?.addEventListener('click', () => {
-    const collapsed = !app.classList.contains('nav-collapsed');
-    applyNavCollapse(collapsed);
-    try { localStorage.setItem(NAV_COLLAPSED_KEY, collapsed ? '1' : '0'); } catch { /* storage unavailable */ }
+// ---- top navigation: Eight-rooms menu closes when a room is picked ----
+document.querySelectorAll<HTMLButtonElement>('.hc-rooms-menu .hc-rooms-list button').forEach(btn => {
+    btn.addEventListener('click', () => {
+        const menu = btn.closest('details');
+        if (menu) menu.open = false;
+    });
 });
-
-// ---- narrow-screen navigation drawer (spec §2) ----
-// Below the breakpoint the rail is an icon strip; this toggle opens the full
-// rail as an overlay drawer. Scrim click, Escape, and choosing a destination
-// all close it.
-const navDrawerToggle = $('nav-drawer-toggle');
-const navScrim = $('nav-scrim');
-function setNavDrawer(open: boolean) {
-    app.classList.toggle('nav-drawer-open', open);
-    navDrawerToggle?.setAttribute('aria-expanded', String(open));
-    if (navScrim) navScrim.hidden = !open;
-}
-navDrawerToggle?.addEventListener('click', () => setNavDrawer(!app.classList.contains('nav-drawer-open')));
-navScrim?.addEventListener('click', () => setNavDrawer(false));
-document.addEventListener('keydown', (e) => { if (e.key === 'Escape') setNavDrawer(false); });
-document.addEventListener('click', (e) => {
-    if (!app.classList.contains('nav-drawer-open')) return;
-    if ((e.target as HTMLElement).closest('#primary-nav button')) setNavDrawer(false);
-}, true);
 
 // ---- authoritative bottom strip: running count + latest visible event ----
 // A task is "running" only while a real task.started event is outstanding —
@@ -580,9 +567,9 @@ homeComposerSetup: {
         mountComposer({
             textarea: taskTextarea,
             submitButton: taskSubmit,
-            getConversationId: () => localStorage.getItem('hermes-life-conversation-id'),
+            getConversationId: () => currentConversationId(),
             submit: async (prompt) => {
-                const convExisting = localStorage.getItem('hermes-life-conversation-id');
+                const convExisting = currentConversationId();
                 const payload: { prompt: string; conversation_id?: string } = { prompt };
                 if (convExisting) payload.conversation_id = convExisting;
                 const res = await fetch('/api/tasks', {
@@ -596,7 +583,7 @@ homeComposerSetup: {
                     throw new Error(detail);
                 }
                 const body = await res.json();
-                if (body.conversation_id) localStorage.setItem('hermes-life-conversation-id', String(body.conversation_id));
+                if (body.conversation_id) rememberConversationId(String(body.conversation_id));
                 setFollowLive(true); void loadTask(String(body.id)); void refreshHistory();
                 return { task_id: String(body.id || ''), conversation_id: body.conversation_id ? String(body.conversation_id) : (convExisting || null) };
             },
@@ -615,11 +602,11 @@ homeComposerSetup: {
             const res = await fetch('/api/tasks', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ prompt, conversation_id: localStorage.getItem('hermes-life-conversation-id') }),
+                body: JSON.stringify({ prompt, conversation_id: currentConversationId() }),
             });
             const body = await res.json();
             if (!res.ok) throw new Error(str(body.detail) || res.statusText);
-            if (body.conversation_id) localStorage.setItem('hermes-life-conversation-id', str(body.conversation_id));
+            if (body.conversation_id) rememberConversationId(str(body.conversation_id));
             if (feedback) feedback.textContent = `Task accepted: ${str(body.id)}`;
             input.value = '';
             setFollowLive(true); void loadTask(str(body.id)); void refreshHistory();
@@ -818,6 +805,6 @@ void loadPersona();
 // Inspector first so its listeners exist before the initial history parse notifies.
 initContextInspector();
 const deepLinked = initHistory();
-if (!deepLinked) openWorkspace('world', { replace: true });
+if (!deepLinked) openWorkspace('home', { replace: true });
 paintStatus();
 console.log('Hermes Life unified workspace initialized.');

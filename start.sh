@@ -24,7 +24,9 @@ fi
 host_env="${HERMES_LIFE_HOST_ENV:-config/hermes-life-host.env}"
 if [[ -f "$host_env" ]]; then
   # shellcheck disable=SC1090
+  set -a  # export what the file sets: a plain `.` leaves them shell-local, invisible to uvicorn
   . "$host_env"
+  set +a
   echo "host: vault=${HERMES_LIFE_OBSIDIAN_VAULT:-<unset>} (from $host_env)"
 else
   echo "host: no config at $host_env; using code defaults (vault may not resolve)" >&2
@@ -36,7 +38,9 @@ fi
 worker_env="${HERMES_LIFE_WORKER_ENV:-config/hermes-life-lenovo.env}"
 if [[ -f "$worker_env" ]]; then
   # shellcheck disable=SC1090
+  set -a  # export what the file sets: a plain `.` leaves them shell-local, invisible to uvicorn
   . "$worker_env"
+  set +a
   echo "worker: ${HERMES_LIFE_VM_USER:-?}@${HERMES_LIFE_VM_HOST:-?} transport=${HERMES_LIFE_TRANSPORT:-local} (from $worker_env)"
 else
   echo "worker: none configured; transport=${HERMES_LIFE_TRANSPORT:-local}. Set one with HERMES_LIFE_WORKER_ENV." >&2
